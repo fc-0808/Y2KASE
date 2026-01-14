@@ -1,20 +1,24 @@
 -- ==========================================
--- 1. CLEANUP (Reset everything)
+-- 1. CLEANUP (The Correct Way)
 -- ==========================================
-drop policy if exists "Admin Bundles" on product_bundles;
-drop table if exists reviews;
-drop table if exists product_bundles;
-drop table if exists product_media;
-drop table if exists product_variants;
-drop table if exists products;
-drop table if exists collections;
-drop table if exists categories;
+-- We use CASCADE to automatically remove related policies and triggers.
+-- This prevents "Table does not exist" errors.
+drop table if exists reviews cascade;
+drop table if exists product_bundles cascade;
+drop table if exists product_media cascade;
+drop table if exists product_variants cascade;
+drop table if exists products cascade;
+drop table if exists collections cascade;
+drop table if exists categories cascade;
 
--- Drop obsolete functions/triggers
+-- Drop obsolete functions
 drop function if exists update_updated_at_column cascade;
 
+-- Ensure UUID generation works
+create extension if not exists "pgcrypto";
+
 -- ==========================================
--- 2. UTILITIES (Auto-update timestamps)
+-- 2. UTILITIES
 -- ==========================================
 create or replace function update_updated_at_column()
 returns trigger as $$
@@ -25,7 +29,7 @@ end;
 $$ language plpgsql;
 
 -- ==========================================
--- 3. CATEGORIES ("What is this?")
+-- 3. CATEGORIES
 -- ==========================================
 create table categories (
   id bigint primary key generated always as identity,
@@ -35,7 +39,7 @@ create table categories (
 );
 
 -- ==========================================
--- 4. COLLECTIONS ("Marketing Tags")
+-- 4. COLLECTIONS
 -- ==========================================
 create table collections (
   id bigint primary key generated always as identity,
@@ -46,7 +50,7 @@ create table collections (
 );
 
 -- ==========================================
--- 5. PRODUCTS (The Parent)
+-- 5. PRODUCTS
 -- ==========================================
 create table products (
   id uuid primary key default gen_random_uuid(),
@@ -54,7 +58,7 @@ create table products (
   description text,
   slug text unique not null, 
   
-  -- Price (Display logic)
+  -- Price
   base_price decimal(10,2) not null,
   compare_at_price decimal(10,2),
   
@@ -62,9 +66,9 @@ create table products (
   category_id bigint references categories(id),
   collection_ids bigint[] default '{}', 
   
-  -- 2-Axis Logic (Shopify Style)
+  -- 2-Axis Logic
   option1_label text default 'Device',
-  option2_label text default 'Style',                  
+  option2_label text default 'Style',
   
   -- Social Proof
   rating decimal(3,2) default 5.0,
@@ -76,23 +80,20 @@ create table products (
   updated_at timestamptz default now()
 );
 
--- Trigger: Auto-update timestamp
 create trigger update_products_modtime
 before update on products
 for each row execute procedure update_updated_at_column();
 
 -- ==========================================
--- 6. VARIANTS (The Inventory)
+-- 6. VARIANTS
 -- ==========================================
 create table product_variants (
   id uuid primary key default gen_random_uuid(),
   product_id uuid references products(id) on delete cascade,
   
-  -- The Choices
   option1_value text not null, 
-  option2_value text,          
+  option2_value text,
   
-  -- Overrides
   price decimal(10,2),            
   compare_at_price decimal(10,2),
   stock int default 100,
@@ -101,13 +102,12 @@ create table product_variants (
   created_at timestamptz default now()
 );
 
--- Constraint: Prevent duplicate variants
 alter table product_variants 
 add constraint unique_variant_options 
 unique nulls not distinct (product_id, option1_value, option2_value);
 
 -- ==========================================
--- 7. MEDIA (Images & Videos)
+-- 7. MEDIA
 -- ==========================================
 create table product_media (
   id uuid primary key default gen_random_uuid(),
@@ -122,7 +122,7 @@ create table product_media (
 );
 
 -- ==========================================
--- 8. BUNDLES (The Recipe) - RESTORED
+-- 8. BUNDLES
 -- ==========================================
 create table product_bundles (
   parent_product_id uuid references products(id) on delete cascade,
@@ -132,7 +132,7 @@ create table product_bundles (
 );
 
 -- ==========================================
--- 9. REVIEWS (Optional)
+-- 9. REVIEWS
 -- ==========================================
 create table reviews (
   id uuid primary key default gen_random_uuid(),
@@ -145,7 +145,7 @@ create table reviews (
 );
 
 -- ==========================================
--- 10. PERFORMANCE INDEXES
+-- 10. INDEXES
 -- ==========================================
 create index idx_products_collections on products using gin (collection_ids);
 create index idx_products_slug on products (slug);
@@ -153,7 +153,7 @@ create index idx_categories_slug on categories (slug);
 create index idx_collections_slug on collections (slug);
 
 -- ==========================================
--- 11. SECURITY (Row Level Security)
+-- 11. SECURITY (RLS)
 -- ==========================================
 alter table products enable row level security;
 alter table product_variants enable row level security;
@@ -161,9 +161,9 @@ alter table product_media enable row level security;
 alter table categories enable row level security;
 alter table collections enable row level security;
 alter table reviews enable row level security;
-alter table product_bundles enable row level security; -- Don't forget this!
+alter table product_bundles enable row level security;
 
--- A. PUBLIC ACCESS
+-- A. PUBLIC READ
 create policy "Public Read Products" on products for select using (true);
 create policy "Public Read Variants" on product_variants for select using (true);
 create policy "Public Read Media" on product_media for select using (true);
@@ -172,25 +172,25 @@ create policy "Public Read Categories" on categories for select using (true);
 create policy "Public Read Reviews" on reviews for select using (true);
 create policy "Public Read Bundles" on product_bundles for select using (true);
 
--- B. ADMIN ACCESS (Write Access)
--- ⚠️ REPLACE 'YOUR_EMAIL@GMAIL.COM' BELOW WITH YOUR ACTUAL EMAIL ⚠️
+-- B. ADMIN WRITE
+-- (Using the email you provided)
 create policy "Admin Products" on products for all 
-using (auth.jwt() ->> 'email' = 'YOUR_EMAIL@GMAIL.COM');
+using (auth.jwt() ->> 'email' = 'w088studio@gmail.com');
 
 create policy "Admin Variants" on product_variants for all 
-using (auth.jwt() ->> 'email' = 'YOUR_EMAIL@GMAIL.COM');
+using (auth.jwt() ->> 'email' = 'w088studio@gmail.com');
 
 create policy "Admin Media" on product_media for all 
-using (auth.jwt() ->> 'email' = 'YOUR_EMAIL@GMAIL.COM');
+using (auth.jwt() ->> 'email' = 'w088studio@gmail.com');
 
 create policy "Admin Collections" on collections for all 
-using (auth.jwt() ->> 'email' = 'YOUR_EMAIL@GMAIL.COM');
+using (auth.jwt() ->> 'email' = 'w088studio@gmail.com');
 
 create policy "Admin Categories" on categories for all 
-using (auth.jwt() ->> 'email' = 'YOUR_EMAIL@GMAIL.COM');
+using (auth.jwt() ->> 'email' = 'w088studio@gmail.com');
 
 create policy "Admin Reviews" on reviews for all 
-using (auth.jwt() ->> 'email' = 'YOUR_EMAIL@GMAIL.COM');
+using (auth.jwt() ->> 'email' = 'w088studio@gmail.com');
 
 create policy "Admin Bundles" on product_bundles for all 
-using (auth.jwt() ->> 'email' = 'YOUR_EMAIL@GMAIL.COM');
+using (auth.jwt() ->> 'email' = 'w088studio@gmail.com');
