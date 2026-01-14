@@ -1,15 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { CartItem, Product } from '@/types/index';
+import type { CartItem, Product, Variant } from '@/types/index';
 
 interface CartState {
   items: CartItem[];
 }
 
 interface CartActions {
-  addItem: (product: Product, quantity: number) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  addItem: (product: Product, variant: Variant, quantity: number) => void;
+  removeItem: (variantId: string) => void;
+  updateQuantity: (variantId: string, quantity: number) => void;
   clearCart: () => void;
   getTotalPrice: () => number;
   getTotalItems: () => number;
@@ -22,13 +22,13 @@ export const useCart = create<CartStore>()(
     (set, get) => ({
       items: [],
 
-      addItem: (product: Product, quantity: number) => {
+      addItem: (product: Product, variant: Variant, quantity: number) => {
         set((state) => {
-          const existingItem = state.items.find((item) => item.product_id === product.id);
+          const existingItem = state.items.find((item) => item.variant.id === variant.id);
           if (existingItem) {
             return {
               items: state.items.map((item) =>
-                item.product_id === product.id
+                item.variant.id === variant.id
                   ? { ...item, quantity: item.quantity + quantity }
                   : item
               ),
@@ -38,30 +38,29 @@ export const useCart = create<CartStore>()(
             items: [
               ...state.items,
               {
-                id: `${product.id}-${Date.now()}`,
-                product_id: product.id,
-                quantity,
                 product,
+                variant,
+                quantity,
               },
             ],
           };
         });
       },
 
-      removeItem: (productId: string) => {
+      removeItem: (variantId: string) => {
         set((state) => ({
-          items: state.items.filter((item) => item.product_id !== productId),
+          items: state.items.filter((item) => item.variant.id !== variantId),
         }));
       },
 
-      updateQuantity: (productId: string, quantity: number) => {
+      updateQuantity: (variantId: string, quantity: number) => {
         if (quantity <= 0) {
-          get().removeItem(productId);
+          get().removeItem(variantId);
           return;
         }
         set((state) => ({
           items: state.items.map((item) =>
-            item.product_id === productId ? { ...item, quantity } : item
+            item.variant.id === variantId ? { ...item, quantity } : item
           ),
         }));
       },
@@ -72,7 +71,7 @@ export const useCart = create<CartStore>()(
 
       getTotalPrice: () => {
         return get().items.reduce((total, item) => {
-          const price = item.product?.price || 0;
+          const price = item.variant?.price || item.product?.base_price || 0;
           return total + price * item.quantity;
         }, 0);
       },

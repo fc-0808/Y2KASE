@@ -121,30 +121,30 @@ export default function CartPage() {
                 {/* Cart Items */}
                 {items.map((item) => (
                   <div
-                    key={item.id}
+                    key={`${item.product.id}-${item.variant.id}`}
                     className="grid grid-cols-1 md:grid-cols-12 gap-4 p-6 border-b border-pink-100 items-center"
                   >
                     {/* Product Info */}
                     <div className="md:col-span-6 flex items-start gap-4">
                       <div className="relative w-20 h-24 shrink-0 rounded-xl overflow-hidden bg-pink-50">
                         <Image
-                          src={item.product?.images?.[0] || 'https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=150&h=200&fit=crop'}
-                          alt={item.product?.name || 'Product'}
+                          src={item.product?.media?.[0]?.url || 'https://images.unsplash.com/photo-1601784551446-20c9e07cdbdb?w=150&h=200&fit=crop'}
+                          alt={item.product?.title || 'Product'}
                           fill
                           className="object-cover"
                         />
                       </div>
                       <div className="flex flex-col justify-center min-w-0">
-                        <Link href={`/products/${item.product_id}`}>
+                        <Link href={`/products/${item.product.slug}`}>
                           <h3 className="font-display text-y2k-800 text-base font-semibold hover:text-pink-500 transition-colors leading-snug mb-1">
-                            {item.product?.name || 'Product'}
+                            {item.product?.title || 'Product'}
                           </h3>
                         </Link>
                         <p className="text-chrome-500 text-xs mb-2">
-                          SKU: {item.product?.sku || 'N/A'}
+                          SKU: {item.variant?.sku || 'N/A'}
                         </p>
                         <button
-                          onClick={() => removeItem(item.product_id)}
+                          onClick={() => removeItem(item.variant.id)}
                           className="text-pink-400 hover:text-pink-600 text-xs font-medium transition-colors self-start flex items-center gap-1"
                         >
                           <span>🗑️</span> Remove
@@ -156,7 +156,7 @@ export default function CartPage() {
                     <div className="md:col-span-2 flex items-center justify-start md:justify-center">
                       <div className="inline-flex items-center border-2 border-pink-200 rounded-full overflow-hidden">
                         <button
-                          onClick={() => updateQuantity(item.product_id, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.variant.id, item.quantity - 1)}
                           className="w-8 h-8 flex items-center justify-center text-y2k-600 hover:bg-pink-50 transition-colors"
                           aria-label="Decrease quantity"
                         >
@@ -168,7 +168,7 @@ export default function CartPage() {
                           {item.quantity}
                         </span>
                         <button
-                          onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
+                          onClick={() => updateQuantity(item.variant.id, item.quantity + 1)}
                           className="w-8 h-8 flex items-center justify-center text-y2k-600 hover:bg-pink-50 transition-colors"
                           aria-label="Increase quantity"
                         >
@@ -183,7 +183,7 @@ export default function CartPage() {
                     <div className="md:col-span-2 flex items-center justify-start md:justify-end">
                       <span className="text-chrome-600 text-sm md:hidden mr-2">Price:</span>
                       <span className="text-y2k-700 text-sm font-medium">
-                        ${(item.product?.price || 0).toFixed(2)}
+                        ${(item.variant?.price || item.product?.base_price || 0).toFixed(2)}
                       </span>
                     </div>
 
@@ -191,7 +191,7 @@ export default function CartPage() {
                     <div className="md:col-span-2 flex items-center justify-start md:justify-end">
                       <span className="text-chrome-600 text-sm md:hidden mr-2">Total:</span>
                       <span className="text-pink-500 font-bold text-sm">
-                        ${((item.product?.price || 0) * item.quantity).toFixed(2)}
+                        ${((item.variant?.price || item.product?.base_price || 0) * item.quantity).toFixed(2)}
                       </span>
                     </div>
                   </div>

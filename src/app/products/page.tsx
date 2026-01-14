@@ -213,21 +213,37 @@ export default function ProductsPage() {
   const handleAddToCart = (product: DisplayProduct) => {
     const cartProduct: Product = {
       id: product.id,
-      name: product.name,
+      title: product.name,
       description: product.description,
-      price: product.price,
-      original_price: product.original_price,
-      category: product.category,
-      images: product.images,
-      in_stock: product.in_stock,
-      stock_quantity: product.stock_quantity,
-      sku: product.sku,
-      created_at: product.created_at,
-      updated_at: product.updated_at,
+      slug: product.id,
+      base_price: product.price,
+      compare_at_price: product.original_price,
+      category: { name: product.category },
+      collection_ids: [],
+      option1_label: 'Device',
       rating: product.rating,
       reviews_count: product.reviews_count,
+      is_active: product.in_stock,
+      is_bundle: false,
+      created_at: product.created_at,
+      updated_at: product.updated_at,
+      media: product.images.map((url, index) => ({
+        id: `${product.id}-media-${index}`,
+        url,
+        type: 'image' as const,
+        display_order: index,
+      })),
     };
-    addToCart(cartProduct, 1);
+    const variant = {
+      id: `${product.id}-default`,
+      product_id: product.id,
+      option1_value: 'Default',
+      price: product.price,
+      compare_at_price: product.original_price,
+      stock: product.stock_quantity,
+      sku: product.sku,
+    };
+    addToCart(cartProduct, variant, 1);
     setNotification(`${product.name} added to cart! 🛒`);
     setTimeout(() => setNotification(null), 3000);
   };
