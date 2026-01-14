@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
+import Navbar from '@/components/Navbar';
 import { useCart } from '@/lib/store';
 
 export default function CartPage() {
@@ -12,28 +13,7 @@ export default function CartPage() {
     return (
       <main className="min-h-screen bg-y2k-soft">
         {/* Navigation */}
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md shadow-lg">
-          <div className="container-y2k">
-            <div className="flex items-center justify-between h-16">
-              <Link href="/" className="flex items-center gap-2">
-                <span className="text-2xl">📱</span>
-                <span className="font-display text-xl font-bold text-gradient">Y2KASE</span>
-              </Link>
-              <div className="hidden md:flex items-center justify-center gap-6">
-                {['Shop', 'New Arrivals', 'About', 'Contact'].map((item) => (
-                  <Link
-                    key={item}
-                    href={item === 'Shop' ? '/products' : `/${item.toLowerCase().replace(' ', '-')}`}
-                    className="text-sm font-semibold text-y2k-700 hover:text-pink-500 transition-colors"
-                  >
-                    {item}
-                  </Link>
-                ))}
-              </div>
-              <div className="w-20" />
-            </div>
-          </div>
-        </nav>
+        <Navbar />
 
         {/* Empty State */}
         <div className="pt-32 pb-20">
@@ -64,29 +44,7 @@ export default function CartPage() {
   return (
     <main className="min-h-screen bg-y2k-soft">
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md shadow-lg">
-        <div className="container-y2k">
-          <div className="flex items-center justify-between h-16">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="text-2xl">📱</span>
-              <span className="font-display text-xl font-bold text-gradient">Y2KASE</span>
-            </Link>
-            <div className="hidden md:flex items-center justify-center gap-6">
-              {['Shop', 'New Arrivals', 'About', 'Contact'].map((item) => (
-                <Link
-                  key={item}
-                  href={item === 'Shop' ? '/products' : `/${item.toLowerCase().replace(' ', '-')}`}
-                  className="text-sm font-semibold text-y2k-700 hover:text-pink-500 transition-colors"
-                >
-                  {item}
-                </Link>
-              ))}
-            </div>
-            <div className="w-20" />
-          </div>
-        </div>
-      </nav>
-
+      <Navbar />
 
       {/* Page Content */}
       <div className="pt-28 pb-16">
@@ -222,7 +180,7 @@ export default function CartPage() {
             <div className="lg:col-span-1">
               <div className="card-y2k sticky top-24 overflow-hidden">
                 {/* Header */}
-                <div className="px-6 py-5 border-b border-pink-100 bg-gradient-to-r from-pink-50 to-y2k-50">
+                <div className="px-6 py-5 border-b border-pink-100 bg-linear-to-r from-pink-50 to-y2k-50">
                   <h2 className="font-display text-y2k-800 text-lg font-bold flex items-center gap-2">
                     <span>📋</span> Order Summary
                   </h2>
@@ -249,7 +207,7 @@ export default function CartPage() {
                 </div>
 
                 {/* Total */}
-                <div className="px-6 py-5 bg-gradient-to-r from-pink-50 to-y2k-50 border-t border-pink-100">
+                <div className="px-6 py-5 bg-linear-to-r from-pink-50 to-y2k-50 border-t border-pink-100">
                   <div className="flex items-center justify-between mb-5">
                     <span className="font-display text-y2k-800 text-base font-bold">Total</span>
                     <span className="text-pink-500 text-xl font-bold">

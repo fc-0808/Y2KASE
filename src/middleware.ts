@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-async function updateSession(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -15,11 +15,13 @@ async function updateSession(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
+          cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
-            supabaseResponse = NextResponse.next({
-              request,
-            });
+          });
+          supabaseResponse = NextResponse.next({
+            request,
+          });
+          cookiesToSet.forEach(({ name, value, options }) => {
             supabaseResponse.cookies.set(name, value, options);
           });
         },
@@ -27,26 +29,21 @@ async function updateSession(request: NextRequest) {
     }
   );
 
-  // Don't try to refresh the session when running
-  // getUser - as this is being called on every request
-  // and will cause issues with PKCE on some browsers.
+  // Refresh the auth token if needed
   await supabase.auth.getUser();
 
   return supabaseResponse;
 }
 
-export async function proxy(request: NextRequest) {
-  return await updateSession(request);
-}
-
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
+     * Match all request paths except:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - public folder assets
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import Navbar from '@/components/Navbar';
 import { useCart } from '@/lib/store';
 import type { Product } from '@/types/index';
 
@@ -261,7 +262,7 @@ export default function ProductsPage() {
       {/* Notification Toast */}
       {notification && (
         <div className="fixed top-24 right-6 z-50 animate-bounce-in">
-          <div className="bg-gradient-to-r from-pink-500 to-y2k-500 text-white px-5 py-3 rounded-full shadow-lg flex items-center gap-3">
+          <div className="bg-linear-to-r from-pink-500 to-y2k-500 text-white px-5 py-3 rounded-full shadow-lg flex items-center gap-3">
             <span className="text-lg">✨</span>
             <span className="text-sm font-semibold">{notification}</span>
           </div>
@@ -269,34 +270,7 @@ export default function ProductsPage() {
       )}
 
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md shadow-lg">
-        <div className="container-y2k">
-          <div className="flex items-center justify-between h-16">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="text-2xl">📱</span>
-              <span className="font-display text-xl font-bold text-gradient">Y2KASE</span>
-            </Link>
-            <div className="hidden md:flex items-center justify-center gap-6">
-              {['Shop', 'New Arrivals', 'About', 'Contact'].map((item) => (
-                <Link
-                  key={item}
-                  href={item === 'Shop' ? '/products' : `/${item.toLowerCase().replace(' ', '-')}`}
-                  className="text-sm font-semibold text-y2k-700 hover:text-pink-500 transition-colors"
-                >
-                  {item}
-                </Link>
-              ))}
-            </div>
-            <div className="flex items-center gap-4">
-              <Link href="/cart" className="text-y2k-700 hover:text-pink-500 transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                </svg>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <Navbar />
 
       {/* Page Header */}
       <section className="pt-28 pb-12">
@@ -379,7 +353,7 @@ export default function ProductsPage() {
                       onClick={() => setSelectedCategory(cat.id)}
                       className={`flex items-center gap-2 w-full text-left px-4 py-3 text-sm font-medium rounded-full transition-all ${
                         selectedCategory === cat.id
-                          ? 'bg-gradient-to-r from-pink-500 to-y2k-500 text-white'
+                          ? 'bg-linear-to-r from-pink-500 to-y2k-500 text-white'
                           : 'text-y2k-700 hover:bg-pink-50'
                       }`}
                     >
@@ -465,7 +439,7 @@ export default function ProductsPage() {
                   <div key={product.id} className="group">
                     {/* Product Image */}
                     <div className="card-y2k overflow-hidden mb-4">
-                      <div className="relative aspect-[3/4] overflow-hidden">
+                      <div className="relative aspect-3/4 overflow-hidden">
                         <Image
                           src={product.images[0]}
                           alt={product.name}

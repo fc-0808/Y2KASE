@@ -1,5 +1,20 @@
 import type { Metadata } from 'next';
+import { Fredoka, Nunito } from 'next/font/google';
 import '@/styles/globals.css';
+
+const fredoka = Fredoka({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-fredoka',
+  display: 'swap',
+});
+
+const nunito = Nunito({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-nunito',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Y2KASE | Aesthetic Phone Cases',
@@ -40,14 +55,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" className={`scroll-smooth ${fredoka.variable} ${nunito.variable}`}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link 
-          href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap" 
-          rel="stylesheet" 
-        />
         <meta name="theme-color" content="#ff2d8a" />
       </head>
       <body className="antialiased">
