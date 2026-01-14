@@ -1,111 +1,70 @@
-// Product types
+// src/types/index.ts
+
 export interface Product {
   id: string;
-  name: string;
+  title: string;
   description: string;
-  price: number;
-  original_price?: number;
-  category: string;
-  images: string[];
-  in_stock: boolean;
-  stock_quantity: number;
+  slug: string;
+  
+  // Price Logic
+  base_price: number;
+  compare_at_price?: number;
+  
+  // Relations
+  category_id?: number;
+  collection_ids: number[];
+  
+  // Optional Expanded Data (for when you join tables)
+  category?: { name: string }; 
+  variants?: Variant[];
+  media?: ProductMedia[];
+  
+  // 2-Axis Options
+  option1_label: string;      // e.g. "Device"
+  option2_label?: string;     // e.g. "Style"
+  
+  // Stats
+  rating: number;             // matches decimal(3,2) from DB
+  reviews_count: number;
+  
+  // Flags & Timestamps
+  is_active: boolean;
+  is_bundle: boolean;
+  created_at: string;
+  updated_at: string;         // Newly added
+}
+
+export interface Variant {
+  id: string;
+  product_id: string;
+  option1_value: string;
+  option2_value?: string;
+  price?: number;
+  compare_at_price?: number;
+  stock: number;
   sku: string;
-  created_at: string;
-  updated_at: string;
-  rating?: number;
-  reviews_count?: number;
-  compatibility?: string[]; // Phone models this case fits
 }
 
-// User types
-export interface User {
+export interface ProductMedia {
   id: string;
-  email: string;
-  full_name: string;
-  avatar_url?: string;
-  created_at: string;
-  updated_at: string;
+  url: string;
+  type: 'image' | 'video';
+  display_order: number;
 }
 
-export interface UserProfile {
-  user_id: string;
-  first_name: string;
-  last_name: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  postal_code?: string;
-  country?: string;
-}
-
-// Cart types
-export interface CartItem {
-  id: string;
-  product_id: string;
-  quantity: number;
-  product?: Product;
-}
-
-export interface Cart {
-  id: string;
-  user_id: string;
-  items: CartItem[];
-  created_at: string;
-  updated_at: string;
-}
-
-// Order types
-export interface Order {
-  id: string;
-  user_id: string;
-  items: OrderItem[];
-  total: number;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
-  payment_status: 'pending' | 'completed' | 'failed';
-  shipping_address: Address;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OrderItem {
-  id: string;
-  order_id: string;
-  product_id: string;
-  quantity: number;
-  price: number;
-  product?: Product;
-}
-
-export interface Address {
-  first_name: string;
-  last_name: string;
-  street: string;
-  city: string;
-  state: string;
-  postal_code: string;
-  country: string;
-  phone: string;
-}
-
-// Review types
 export interface Review {
   id: string;
   product_id: string;
-  user_id: string;
+  user_name: string;
   rating: number;
-  title: string;
   comment: string;
+  image_url?: string;
   created_at: string;
-  user?: User;
 }
 
-// Category types
-export interface Category {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  image?: string;
-  created_at: string;
+// Optional: Helper type for your Cart functionality later
+export interface CartItem {
+  product: Product;
+  variant: Variant;
+  quantity: number;
 }
