@@ -22,6 +22,14 @@ create or replace function update_updated_at_column() returns trigger as $$ begi
 return new;
 end;
 $$ language plpgsql;
+-- Auto-create default variant when a product is created
+-- This prevents "Ghost Products" (products with 0 variants)
+create or replace function create_default_variant() returns trigger as $$ begin
+insert into product_variants (product_id, option1_value, price, stock)
+values (new.id, 'Default', new.base_price, 100);
+return new;
+end;
+$$ language plpgsql;
 -- ==========================================
 -- 3. CATEGORIES
 -- ==========================================
@@ -71,6 +79,10 @@ create table products (
 );
 create trigger update_products_modtime before
 update on products for each row execute procedure update_updated_at_column();
+-- Trigger to auto-create default variant
+create trigger create_default_variant_trigger
+after
+insert on products for each row execute procedure create_default_variant();
 -- ==========================================
 -- 6. VARIANTS
 -- ==========================================

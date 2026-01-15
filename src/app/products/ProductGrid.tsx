@@ -4,14 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useCart } from '@/lib/store';
-import type { ProductDisplay, Product, Variant } from '@/types/index';
-
-const CATEGORIES = [
-  { id: 'all', label: 'All Cases', emoji: '✨' },
-  { id: 'cute', label: 'Cute & Kawaii', emoji: '🎀' },
-  { id: 'retro', label: 'Retro Y2K', emoji: '💿' },
-  { id: 'aesthetic', label: 'Aesthetic', emoji: '🦋' },
-];
+import type { ProductDisplay, Product } from '@/types/index';
 
 const SORT_OPTIONS = [
   { id: 'featured', label: 'Featured' },
@@ -23,15 +16,27 @@ const SORT_OPTIONS = [
 
 interface ProductGridProps {
   initialProducts: ProductDisplay[];
+  categories: Array<{ id: number; name: string; slug: string }>;
 }
 
-export default function ProductGrid({ initialProducts }: ProductGridProps) {
+export default function ProductGrid({ initialProducts, categories }: ProductGridProps) {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('featured');
   const [priceRange, setPriceRange] = useState([0, 50]);
   const [showFilters, setShowFilters] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const addToCart = useCart((state) => state.addItem);
+
+  // Build category filter options from database
+  const categoryOptions = [
+    { id: 'all', label: 'All Cases', emoji: '✨', slug: 'all' },
+    ...categories.map((cat) => ({
+      id: cat.slug,
+      label: cat.name,
+      emoji: '🎀', // You can store emojis in DB or map them here
+      slug: cat.slug,
+    })),
+  ];
 
   const filteredProducts = initialProducts
     .filter((product) => {
@@ -55,18 +60,15 @@ export default function ProductGrid({ initialProducts }: ProductGridProps) {
     });
 
   const handleAddToCart = (product: ProductDisplay) => {
-    // Use the first variant or create a default one
-    const variant: Variant = product.variants?.[0] || {
-      id: `${product.id}-default`,
-      product_id: product.id,
-      option1_value: 'Default',
-      option2_value: null,
-      price: product.base_price,
-      compare_at_price: product.compare_at_price,
-      stock: 100,
-      sku: null,
-      created_at: new Date().toISOString(),
-    };
+    // CRITICAL: Never create fake variants. If no variants exist, the product is unavailable.
+    if (!product.variants || product.variants.length === 0) {
+      setNotification(`${product.title} is currently unavailable ❌`);
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    // Use the first real variant from the database
+    const variant = product.variants[0];
 
     addToCart(product as Product, variant, 1);
     setNotification(`${product.title} added to cart! 🛒`);
@@ -152,12 +154,12 @@ export default function ProductGrid({ initialProducts }: ProductGridProps) {
                   <span>🏷️</span> Categories
                 </h3>
                 <div className="space-y-2">
-                  {CATEGORIES.map((cat) => (
+                  {categoryOptions.map((cat) => (
                     <button
                       key={cat.id}
-                      onClick={() => setSelectedCategory(cat.id)}
+                      onClick={() => setSelectedCategory(cat.slug)}
                       className={`flex items-center gap-2 w-full text-left px-4 py-3 text-sm font-medium rounded-full transition-all ${
-                        selectedCategory === cat.id
+                        selectedCategory === cat.slug
                           ? 'bg-linear-to-r from-pink-500 to-y2k-500 text-white'
                           : 'text-y2k-700 hover:bg-pink-50'
                       }`}
@@ -279,7 +281,12 @@ export default function ProductGrid({ initialProducts }: ProductGridProps) {
                           </button>
                           <button
                             onClick={() => handleAddToCart(product)}
-                            className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg hover:bg-pink-500 hover:text-white transition-colors"
+                            disabled={!product.variants || product.variants.length === 0}
+                            className={`w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg transition-colors ${
+                              !product.variants || product.variants.length === 0
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'hover:bg-pink-500 hover:text-white'
+                            }`}
                             aria-label="Add to cart"
                           >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

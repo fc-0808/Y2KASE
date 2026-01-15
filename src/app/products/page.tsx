@@ -15,6 +15,12 @@ type ProductWithJoins = Product & {
 export default async function ProductsPage() {
   const supabase = await createClient();
 
+  // Fetch categories
+  const { data: categories } = await supabase
+    .from('categories')
+    .select('id, name, slug')
+    .order('name');
+
   // Fetch real data from Supabase
   const { data: products, error } = await supabase
     .from('products')
@@ -72,7 +78,7 @@ export default async function ProductsPage() {
       </section>
 
       {/* Product Grid (Client Component for Interactivity) */}
-      <ProductGrid initialProducts={formattedProducts} />
+      <ProductGrid initialProducts={formattedProducts} categories={categories || []} />
     </main>
   );
 }
