@@ -54,6 +54,9 @@ create table products (
   compare_at_price decimal(10, 2),
   -- Organization
   category_id bigint references categories(id),
+  -- NOTE: collection_ids uses an array for speed, but lacks referential integrity.
+  -- If you delete a collection, products with that ID in this array won't know.
+  -- For strict data safety, consider a junction table: product_collections(product_id, collection_id)
   collection_ids bigint [] default '{}',
   -- 2-Axis Logic
   option1_label text default 'Device',
@@ -132,12 +135,12 @@ create index idx_collections_slug on collections (slug);
 -- ==========================================
 -- Instead of hardcoding emails, use a dedicated admins table
 -- This makes it easy to add/remove admins without migrations
+-- NOTE: We only store the user ID. Email is already in auth.users.
+-- Join with auth.users when you need to display the email.
 create table admins (
   id uuid references auth.users(id) on delete cascade primary key,
-  email text not null,
   created_at timestamptz default now()
 );
-create index idx_admins_email on admins (email);
 -- ==========================================
 -- 12. SECURITY (RLS)
 -- ==========================================

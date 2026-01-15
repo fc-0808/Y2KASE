@@ -1,70 +1,39 @@
 // src/types/index.ts
+// IMPORTANT: These types are derived from the auto-generated database types.
+// To regenerate database types, run: npx supabase gen types typescript --project-id "your-project-id" > src/types/database.types.ts
 
-export interface Product {
-  id: string;
-  title: string;
-  description: string;
-  slug: string;
-  
-  // Price Logic
-  base_price: number;
-  compare_at_price?: number;
-  
-  // Relations
-  category_id?: number;
-  collection_ids: number[];
-  
-  // Optional Expanded Data (for when you join tables)
-  category?: { name: string }; 
-  variants?: Variant[];
-  media?: ProductMedia[];
-  
-  // 2-Axis Options
-  option1_label: string;      // e.g. "Device"
-  option2_label?: string;     // e.g. "Style"
-  
-  // Stats
-  rating: number;             // matches decimal(3,2) from DB
-  reviews_count: number;
-  
-  // Flags & Timestamps
-  is_active: boolean;
-  is_bundle: boolean;
-  created_at: string;
-  updated_at: string;         // Newly added
-}
+import type { Tables } from './database.types';
 
-export interface Variant {
-  id: string;
-  product_id: string;
-  option1_value: string;
-  option2_value?: string;
-  price?: number;
-  compare_at_price?: number;
-  stock: number;
-  sku: string;
-}
+// Base types from database
+export type Product = Tables<'products'>;
+export type Variant = Tables<'product_variants'>;
+export type ProductMedia = Tables<'product_media'>;
+export type Review = Tables<'reviews'>;
+export type Category = Tables<'categories'>;
+export type Collection = Tables<'collections'>;
 
-export interface ProductMedia {
-  id: string;
-  url: string;
-  type: 'image' | 'video';
-  display_order: number;
-}
+// Extended types for when you join tables
+export type ProductWithRelations = Product & {
+  category?: Category | null;
+  variants?: Variant[] | null;
+  media?: ProductMedia[] | null;
+  reviews?: Review[] | null;
+};
 
-export interface Review {
-  id: string;
-  product_id: string;
-  user_name: string;
-  rating: number;
-  comment: string;
-  image_url?: string;
-  created_at: string;
-}
+// Helper type for display purposes (with computed fields)
+export type ProductDisplay = ProductWithRelations & {
+  price: number; // Computed from variants or base_price
+  compatibility: string[]; // Computed from variants' option1_value
+  image: string; // First media item's URL
+};
 
-// Optional: Helper type for your Cart functionality later
+// Cart functionality
+// Note: Product in cart may have extended data (media, category) from when it was added
 export interface CartItem {
-  product: Product;
+  product: Product & {
+    media?: ProductMedia[];
+    category?: Category;
+  };
   variant: Variant;
   quantity: number;
 }

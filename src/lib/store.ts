@@ -71,7 +71,10 @@ export const useCart = create<CartStore>()(
 
       getTotalPrice: () => {
         return get().items.reduce((total, item) => {
-          const price = item.variant?.price || item.product?.base_price || 0;
+          // If variant price exists (even if 0), use it. Otherwise use base_price.
+          const price = (item.variant?.price !== undefined && item.variant?.price !== null)
+            ? item.variant.price
+            : item.product.base_price;
           return total + price * item.quantity;
         }, 0);
       },
