@@ -37,3 +37,13 @@ export interface CartItem {
   variant: Variant;
   quantity: number;
 }
+
+// Media Upload Types
+export type MediaType = 'image' | 'video'
+
+export interface MediaUploadResult {
+  success?: boolean
+  error?: string
+  url?: string
+  type?: MediaType
+}

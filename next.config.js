@@ -11,7 +11,11 @@ const nextConfig = {
 				hostname: 'bvqtaytvxcnpxdefajxz.supabase.co',
 			},
 		],
-		formats: ['image/avif', 'image/webp'],
+	},
+	experimental: {
+		serverActions: {
+			bodySizeLimit: '50mb',
+		},
 	},
 }
 

@@ -59,6 +59,18 @@ export default function Navbar() {
           {/* Right Icons */}
           <div className="flex items-center gap-4">
             <Link
+              href="/admin"
+              className={`flex items-center gap-2 transition-colors ${
+                showSolidNav
+                  ? 'text-y2k-700 hover:text-pink-500'
+                  : 'text-white/90 hover:text-white'
+              }`}
+            >
+              <span className="text-xl">⚙️</span>
+              <span className="hidden sm:inline text-sm font-semibold">Admin</span>
+            </Link>
+            
+            <Link
               href="/cart"
               className={`flex items-center gap-2 transition-colors relative ${
                 showSolidNav

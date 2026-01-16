@@ -24,6 +24,16 @@ export async function createClient() {
           }
         },
       },
+      global: {
+        fetch: (url, options = {}) => {
+          // Increase timeout for slow VPN connections
+          return fetch(url, {
+            ...options,
+            // @ts-ignore - Node.js fetch supports signal
+            signal: AbortSignal.timeout(60000), // 60 second timeout
+          });
+        },
+      },
     }
   );
 }
