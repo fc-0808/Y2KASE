@@ -1,13 +1,29 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Nunito, Baloo_2, Press_Start_2P, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Navbar } from "@/components/Navbar";
+import { SiteHeader } from "@/components/SiteHeader";
 import { Footer } from "@/components/Footer";
 import { CartDrawer } from "@/components/CartDrawer";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Body — rounded, friendly, highly legible.
+const nunito = Nunito({
+  variable: "--font-nunito",
   subsets: ["latin"],
+  weight: ["400", "600", "700", "800", "900"],
+});
+
+// Headings — chunky rounded display for kawaii character.
+const baloo = Baloo_2({
+  variable: "--font-baloo",
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+});
+
+// Wordmark + pixel accents — the Y2K arcade face.
+const pixel = Press_Start_2P({
+  variable: "--font-pixel",
+  subsets: ["latin"],
+  weight: "400",
 });
 
 const geistMono = Geist_Mono({
@@ -15,13 +31,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "Y2KASE — Kawaii & Y2K Phone Cases",
+    default: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
     template: "%s · Y2KASE",
   },
   description:
-    "Kawaii, Y2K, and aesthetic phone cases, charms, and accessories. Express your vibe. ✨",
+    "Welcome to the Y2KASE Club, bestie! Kawaii, Y2K & holographic phone cases, charms and accessories. Free shipping over $35. Express your vibe. ✨",
+  openGraph: {
+    type: "website",
+    siteName: "Y2KASE",
+    url: SITE_URL,
+    title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
+    description:
+      "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
+  },
 };
 
 export default function RootLayout({
@@ -33,10 +61,10 @@ export default function RootLayout({
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${nunito.variable} ${baloo.variable} ${pixel.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-dvh flex-col">
-        <Navbar />
+        <SiteHeader />
         <main className="flex-1">{children}</main>
         <Footer />
         <CartDrawer />

@@ -46,6 +46,8 @@ export const config = {
   // Skip Next.js internals and static files.
   matcher: [
     "/admin/:path*",
-    "/((?!_next/static|_next/image|favicon.ico|api/auth).*)",
+    // Never run the proxy on auth or Stripe webhook endpoints — webhooks must
+    // reach the route handler with their raw body and signature untouched.
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/webhooks).*)",
   ],
 };

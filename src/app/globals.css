@@ -1,15 +1,48 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Y2KASE — brand design system
+   Aesthetic: Y2K + kawaii + holographic. Bubblegum-pink pixel wordmark,
+   iridescent pastel gradients (pink → lavender → blue → mint → butter),
+   pixel hearts & sparkles. Clean, product-forward structure (CASETiFY-style)
+   skinned with the brand — restraint over clutter.
+   ──────────────────────────────────────────────────────────────────────── */
+
 :root {
-  --background: #fff5fb;
-  --foreground: #2b1d2b;
+  --background: #fdf3fb;
+  --foreground: #34203b; /* deep plum, softer than black */
   --card: #ffffff;
-  --muted: #fbe7f4;
-  --primary: #ff4fa3;
+  --muted: #f7e7f6;
+
+  --primary: #ff3ea5; /* bubblegum / magenta pink — CTAs + wordmark */
   --primary-foreground: #ffffff;
-  --accent: #8b5cf6;
-  --border: #f5cfe6;
-  --ring: #ff4fa3;
+  --primary-soft: #ffd9ee;
+
+  --accent: #a78bfa; /* lavender */
+  --accent-blue: #74c7ff;
+  --accent-mint: #7fe3c4;
+  --accent-butter: #ffd76b;
+
+  --border: #f1d3ec;
+  --ring: #ff3ea5;
+
+  /* Iridescent gradients reused across hero, badges and accents. */
+  --holo: linear-gradient(
+    120deg,
+    #ffe0f3 0%,
+    #f3e0ff 22%,
+    #e0ecff 45%,
+    #e0fff4 68%,
+    #fff6e0 100%
+  );
+  --holo-vivid: linear-gradient(
+    120deg,
+    #ffc2ea 0%,
+    #e6c5ff 24%,
+    #c4e2ff 48%,
+    #c4ffe8 72%,
+    #fff0c4 100%
+  );
 }
 
 @theme inline {
@@ -19,11 +52,19 @@
   --color-muted: var(--muted);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
   --color-accent: var(--accent);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-mint: var(--accent-mint);
+  --color-accent-butter: var(--accent-butter);
   --color-border: var(--border);
   --color-ring: var(--ring);
-  --font-sans: var(--font-geist-sans);
+
+  --font-sans: var(--font-nunito);
+  --font-display: var(--font-baloo);
+  --font-pixel: var(--font-pixel);
   --font-mono: var(--font-geist-mono);
+
   --radius-xl2: 1.25rem;
 }
 
@@ -31,35 +72,236 @@
   border-color: var(--border);
 }
 
+/* Branded long-form content (policies, about, FAQ). First-party HTML only. */
+.legal-prose {
+  color: color-mix(in srgb, var(--foreground) 85%, transparent);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.legal-prose h2 {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  font-size: 1.2rem;
+  font-weight: 800;
+  margin: 1.75rem 0 0.5rem;
+  color: var(--foreground);
+}
+.legal-prose h3 {
+  font-weight: 800;
+  font-size: 1rem;
+  margin: 1.1rem 0 0.35rem;
+  color: var(--foreground);
+}
+.legal-prose p {
+  margin: 0 0 0.85rem;
+}
+.legal-prose ul {
+  list-style: disc;
+  padding-left: 1.4rem;
+  margin: 0 0 0.85rem;
+}
+.legal-prose li {
+  margin: 0.25rem 0;
+}
+.legal-prose a {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.legal-prose strong {
+  color: var(--foreground);
+  font-weight: 800;
+}
+.legal-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1.1rem;
+  font-size: 0.9rem;
+}
+.legal-prose th,
+.legal-prose td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.legal-prose th {
+  background: var(--muted);
+  font-weight: 800;
+}
+
 body {
   background:
-    radial-gradient(circle at 0% 0%, #ffe3f4 0, transparent 40%),
-    radial-gradient(circle at 100% 0%, #e9e0ff 0, transparent 35%),
+    radial-gradient(circle at 0% 0%, #ffe3f6 0, transparent 42%),
+    radial-gradient(circle at 100% 0%, #e7ddff 0, transparent 38%),
+    radial-gradient(circle at 50% 100%, #ddf3ff 0, transparent 45%),
     var(--background);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   min-height: 100dvh;
 }
 
+/* Headings default to the rounded display face for kawaii character. */
+h1, h2, h3, .font-display {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+}
+
+/* ── Brand utilities ─────────────────────────────────────────────────────── */
+
+.font-pixel {
+  font-family: var(--font-pixel), monospace;
+  letter-spacing: 0.02em;
+}
+
+/* Iridescent fills. */
+.bg-holo {
+  background-image: var(--holo);
+}
+.bg-holo-vivid {
+  background-image: var(--holo-vivid);
+}
+
+/* Animated shimmer for hero panels. */
+.bg-holo-shimmer {
+  background-image: var(--holo-vivid);
+  background-size: 200% 200%;
+  animation: holo-shift 14s ease infinite;
+}
+
+/* Faint Y2K grid overlay (use on a holo panel). */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.5) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+/* Gradient clip text — pink → lavender → blue. */
+.text-holo {
+  background: linear-gradient(100deg, #ff4fb0, #a78bfa 55%, #74c7ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* The Y2KASE pixel wordmark: hot-pink fill, white pixel outline, soft glow.
+   Size is controlled by font-size on the element. */
+.wordmark {
+  font-family: var(--font-pixel), monospace;
+  color: var(--primary);
+  letter-spacing: 0.04em;
+  text-shadow:
+    -1.5px -1.5px 0 #fff,
+    1.5px -1.5px 0 #fff,
+    -1.5px 1.5px 0 #fff,
+    1.5px 1.5px 0 #fff,
+    0 0 10px rgba(255, 62, 165, 0.45);
+}
+.wordmark .accent {
+  color: #fff;
+  text-shadow:
+    -1.5px -1.5px 0 var(--primary),
+    1.5px -1.5px 0 var(--primary),
+    -1.5px 1.5px 0 var(--primary),
+    1.5px 1.5px 0 var(--primary),
+    0 0 10px rgba(255, 62, 165, 0.45);
+}
+
+/* Sticker badge — like the "GOOD VIBES / STAY CUTE" buttons in brand art. */
+.sticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  background: var(--card);
+  padding: 0.3rem 0.75rem;
+  font-weight: 800;
+  box-shadow:
+    0 2px 0 var(--border),
+    0 6px 16px rgba(255, 62, 165, 0.18);
+}
+
+/* Soft kawaii card. */
+.card-cute {
+  border-radius: 1.5rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: 0 10px 30px -18px rgba(120, 60, 120, 0.35);
+}
+
+/* Pill button with a candy press effect. */
+.btn-candy {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  border-radius: 9999px;
+  box-shadow: 0 4px 0 #d62f88;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+.btn-candy:hover {
+  filter: brightness(1.03);
+}
+.btn-candy:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #d62f88;
+}
+
+/* ── Keyframes / animations ──────────────────────────────────────────────── */
+
 @keyframes float-up {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-float-up { animation: float-up 0.45s ease both; }
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.animate-bob { animation: bob 5s ease-in-out infinite; }
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.35; transform: scale(0.8) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.1) rotate(15deg); }
+}
+.animate-twinkle { animation: twinkle 3s ease-in-out infinite; }
+
+@keyframes holo-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bob,
+  .animate-twinkle,
+  .bg-holo-shimmer,
+  .animate-marquee {
+    animation: none !important;
   }
 }
 
-.animate-float-up {
-  animation: float-up 0.4s ease both;
-}
-
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--primary);
+  background: linear-gradient(var(--primary), var(--accent));
   border-radius: 9999px;
+}
+::selection {
+  background: var(--primary-soft);
+  color: var(--foreground);
 }

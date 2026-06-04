@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getProducts, getPopularTags } from "@/lib/products";
+import { getCollectionBySlug } from "@/lib/collections";
+import { deviceLabel, findDevice } from "@/lib/catalog/devices";
 import { ProductCard } from "@/components/ProductCard";
 
 export const metadata: Metadata = {
@@ -11,9 +13,28 @@ export const metadata: Metadata = {
 type SearchParams = {
   q?: string;
   tag?: string;
+  device?: string;
+  collection?: string;
   page?: string;
   sort?: "newest" | "price-asc" | "price-desc";
 };
+
+/** Merge current params with overrides into a /products URL (undefined drops a key). */
+function buildHrefStatic(
+  current: SearchParams,
+  overrides: Partial<SearchParams>,
+) {
+  const merged = { ...current, ...overrides };
+  const params = new URLSearchParams();
+  if (merged.q) params.set("q", merged.q);
+  if (merged.tag) params.set("tag", merged.tag);
+  if (merged.device) params.set("device", merged.device);
+  if (merged.collection) params.set("collection", merged.collection);
+  if (merged.sort) params.set("sort", merged.sort);
+  if (merged.page && merged.page !== "1") params.set("page", merged.page);
+  const qs = params.toString();
+  return qs ? `/products?${qs}` : "/products";
+}
 
 export default async function ProductsPage({
   searchParams,
@@ -23,37 +44,60 @@ export default async function ProductsPage({
   const sp = await searchParams;
   const page = Number(sp.page ?? "1") || 1;
 
-  const [{ items, total, pageSize }, tags] = await Promise.all([
-    getProducts({ search: sp.q, tag: sp.tag, page, sort: sp.sort }),
-    getPopularTags(20),
-  ]);
+  const [{ items, total, pageSize }, tags, activeCollection] =
+    await Promise.all([
+      getProducts({
+        search: sp.q,
+        tag: sp.tag,
+        device: sp.device,
+        collection: sp.collection,
+        page,
+        sort: sp.sort,
+      }),
+      getPopularTags(20),
+      sp.collection ? getCollectionBySlug(sp.collection) : Promise.resolve(null),
+    ]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const activeDevice = sp.device ? findDevice(sp.device) : undefined;
+
+  // Active, removable filter chips (everything except free-text search).
+  const activeFilters: { label: string; clearHref: string }[] = [];
+  if (sp.device)
+    activeFilters.push({
+      label: deviceLabel(sp.device),
+      clearHref: buildHrefStatic(sp, { device: undefined, page: undefined }),
+    });
+  if (sp.collection)
+    activeFilters.push({
+      label: activeCollection?.name ?? sp.collection,
+      clearHref: buildHrefStatic(sp, { collection: undefined, page: undefined }),
+    });
+  if (sp.tag)
+    activeFilters.push({
+      label: sp.tag.replace(/_/g, " "),
+      clearHref: buildHrefStatic(sp, { tag: undefined, page: undefined }),
+    });
+
+  const heading = activeDevice
+    ? `${activeDevice.label} cases`
+    : activeCollection
+      ? activeCollection.name
+      : sp.tag
+        ? sp.tag.replace(/_/g, " ")
+        : sp.q
+          ? `Results for “${sp.q}”`
+          : "Shop All";
 
   function buildHref(overrides: Partial<SearchParams>) {
-    const params = new URLSearchParams();
-    const merged = { ...sp, ...overrides };
-    if (merged.q) params.set("q", merged.q);
-    if (merged.tag) params.set("tag", merged.tag);
-    if (merged.sort) params.set("sort", merged.sort);
-    if (merged.page && merged.page !== "1") params.set("page", merged.page);
-    const qs = params.toString();
-    return qs ? `/products?${qs}` : "/products";
+    return buildHrefStatic(sp, overrides);
   }
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-black">
-            {sp.tag ? (
-              <span className="capitalize">{sp.tag.replace(/_/g, " ")}</span>
-            ) : sp.q ? (
-              <>Results for “{sp.q}”</>
-            ) : (
-              "Shop All"
-            )}
-          </h1>
+          <h1 className="text-3xl font-black capitalize">{heading}</h1>
           <p className="mt-1 text-sm text-[var(--foreground)]/60">
             {total} product{total === 1 ? "" : "s"}
           </p>
@@ -67,14 +111,37 @@ export default async function ProductsPage({
             placeholder="Search cases…"
             className="w-full rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm outline-none focus:border-[var(--primary)] sm:w-56"
           />
-          <button
-            type="submit"
-            className="rounded-full bg-[var(--primary)] px-5 py-2 text-sm font-bold text-white"
-          >
+          <button type="submit" className="btn-candy px-5 py-2 text-sm">
             Search
           </button>
         </form>
       </div>
+
+      {activeFilters.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
+            Filters
+          </span>
+          {activeFilters.map((f) => (
+            <Link
+              key={f.label}
+              href={f.clearHref}
+              className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1.5 text-sm font-semibold capitalize text-white"
+            >
+              {f.label}
+              <span aria-hidden className="text-white/80">
+                ✕
+              </span>
+            </Link>
+          ))}
+          <Link
+            href="/products"
+            className="text-sm font-semibold text-[var(--foreground)]/50 hover:text-[var(--primary)]"
+          >
+            Clear all
+          </Link>
+        </div>
+      )}
 
       {tags.length > 0 && (
         <div className="mb-8 flex flex-wrap gap-2">
@@ -137,7 +204,7 @@ export default async function ProductsPage({
           )}
         </>
       ) : (
-        <div className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--card)] p-12 text-center">
+        <div className="card-cute border-dashed p-12 text-center">
           <p className="text-4xl">🔍</p>
           <p className="mt-3 text-lg font-bold">Nothing here yet</p>
           <p className="mt-1 text-sm text-[var(--foreground)]/60">

@@ -49,10 +49,14 @@ export default async function ProductPage({
         title={product.title}
         price={Number(product.price)}
         currency={product.currency}
+        productType={product.productType}
+        videoUrl={product.videoUrl}
+        videoPosition={product.videoPosition}
         images={product.images.map((i) => ({
           id: i.id,
           url: i.url,
           altText: i.altText,
+          styleTags: i.styleTags ?? [],
         }))}
         options={product.options.map((o) => ({
           id: o.id,

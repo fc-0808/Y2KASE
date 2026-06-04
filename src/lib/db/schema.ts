@@ -31,6 +31,8 @@ export const users = pgTable(
      * "admin" | "customer" | "anonymous"
      */
     role: text("role").notNull().default("customer"),
+    /** Required by Better Auth's anonymous plugin. */
+    isAnonymous: boolean("is_anonymous").default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -133,6 +135,10 @@ export const orders = pgTable(
     }>(),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
     stripeSessionId: text("stripe_session_id"),
+    /** Set when the order-confirmation email is sent — guarantees exactly-once. */
+    confirmationEmailSentAt: timestamp("confirmation_email_sent_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -195,6 +201,21 @@ export const products = pgTable(
     legacyShopifyId: text("legacy_shopify_id"),
     /** GPT model used to generate copy, for auditing AI-authored content. */
     aiModel: text("ai_model"),
+    /**
+     * Product line for options/pricing. e.g. iphone_case | samsung_case |
+     * airpod_case | kindle_case | watch_band
+     */
+    productType: text("product_type").notNull().default("iphone_case"),
+    /** Primary product video URL (R2). Shown on the PDP when set. */
+    videoUrl: text("video_url"),
+    /**
+     * Zero-based slot the video occupies within the ordered image gallery.
+     * e.g. 0 = before the first image, 1 = after the first image (default).
+     * Null is treated as 1 at render time for backward compatibility.
+     */
+    videoPosition: integer("video_position"),
+    /** Relative folder path under LOCAL_CATALOG_ROOT used at ingest time. */
+    sourceFolder: text("source_folder"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -226,6 +247,13 @@ export const productImages = pgTable(
     altText: text("alt_text"),
     /** True once GPT vision has analyzed this image to author copy. */
     aiAnalyzed: boolean("ai_analyzed").notNull().default(false),
+    /**
+     * Which Style option values this image applies to (e.g. "Case + Grip").
+     * Empty array = shown for every style (universal angle shot).
+     */
+    styleTags: text("style_tags").array().notNull().default([]),
+    /** Original source filename (without extension) for traceability. */
+    sourceFilename: text("source_filename"),
   },
   (t) => [index("product_images_product_idx").on(t.productId)],
 );
@@ -271,6 +299,90 @@ export const productVariants = pgTable(
 );
 
 /**
+ * collections — the hierarchical, content-managed browse taxonomy.
+ *
+ * This is the storefront's *marketing* classification (as opposed to
+ * {@link products.productType}, which is the functional discriminator, and the
+ * device taxonomy in `src/lib/catalog/devices.ts`, which is derived from the
+ * product type). A collection groups products under a buyer-facing theme:
+ * a character (Hello Kitty), a brand/IP (Sanrio, Miffy, Tamagotchi) or a genre
+ * (Anime, Cartoon).
+ *
+ * Collections form a tree via `parentId`, so a top-level group like "Sanrio"
+ * can contain "Hello Kitty", "Kuromi", "My Melody", … and a product assigned to
+ * a leaf is also browsable from its ancestors. The shape mirrors how Shopify
+ * collections / CASETiFY co-lab groupings work.
+ */
+export const collections = pgTable(
+  "collections",
+  {
+    id: serial("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    /**
+     * Which browse dimension this node belongs to — drives where it appears in
+     * the mega-menu. "character" = a specific mascot, "brand" = an IP/house of
+     * characters (Sanrio), "genre" = a broad theme (Anime, Cartoon),
+     * "feature" = a merchandising shelf (New, Best Sellers).
+     */
+    kind: text("kind").notNull().default("character"),
+    /** Self-referential parent for hierarchy. Null = top-level node. */
+    parentId: integer("parent_id"),
+    /** Manual sort order within a parent (ascending). */
+    position: integer("position").notNull().default(0),
+    /** Surface in the primary mega-menu / featured rails. */
+    featured: boolean("featured").notNull().default(false),
+    /** active | draft — drafts are hidden from the storefront. */
+    status: text("status").notNull().default("active"),
+    /** Tile/thumbnail art for menu + landing cards (R2 or remote CDN). */
+    imageUrl: text("image_url"),
+    /** Optional emoji used as a lightweight icon when no image is set. */
+    icon: text("icon"),
+    /** Marketing color (hex) used for landing-page accents. */
+    accentColor: text("accent_color"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("collections_slug_idx").on(t.slug),
+    index("collections_parent_idx").on(t.parentId),
+    index("collections_kind_idx").on(t.kind),
+    index("collections_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * product_collections — many-to-many membership join.
+ * A product can live in any number of collections; `position` allows curating
+ * the order products appear within a single collection.
+ */
+export const productCollections = pgTable(
+  "product_collections",
+  {
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    collectionId: integer("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    /** Curated order of this product within the collection (ascending). */
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("product_collections_pk").on(t.productId, t.collectionId),
+    index("product_collections_collection_idx").on(t.collectionId),
+  ],
+);
+
+/**
  * provenance_events — append-only audit log carried over from the MDM pipeline.
  */
 export const provenanceEvents = pgTable("provenance_events", {
@@ -290,7 +402,32 @@ export const productsRelations = relations(products, ({ many }) => ({
   images: many(productImages),
   options: many(productOptions),
   variants: many(productVariants),
+  collections: many(productCollections),
 }));
+
+export const collectionsRelations = relations(collections, ({ one, many }) => ({
+  parent: one(collections, {
+    fields: [collections.parentId],
+    references: [collections.id],
+    relationName: "collection_parent",
+  }),
+  children: many(collections, { relationName: "collection_parent" }),
+  products: many(productCollections),
+}));
+
+export const productCollectionsRelations = relations(
+  productCollections,
+  ({ one }) => ({
+    product: one(products, {
+      fields: [productCollections.productId],
+      references: [products.id],
+    }),
+    collection: one(collections, {
+      fields: [productCollections.collectionId],
+      references: [collections.id],
+    }),
+  }),
+);
 
 export const productImagesRelations = relations(productImages, ({ one }) => ({
   product: one(products, {
@@ -321,6 +458,9 @@ export type NewProduct = typeof products.$inferInsert;
 export type ProductImage = typeof productImages.$inferSelect;
 export type ProductOption = typeof productOptions.$inferSelect;
 export type ProductVariant = typeof productVariants.$inferSelect;
+export type Collection = typeof collections.$inferSelect;
+export type NewCollection = typeof collections.$inferInsert;
+export type ProductCollection = typeof productCollections.$inferSelect;
 
 export type ProductWithRelations = Product & {
   images: ProductImage[];

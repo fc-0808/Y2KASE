@@ -38,6 +38,15 @@ export function AdminNavbar({ user }: { user: AuthUser }) {
           >
             Products
           </Link>
+          <Link
+            href="/admin/collections"
+            className="hover:text-[var(--primary)]"
+          >
+            Collections
+          </Link>
+          <Link href="/admin/upload" className="hover:text-[var(--primary)]">
+            Upload
+          </Link>
           <Link href="/products" className="hover:text-[var(--primary)]">
             View Store
           </Link>

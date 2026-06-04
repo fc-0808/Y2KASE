@@ -35,11 +35,13 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["better-auth", "kysely", "@better-auth/kysely-adapter"],
 
   images: {
-    // Allow optimizing images served from Cloudinary and (during migration) Etsy's CDN.
-    remotePatterns: [
-      { protocol: "https", hostname: "res.cloudinary.com" },
-      { protocol: "https", hostname: "i.etsystatic.com" },
-    ],
+    // Product images are already optimised to WebP at ingest time and served
+    // from Cloudflare R2's CDN, so Next's server-side optimiser adds no value.
+    // Disabling it serves the R2 URL directly to the browser, which also avoids
+    // the "resolved to private ip" failure when an outbound VPN maps the r2.dev
+    // hostname into a private range during local development, and avoids Vercel
+    // image-transform costs in production.
+    unoptimized: true,
   },
 };
 

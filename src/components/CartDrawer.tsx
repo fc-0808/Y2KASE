@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { X, Minus, Plus, Trash2 } from "lucide-react";
+import { X, Minus, Plus, Trash2, Loader2 } from "lucide-react";
 import {
   useCart,
   cartSubtotal,
@@ -14,12 +14,44 @@ import { formatPrice } from "@/lib/utils";
 export function CartDrawer() {
   const { items, isOpen, close, removeItem, updateQuantity } = useCart();
   const [mounted, setMounted] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Hydration guard: cart state lives in a persisted client store.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
 
   if (!mounted) return null;
 
   const subtotal = cartSubtotal(items);
   const currency = items[0]?.currency ?? "USD";
+
+  async function handleCheckout() {
+    setError(null);
+    setCheckingOut(true);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // Send only identity + selection — the server re-prices everything.
+          items: items.map((i) => ({
+            productId: i.productId,
+            options: i.options,
+            quantity: i.quantity,
+          })),
+        }),
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        throw new Error(data.error ?? "Could not start checkout.");
+      }
+      // Hand off to Stripe's hosted checkout.
+      window.location.href = data.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setCheckingOut(false);
+    }
+  }
 
   return (
     <>
@@ -37,8 +69,9 @@ export function CartDrawer() {
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
+        <div className="h-1 w-full shrink-0 bg-holo-vivid" />
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-          <h2 className="text-lg font-bold">Your Bag</h2>
+          <h2 className="font-display text-lg font-extrabold">Your Bag ✨</h2>
           <button
             onClick={close}
             aria-label="Close cart"
@@ -82,8 +115,18 @@ export function CartDrawer() {
             <p className="text-xs text-[var(--foreground)]/60">
               Shipping & taxes calculated at checkout.
             </p>
-            <button className="w-full rounded-full bg-[var(--primary)] py-3 font-bold text-white transition hover:opacity-90">
-              Checkout
+            {error && (
+              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">
+                {error}
+              </p>
+            )}
+            <button
+              onClick={handleCheckout}
+              disabled={checkingOut}
+              className="btn-candy flex w-full items-center justify-center gap-2 py-3 disabled:opacity-60"
+            >
+              {checkingOut && <Loader2 className="h-4 w-4 animate-spin" />}
+              {checkingOut ? "Redirecting…" : "Checkout"}
             </button>
           </div>
         )}

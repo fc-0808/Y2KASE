@@ -1,7 +1,16 @@
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
-import { products } from "@/lib/db/schema";
+import { products, productCollections } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
+import {
+  MODEL_OPTION_NAME,
+  STYLE_OPTION_NAME,
+  orderModels,
+  orderStyles,
+} from "@/lib/pricing";
+import { productTypeLabel } from "@/lib/catalog/product-types";
+import { deviceProductTypes } from "@/lib/catalog/devices";
+import { resolveCollectionFilterIds } from "@/lib/collections";
 
 export type ProductListItem = {
   id: number;
@@ -20,6 +29,10 @@ const PAGE_SIZE = 24;
 export type ProductQuery = {
   search?: string;
   tag?: string;
+  /** Device taxonomy id, e.g. "iphone" — maps to one or more product types. */
+  device?: string;
+  /** Collection slug — matches the collection and all of its descendants. */
+  collection?: string;
   page?: number;
   sort?: "newest" | "price-asc" | "price-desc";
 };
@@ -48,6 +61,33 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
   }
   if (query.tag) {
     filters.push(sql`${query.tag} = ANY(${products.tags})`);
+  }
+
+  // Device filter → restrict to the device's product type(s).
+  if (query.device) {
+    const types = deviceProductTypes(query.device);
+    if (types && types.length > 0) {
+      filters.push(inArray(products.productType, types));
+    }
+  }
+
+  // Collection filter → product must belong to the collection or a descendant.
+  if (query.collection) {
+    const collectionIds = await resolveCollectionFilterIds(query.collection);
+    if (collectionIds.length > 0) {
+      filters.push(
+        inArray(
+          products.id,
+          db
+            .select({ id: productCollections.productId })
+            .from(productCollections)
+            .where(inArray(productCollections.collectionId, collectionIds)),
+        ),
+      );
+    } else {
+      // Unknown/empty collection → no matches rather than the whole catalog.
+      filters.push(sql`false`);
+    }
   }
 
   const where = and(...filters);
@@ -142,6 +182,26 @@ export async function getProductBySlug(
   return product ?? null;
 }
 
+/**
+ * Full product (any status) with ordered images + options for the admin
+ * editor. Unlike {@link getProductBySlug} this does not filter by status, so
+ * drafts are editable before publishing.
+ */
+export async function getProductForAdmin(
+  id: number,
+): Promise<ProductWithRelations | null> {
+  if (!isDbConfigured()) return null;
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, id),
+    with: {
+      images: { orderBy: (img, { asc }) => asc(img.position) },
+      options: { orderBy: (opt, { asc }) => asc(opt.position) },
+      variants: true,
+    },
+  });
+  return product ?? null;
+}
+
 export async function getProductsByStatus(
   status: string,
 ): Promise<ProductListItem[]> {
@@ -158,6 +218,82 @@ export async function getProductsByStatus(
     },
   });
   return rows.map(toListItem);
+}
+
+/**
+ * A flattened, dashboard-ready view of every product for the admin console.
+ * Surfaces the current media count, offered styles and offered iPhone models
+ * so the operator can see — and bulk-edit — the catalog's variation state at a
+ * glance, without opening each product individually.
+ */
+export type AdminProductOverview = {
+  id: number;
+  slug: string;
+  title: string;
+  status: string;
+  featured: boolean;
+  currency: string;
+  price: string;
+  productType: string;
+  /** Human label for the product type, e.g. "iPhone Case". */
+  productTypeLabel: string;
+  imageUrl: string | null;
+  imageCount: number;
+  hasVideo: boolean;
+  /** Offered Style values in canonical (price) order. */
+  availableStyles: string[];
+  /** Offered iPhone Model values in canonical (release) order. */
+  availableModels: string[];
+  /** Collection ids this product is assigned to (for facet filtering). */
+  collectionIds: number[];
+};
+
+const STATUS_RANK: Record<string, number> = { draft: 0, active: 1, archived: 2 };
+
+export async function getAdminProductOverviews(): Promise<
+  AdminProductOverview[]
+> {
+  if (!isDbConfigured()) return [];
+
+  const rows = await db.query.products.findMany({
+    orderBy: desc(products.createdAt),
+    limit: 1000,
+    with: {
+      images: {
+        columns: { id: true, url: true, position: true },
+        orderBy: (img, { asc }) => asc(img.position),
+      },
+      options: { columns: { name: true, values: true } },
+      collections: { columns: { collectionId: true } },
+    },
+  });
+
+  const overviews = rows.map((p): AdminProductOverview => {
+    const styleOpt = p.options.find((o) => o.name === STYLE_OPTION_NAME);
+    const modelOpt = p.options.find((o) => o.name === MODEL_OPTION_NAME);
+    return {
+      id: p.id,
+      slug: p.slug,
+      title: p.title,
+      status: p.status,
+      featured: p.featured,
+      currency: p.currency,
+      price: p.price,
+      productType: p.productType,
+      productTypeLabel: productTypeLabel(p.productType),
+      imageUrl: p.images[0]?.url ?? null,
+      imageCount: p.images.length,
+      hasVideo: Boolean(p.videoUrl),
+      availableStyles: orderStyles(styleOpt?.values ?? []),
+      availableModels: orderModels(modelOpt?.values ?? []),
+      collectionIds: p.collections.map((c) => c.collectionId),
+    };
+  });
+
+  // Drafts first (they need review), then live, then archived; newest within.
+  return overviews.sort(
+    (a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9),
+  );
 }
 
 export async function getAllProductSlugs(): Promise<string[]> {
