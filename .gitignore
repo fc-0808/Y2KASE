@@ -54,3 +54,5 @@ next-env.d.ts
 # NEVER add live Stripe keys (sk_live_ / rk_live_) to .cursor/mcp.json
 # If you need a local key override, put it in .cursor/mcp.local.json (gitignored below)
 .cursor/mcp.local.json
+
+.vercel
