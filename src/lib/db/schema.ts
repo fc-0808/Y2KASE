@@ -468,6 +468,43 @@ export type ProductWithRelations = Product & {
   variants: ProductVariant[];
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EMAIL SUBSCRIBERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * email_subscribers — captures emails from the welcome pop-up and any future
+ * subscription entry-points. Used for marketing campaigns and discount delivery.
+ *
+ * Keeps a `status` column so we can honour unsubscribe requests without losing
+ * the record (for legal/GDPR compliance logging).
+ */
+export const emailSubscribers = pgTable(
+  "email_subscribers",
+  {
+    id: serial("id").primaryKey(),
+    email: text("email").notNull(),
+    /** Optional — collected when the user provides their name. */
+    name: text("name"),
+    /** Where the subscription originated. e.g. "popup" | "footer" | "checkout" */
+    source: text("source").notNull().default("popup"),
+    /** The discount/promo code issued to this subscriber. */
+    discountCode: text("discount_code"),
+    /** active | unsubscribed */
+    status: text("status").notNull().default("active"),
+    subscribedAt: timestamp("subscribed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("email_subscribers_email_idx").on(t.email),
+    index("email_subscribers_status_idx").on(t.status),
+  ],
+);
+
+export type EmailSubscriber = typeof emailSubscribers.$inferSelect;
+
 export type User = typeof users.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;

@@ -4,9 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ShoppingBag, Search, ChevronDown, Menu, X } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { Wordmark } from "@/components/brand/Decor";
+
+// Skip SSR — useSession from better-auth is browser-only.
+const UserButton = dynamic(
+  () => import("@/components/UserButton").then((m) => m.UserButton),
+  { ssr: false },
+);
 
 /** Serializable collection node passed from the server header. */
 export type MenuCollection = {
@@ -121,6 +128,9 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
               </span>
             )}
           </button>
+          <div className="hidden md:block">
+            <UserButton />
+          </div>
           <button
             type="button"
             onClick={() => setMobileOpen((v) => !v)}
