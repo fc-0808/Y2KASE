@@ -119,11 +119,34 @@ npm run dev
 
 ## Roadmap
 
-- [ ] Stripe checkout + orders table
-- [ ] Order confirmation emails (Resend)
-- [ ] Admin auth (Clerk / NextAuth)
+- [x] Stripe checkout + orders table
+- [x] Order confirmation emails (Resend)
+- [x] Admin auth (Better Auth, email + password)
+- [x] Customer auth — passwordless magic link + Google OAuth (Better Auth)
+- [x] Customer account area + order history (`/account/orders`)
 - [ ] Per-variant pricing & inventory
 - [ ] Full-text / Algolia search
+- [ ] Apple Sign In (needs Apple Developer account)
+
+### Enabling Google sign-in
+
+Customer sign-in shows **Continue with Google** only when both
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. To create them:
+
+1. [Google Cloud Console](https://console.cloud.google.com) → create/select a project.
+2. **APIs & Services → OAuth consent screen** → External → fill app name, support
+   email, logo; add scopes `email`, `profile`, `openid`; add yourself as a test user.
+3. **APIs & Services → Credentials → Create Credentials → OAuth client ID → Web application.**
+4. Authorized JavaScript origins: `http://localhost:3000` and `https://YOUR_DOMAIN`.
+5. Authorized redirect URIs:
+   `http://localhost:3000/api/auth/callback/google` and
+   `https://YOUR_DOMAIN/api/auth/callback/google`.
+6. Copy the Client ID + Client Secret into `.env.local` (and Vercel env), redeploy.
+
+> Magic-link sign-in works today with just `RESEND_API_KEY` set — but until your
+> sending domain is **verified in Resend**, links only deliver to your own
+> Resend account email. Verify `send.y2kase.com` and set
+> `EMAIL_FROM="Y2KASE <orders@send.y2kase.com>"` before launch.
 
 ## Notes
 

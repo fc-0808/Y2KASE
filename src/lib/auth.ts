@@ -16,14 +16,18 @@
  */
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { anonymous } from "better-auth/plugins";
+import { anonymous, magicLink } from "better-auth/plugins";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { sendMagicLinkEmail } from "@/lib/email";
 
 const baseURL =
   process.env.BETTER_AUTH_URL ??
   process.env.NEXT_PUBLIC_SITE_URL ??
   "http://localhost:3000";
+
+/** Magic link lifetime in seconds (kept in sync with the email copy). */
+const MAGIC_LINK_TTL = 60 * 10; // 10 minutes
 
 export const auth = betterAuth({
   baseURL,
@@ -91,6 +95,26 @@ export const auth = betterAuth({
   // ── plugins ───────────────────────────────────────────────────────────────
   plugins: [
     /**
+     * Magic link (passwordless): the primary customer sign-in / sign-up method.
+     * The buyer enters their email, we mail a single-use link, and clicking it
+     * mints a session — no password to remember or leak. This is how modern DTC
+     * brands (and Slack, Notion, Substack, …) onboard customers. A brand-new
+     * email automatically creates the account, so this covers sign-up too.
+     */
+    magicLink({
+      expiresIn: MAGIC_LINK_TTL,
+      // Hash tokens at rest so a DB leak can't be replayed into sessions.
+      storeToken: "hashed",
+      sendMagicLink: async ({ email, url }) => {
+        await sendMagicLinkEmail({
+          email,
+          url,
+          expiresInMinutes: Math.round(MAGIC_LINK_TTL / 60),
+        });
+      },
+    }),
+
+    /**
      * Anonymous plugin: lets customers browse and add to cart without
      * creating an account. When they check out, they enter their email and
      * we prompt them to "claim" the account via magic link.
@@ -113,6 +137,21 @@ export const auth = betterAuth({
 // Export auth types for use in Server Components and Actions.
 export type AuthSession = typeof auth.$Infer.Session;
 export type AuthUser = typeof auth.$Infer.Session.user;
+
+/**
+ * Which sign-in methods are actually wired up. Read on the server and passed to
+ * the sign-in UI so we never render a button (e.g. "Continue with Google") that
+ * would dead-end because the OAuth credentials aren't set.
+ */
+export const authProviders = {
+  google: Boolean(
+    process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
+  ),
+  apple: Boolean(
+    process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET,
+  ),
+  magicLink: Boolean(process.env.RESEND_API_KEY),
+} as const;
 
 /**
  * Server-side helper: get the session from the current request headers.

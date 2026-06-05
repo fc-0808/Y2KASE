@@ -5,6 +5,11 @@
     },
     "vercel": {
       "url": "https://mcp.vercel.com"
+    },
+    "resend": {
+      "command": "npx",
+      "args": ["-y", "resend-mcp"],
+      "envFile": "${workspaceFolder}/.env.local"
     }
   }
 }

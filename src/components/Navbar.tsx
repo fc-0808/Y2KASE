@@ -8,6 +8,8 @@ import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { Wordmark } from "@/components/brand/Decor";
+import { CategoryIcon } from "@/components/brand/CategoryIcon";
+import { DeviceIcon } from "@/components/brand/DeviceIcon";
 
 // Skip SSR — useSession from better-auth is browser-only.
 const UserButton = dynamic(
@@ -77,7 +79,7 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
       ref={headerRef}
       className="relative border-b border-[var(--border)] bg-[var(--background)]/85 backdrop-blur-md"
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-[1800px] items-center justify-between gap-4 px-4 sm:px-6">
         {/* Left: logo + desktop triggers */}
         <div className="flex items-center gap-7">
           <Link href="/" aria-label="Y2KASE home" className="flex items-center">
@@ -193,7 +195,7 @@ function PanelShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="absolute inset-x-0 top-full hidden animate-float-up border-b border-[var(--border)] bg-[var(--background)]/95 shadow-2xl backdrop-blur-md md:block">
       <div className="h-1 w-full bg-holo-vivid" />
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">{children}</div>
+      <div className="mx-auto max-w-[1800px] px-4 py-8 sm:px-6">{children}</div>
     </div>
   );
 }
@@ -213,9 +215,11 @@ function DevicesPanel({ onNavigate }: { onNavigate: () => void }) {
                   <Link
                     href={`/products?device=${device.id}`}
                     onClick={onNavigate}
-                    className="group flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-semibold hover:bg-[var(--muted)]"
+                    className="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm font-semibold hover:bg-[var(--muted)]"
                   >
-                    <span className="text-base">{device.icon}</span>
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[var(--muted)] text-[var(--primary)] transition group-hover:bg-[var(--primary-soft)]">
+                      <DeviceIcon id={device.id} className="h-4 w-4" />
+                    </span>
                     <span className="group-hover:text-[var(--primary)]">
                       {device.label}
                     </span>
@@ -265,7 +269,12 @@ function CollectionsPanel({
                     onClick={onNavigate}
                     className="flex items-center gap-2 font-bold hover:text-[var(--primary)]"
                   >
-                    <span>{brand.icon ?? "✨"}</span>
+                    <CategoryIcon
+                      slug={brand.slug}
+                      color={brand.accentColor}
+                      kind={brand.kind}
+                      className="h-6 w-6 shrink-0"
+                    />
                     {brand.name}
                   </Link>
                   {brand.children.length > 0 && (
@@ -298,9 +307,14 @@ function CollectionsPanel({
                   key={genre.slug}
                   href={`/collections/${genre.slug}`}
                   onClick={onNavigate}
-                  className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
-                  <span className="mr-1">{genre.icon ?? "🏷️"}</span>
+                  <CategoryIcon
+                    slug={genre.slug}
+                    color={genre.accentColor}
+                    kind={genre.kind}
+                    className="h-4 w-4"
+                  />
                   {genre.name}
                 </Link>
               ))}
@@ -336,7 +350,7 @@ function MobileMenu({
               href={`/products?device=${d.id}`}
               className="flex items-center gap-2 rounded-xl bg-[var(--card)] px-3 py-2 text-sm font-semibold"
             >
-              <span>{d.icon}</span>
+              <DeviceIcon id={d.id} className="h-4 w-4 text-[var(--primary)]" />
               {d.label}
             </Link>
           ))}
@@ -350,9 +364,15 @@ function MobileMenu({
               <Link
                 key={b.slug}
                 href={`/collections/${b.slug}`}
-                className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold"
               >
-                {b.icon} {b.name}
+                <CategoryIcon
+                  slug={b.slug}
+                  color={b.accentColor}
+                  kind={b.kind}
+                  className="h-4 w-4"
+                />
+                {b.name}
               </Link>
             ))}
           </div>
@@ -366,9 +386,15 @@ function MobileMenu({
               <Link
                 key={g.slug}
                 href={`/collections/${g.slug}`}
-                className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold"
               >
-                {g.icon} {g.name}
+                <CategoryIcon
+                  slug={g.slug}
+                  color={g.accentColor}
+                  kind={g.kind}
+                  className="h-4 w-4"
+                />
+                {g.name}
               </Link>
             ))}
           </div>

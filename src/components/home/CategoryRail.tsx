@@ -13,6 +13,7 @@
 import { useRef } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CategoryIcon } from "@/components/brand/CategoryIcon";
 
 export type RailCategory = {
   slug: string;
@@ -73,10 +74,15 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
               {/* subtle grid sheen */}
               <span className="bg-grid pointer-events-none absolute inset-0 opacity-30" />
               <span
-                className="grid h-16 w-16 place-items-center rounded-2xl text-4xl shadow-inner transition duration-300 group-hover:scale-110 sm:h-20 sm:w-20"
+                className="grid h-16 w-16 place-items-center rounded-2xl shadow-inner transition duration-300 group-hover:scale-110 sm:h-20 sm:w-20"
                 style={{ background: `${accent}26` }}
               >
-                {c.icon ?? "✨"}
+                <CategoryIcon
+                  slug={c.slug}
+                  color={accent}
+                  kind={c.kind}
+                  className="h-10 w-10 sm:h-12 sm:w-12"
+                />
               </span>
               <span className="relative font-display text-sm font-extrabold leading-tight text-[var(--foreground)] group-hover:text-[var(--primary)]">
                 {c.name}

@@ -23,7 +23,7 @@ export function Footer() {
   return (
     <footer className="relative mt-auto overflow-hidden border-t border-[var(--border)] bg-[var(--card)]/60">
       <div className="h-1 w-full bg-holo-vivid" />
-      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:grid-cols-2 sm:px-6 md:grid-cols-3 lg:grid-cols-5">
+      <div className="mx-auto grid max-w-[1800px] gap-8 px-4 py-12 sm:grid-cols-2 sm:px-6 md:grid-cols-3 lg:grid-cols-5">
         <div className="sm:col-span-2 lg:col-span-1">
           <Wordmark className="text-xl" />
           <p className="mt-3 max-w-xs text-sm text-[var(--foreground)]/65">

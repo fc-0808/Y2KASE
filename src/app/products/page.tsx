@@ -94,7 +94,7 @@ export default async function ProductsPage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-10 sm:px-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-black capitalize">{heading}</h1>
@@ -173,7 +173,7 @@ export default async function ProductsPage({
 
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {items.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}

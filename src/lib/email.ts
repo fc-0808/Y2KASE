@@ -15,6 +15,7 @@ import { Resend } from "resend";
 import { db } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
 import { OrderConfirmation } from "@/emails/OrderConfirmation";
+import { MagicLinkEmail } from "@/emails/MagicLinkEmail";
 
 let _resend: Resend | null = null;
 
@@ -104,6 +105,43 @@ export async function sendOrderConfirmationOnce(
     await releaseClaim(orderId);
     return "failed";
   }
+}
+
+/**
+ * Send a passwordless magic sign-in link. Called by Better Auth's magic-link
+ * plugin (see src/lib/auth.ts). Throws on failure so Better Auth surfaces the
+ * error to the caller instead of silently telling the user "check your email".
+ */
+export async function sendMagicLinkEmail(params: {
+  email: string;
+  url: string;
+  expiresInMinutes?: number;
+}): Promise<void> {
+  const resend = getResend();
+  if (!resend) {
+    // Fail loud in dev so the link can be grabbed from server logs.
+    console.warn(
+      `[email] RESEND_API_KEY not set; magic link for ${params.email}: ${params.url}`,
+    );
+    throw new Error("Email delivery is not configured.");
+  }
+
+  const element = MagicLinkEmail({
+    url: params.url,
+    expiresInMinutes: params.expiresInMinutes,
+  });
+  const [html, text] = await Promise.all([
+    render(element),
+    render(element, { plainText: true }),
+  ]);
+
+  await resend.emails.send({
+    from: FROM,
+    to: params.email,
+    subject: "Your Y2KASE sign-in link ✨",
+    html,
+    text,
+  });
 }
 
 /** Release the email claim so a webhook redelivery can retry the send. */

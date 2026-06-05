@@ -158,7 +158,7 @@ export function HeroCarousel() {
             {/* Copy */}
             <div className="absolute inset-0">
               <div
-                className={`mx-auto flex h-full max-w-7xl flex-col px-6 sm:px-10 ${
+                className={`mx-auto flex h-full max-w-[1800px] flex-col px-4 sm:px-6 lg:px-8 ${
                   slide.align === "left"
                     ? "items-start justify-center text-left"
                     : slide.align === "right"

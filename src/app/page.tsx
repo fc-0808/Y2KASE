@@ -5,6 +5,7 @@ import { getFeaturedProducts } from "@/lib/products";
 import { getCollectionTree } from "@/lib/collections";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { ProductCard } from "@/components/ProductCard";
+import { DeviceIcon } from "@/components/brand/DeviceIcon";
 import { HeroCarousel } from "@/components/home/HeroCarousel";
 import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
@@ -46,7 +47,7 @@ export default async function HomePage() {
       <HeroCarousel />
 
       {/* ── Shop the universe (category rail) ─────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 pt-14 sm:px-6">
+      <section className="mx-auto w-full max-w-[1800px] px-4 pt-14 sm:px-6">
         <SectionHeading
           eyebrow="Find your character"
           title="Shop the universe"
@@ -56,7 +57,7 @@ export default async function HomePage() {
       </section>
 
       {/* ── Featured collection (editorial) ───────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 pt-16 sm:px-6">
+      <section className="mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
         <SectionHeading
           eyebrow="Editor's picks"
           title="Featured collection"
@@ -66,10 +67,10 @@ export default async function HomePage() {
       </section>
 
       {/* ── Bestsellers ───────────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 pt-16 sm:px-6">
+      <section className="mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
         <SectionHeading eyebrow="Most loved" title="Bestsellers" href="/products" />
         {featured.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {featured.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
@@ -80,7 +81,7 @@ export default async function HomePage() {
       </section>
 
       {/* ── Shop by device ────────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 pt-16 sm:px-6">
+      <section className="mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
         <SectionHeading eyebrow="Find your fit" title="Shop by device" href="/products" />
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
           {devices.map((d) => (
@@ -89,8 +90,8 @@ export default async function HomePage() {
               href={`/products?device=${d.id}`}
               className="card-cute group flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-1 hover:border-[var(--primary)]"
             >
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-holo text-2xl transition group-hover:scale-110">
-                {d.icon}
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-holo text-[var(--primary)] transition group-hover:scale-110">
+                <DeviceIcon id={d.id} className="h-6 w-6" />
               </span>
               <span className="text-sm font-bold">{d.label}</span>
             </Link>
@@ -100,7 +101,7 @@ export default async function HomePage() {
 
       {/* ── Trust strip ───────────────────────────────────────────────────── */}
       <section className="mt-16 border-y border-[var(--border)] bg-[var(--card)]/60">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-8 sm:grid-cols-3 sm:px-6">
+        <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-6 px-4 py-8 sm:grid-cols-3 sm:px-6">
           <Feature
             icon={<Truck className="h-5 w-5" />}
             title="Fast worldwide shipping"
@@ -120,7 +121,7 @@ export default async function HomePage() {
       </section>
 
       {/* ── Y2KASE Club band ──────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6">
+      <section className="mx-auto w-full max-w-[1800px] px-4 py-16 sm:px-6">
         <div className="relative overflow-hidden rounded-[2.5rem] border-2 border-white bg-holo-shimmer p-8 shadow-xl sm:p-12">
           <div className="bg-grid absolute inset-0 opacity-40" />
           <SparkleField />

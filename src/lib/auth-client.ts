@@ -7,11 +7,11 @@
  * For server-side session access, use `getSession()` from `@/lib/auth`.
  */
 import { createAuthClient } from "better-auth/react";
-import { anonymousClient } from "better-auth/client/plugins";
+import { anonymousClient, magicLinkClient } from "better-auth/client/plugins";
 
 export const authClient = createAuthClient({
   baseURL: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
-  plugins: [anonymousClient()],
+  plugins: [anonymousClient(), magicLinkClient()],
 });
 
 export const {

@@ -62,7 +62,7 @@ export default async function CollectionPage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6">
       {/* Breadcrumb */}
       <nav className="mb-6 flex flex-wrap items-center gap-1 text-sm text-[var(--foreground)]/55">
         <Link href="/collections" className="hover:text-[var(--primary)]">
@@ -138,7 +138,7 @@ export default async function CollectionPage({
       {/* Products */}
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {items.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
