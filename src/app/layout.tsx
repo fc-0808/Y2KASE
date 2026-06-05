@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Nunito, Baloo_2, Press_Start_2P, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { Footer } from "@/components/Footer";
@@ -50,6 +51,21 @@ export const metadata: Metadata = {
     title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
     description:
       "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
+    images: [
+      {
+        url: "/brand/og.webp",
+        width: 1200,
+        height: 630,
+        alt: "Y2KASE — Kawaii & Y2K Phone Cases",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
+    description:
+      "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
+    images: ["/brand/og.webp"],
   },
 };
 
@@ -70,6 +86,7 @@ export default function RootLayout({
         <Footer />
         <CartDrawer />
         <EmailCapturePopLoader />
+        <Analytics />
       </body>
     </html>
   );

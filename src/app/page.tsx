@@ -5,100 +5,101 @@ import { getFeaturedProducts } from "@/lib/products";
 import { getCollectionTree } from "@/lib/collections";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { ProductCard } from "@/components/ProductCard";
-import {
-  Sparkle,
-  PixelHeart,
-  Sticker,
-  SparkleField,
-  Wordmark,
-} from "@/components/brand/Decor";
+import { HeroCarousel } from "@/components/home/HeroCarousel";
+import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
+import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
+import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
 
 export default async function HomePage() {
   const [featured, tree] = await Promise.all([
     getFeaturedProducts(8),
     getCollectionTree().catch(() => []),
   ]);
-  const brands = tree
-    .filter((c) => c.kind === "brand" && (c.totalCount > 0 || c.featured))
-    .slice(0, 6);
+
+  // Flatten the taxonomy (roots + character children) into a single rail,
+  // surfacing stocked collections first, then any featured-but-empty ones.
+  const flat: RailCategory[] = [];
+  const seen = new Set<string>();
+  for (const node of tree) {
+    for (const n of [node, ...node.children]) {
+      if (seen.has(n.slug)) continue;
+      seen.add(n.slug);
+      flat.push({
+        slug: n.slug,
+        name: n.name,
+        icon: n.icon,
+        accent: n.accentColor,
+        count: n.totalCount,
+        kind: n.kind,
+      });
+    }
+  }
+  const railCategories = flat
+    .sort((a, b) => Number(b.count > 0) - Number(a.count > 0) || b.count - a.count)
+    .slice(0, 14);
+
   const devices = DEVICE_FAMILIES.flatMap((f) => f.devices).slice(0, 6);
 
   return (
     <div className="flex flex-col">
-      {/* ── Hero ──────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden">
-        <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-12 sm:px-6 lg:grid-cols-2 lg:py-20">
-          <div className="animate-float-up">
-            <Sticker className="font-pixel text-[10px] uppercase tracking-tight">
-              <Sparkle className="h-3 w-3 text-[var(--primary)]" /> Welcome to the
-              Club, bestie
-            </Sticker>
-            <h1 className="mt-5 font-display text-5xl font-extrabold leading-[1.02] tracking-tight sm:text-6xl">
-              Cases that match{" "}
-              <span className="text-holo">your vibe</span>.
-            </h1>
-            <p className="mt-5 max-w-md text-lg text-[var(--foreground)]/70">
-              Kawaii, Y2K & holographic phone cases, charms and accessories —
-              designed to make every glance at your phone a little cuter. ✨
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link
-                href="/products"
-                className="btn-candy inline-flex items-center gap-2 px-7 py-3.5 text-base"
-              >
-                Shop the collection <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                href="/collections"
-                className="inline-flex items-center gap-2 rounded-full border-2 border-[var(--border)] bg-[var(--card)] px-6 py-3 font-bold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-              >
-                Browse characters
-              </Link>
-            </div>
-            <div className="mt-7 flex flex-wrap gap-2">
-              <Sticker>
-                <Truck className="h-3.5 w-3.5 text-[var(--primary)]" /> Free ship
-                over $35
-              </Sticker>
-              <Sticker>
-                <Heart className="h-3.5 w-3.5 fill-[var(--primary)] text-[var(--primary)]" />{" "}
-                Good vibes
-              </Sticker>
-              <Sticker>
-                <Sparkle className="h-3.5 w-3.5 text-[var(--accent)]" /> Stay cute
-              </Sticker>
-            </div>
-          </div>
+      {/* ── Hero (full viewport, rotatable) ───────────────────────────────── */}
+      <HeroCarousel />
 
-          {/* Brand key art */}
-          <div className="relative">
-            <SparkleField />
-            <div className="relative mx-auto aspect-[16/10] w-full max-w-xl overflow-hidden rounded-[2.5rem] border-2 border-white bg-holo-shimmer shadow-2xl">
-              <div className="bg-grid absolute inset-0 opacity-50" />
-              <Image
-                src="/brand/logo.png"
-                alt="Y2KASE — kawaii Y2K phone cases"
-                fill
-                priority
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                className="animate-bob object-contain p-3"
-              />
-            </div>
-            <div className="absolute -left-3 top-6 animate-bob">
-              <PixelHeart className="h-9 w-9 drop-shadow" />
-            </div>
-            <div
-              className="absolute -right-2 bottom-8 animate-bob"
-              style={{ animationDelay: "1.5s" }}
-            >
-              <PixelHeart className="h-7 w-7 drop-shadow" />
-            </div>
+      {/* ── Shop the universe (category rail) ─────────────────────────────── */}
+      <section className="mx-auto w-full max-w-7xl px-4 pt-14 sm:px-6">
+        <SectionHeading
+          eyebrow="Find your character"
+          title="Shop the universe"
+          href="/collections"
+        />
+        <CategoryRail categories={railCategories} />
+      </section>
+
+      {/* ── Featured collection (editorial) ───────────────────────────────── */}
+      <section className="mx-auto w-full max-w-7xl px-4 pt-16 sm:px-6">
+        <SectionHeading
+          eyebrow="Editor's picks"
+          title="Featured collection"
+          href="/collections"
+        />
+        <FeaturedEditorial />
+      </section>
+
+      {/* ── Bestsellers ───────────────────────────────────────────────────── */}
+      <section className="mx-auto w-full max-w-7xl px-4 pt-16 sm:px-6">
+        <SectionHeading eyebrow="Most loved" title="Bestsellers" href="/products" />
+        {featured.length > 0 ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {featured.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
           </div>
+        ) : (
+          <EmptyState />
+        )}
+      </section>
+
+      {/* ── Shop by device ────────────────────────────────────────────────── */}
+      <section className="mx-auto w-full max-w-7xl px-4 pt-16 sm:px-6">
+        <SectionHeading eyebrow="Find your fit" title="Shop by device" href="/products" />
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+          {devices.map((d) => (
+            <Link
+              key={d.id}
+              href={`/products?device=${d.id}`}
+              className="card-cute group flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-1 hover:border-[var(--primary)]"
+            >
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-holo text-2xl transition group-hover:scale-110">
+                {d.icon}
+              </span>
+              <span className="text-sm font-bold">{d.label}</span>
+            </Link>
+          ))}
         </div>
       </section>
 
       {/* ── Trust strip ───────────────────────────────────────────────────── */}
-      <section className="border-y border-[var(--border)] bg-[var(--card)]/60">
+      <section className="mt-16 border-y border-[var(--border)] bg-[var(--card)]/60">
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-8 sm:grid-cols-3 sm:px-6">
           <Feature
             icon={<Truck className="h-5 w-5" />}
@@ -118,86 +119,8 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ── Shop by device ────────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 pt-14 sm:px-6">
-        <SectionHeading
-          eyebrow="Find your fit"
-          title="Shop by device"
-          href="/collections"
-        />
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-          {devices.map((d) => (
-            <Link
-              key={d.id}
-              href={`/products?device=${d.id}`}
-              className="card-cute group flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-1 hover:border-[var(--primary)]"
-            >
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-holo text-2xl transition group-hover:scale-110">
-                {d.icon}
-              </span>
-              <span className="text-sm font-bold">{d.label}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Shop by character ─────────────────────────────────────────────── */}
-      {brands.length > 0 && (
-        <section className="mx-auto w-full max-w-7xl px-4 pt-14 sm:px-6">
-          <SectionHeading
-            eyebrow="Your faves"
-            title="Shop by character"
-            href="/collections"
-          />
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-            {brands.map((b) => (
-              <Link
-                key={b.slug}
-                href={`/collections/${b.slug}`}
-                className="card-cute group relative flex flex-col items-center gap-2 overflow-hidden p-5 text-center transition hover:-translate-y-1"
-              >
-                <span
-                  className="absolute inset-x-0 top-0 h-1.5"
-                  style={{ background: b.accentColor ?? "var(--primary)" }}
-                />
-                <span
-                  className="grid h-14 w-14 place-items-center rounded-2xl text-3xl transition group-hover:scale-110"
-                  style={{ background: `${b.accentColor ?? "#ff3ea5"}22` }}
-                >
-                  {b.icon ?? "✨"}
-                </span>
-                <span className="font-display font-extrabold group-hover:text-[var(--primary)]">
-                  {b.name}
-                </span>
-                <span className="text-xs font-semibold text-[var(--foreground)]/45">
-                  {b.totalCount} item{b.totalCount === 1 ? "" : "s"}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Bestsellers ───────────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 py-14 sm:px-6">
-        <SectionHeading
-          eyebrow="Most loved"
-          title="Bestsellers"
-          href="/products"
-        />
-        {featured.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {featured.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState />
-        )}
-      </section>
-
       {/* ── Y2KASE Club band ──────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-7xl px-4 pb-16 sm:px-6">
+      <section className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6">
         <div className="relative overflow-hidden rounded-[2.5rem] border-2 border-white bg-holo-shimmer p-8 shadow-xl sm:p-12">
           <div className="bg-grid absolute inset-0 opacity-40" />
           <SparkleField />
