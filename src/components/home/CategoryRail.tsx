@@ -68,11 +68,11 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
             <Link
               key={c.slug}
               href={`/collections/${c.slug}`}
-              className="group flex w-40 shrink-0 snap-start flex-col gap-2.5 sm:w-52"
+              className="group flex w-64 shrink-0 snap-start flex-col gap-2.5 sm:w-80"
             >
-              {/* Tall portrait art tile — real product photo when available */}
+              {/* Wide landscape art tile — real product photo when available */}
               <div
-                className="relative aspect-[2/3] overflow-hidden rounded-3xl border border-white shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 group-hover:-translate-y-1.5 group-hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.5)]"
+                className="relative aspect-[3/2] overflow-hidden rounded-3xl border border-white shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 group-hover:-translate-y-1.5 group-hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.5)]"
                 style={{
                   background: `linear-gradient(150deg, ${accent}38 0%, ${accent}14 55%, #ffffff 100%)`,
                 }}
@@ -82,7 +82,7 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
                     src={c.thumb}
                     alt={c.name}
                     fill
-                    sizes="(max-width: 640px) 160px, 208px"
+                    sizes="(max-width: 640px) 256px, 320px"
                     className="object-cover transition duration-500 group-hover:scale-105"
                   />
                 ) : (
@@ -113,9 +113,9 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
         {/* Trailing "view all" tile */}
         <Link
           href="/collections"
-          className="group flex w-40 shrink-0 snap-start flex-col gap-2.5 sm:w-52"
+          className="group flex w-64 shrink-0 snap-start flex-col gap-2.5 sm:w-80"
         >
-          <div className="grid aspect-[2/3] place-items-center rounded-3xl border-2 border-dashed border-[var(--primary)]/40 bg-[var(--card)] transition duration-300 group-hover:-translate-y-1.5 group-hover:border-[var(--primary)]">
+          <div className="grid aspect-[3/2] place-items-center rounded-3xl border-2 border-dashed border-[var(--primary)]/40 bg-[var(--card)] transition duration-300 group-hover:-translate-y-1.5 group-hover:border-[var(--primary)]">
             <span className="grid h-16 w-16 place-items-center rounded-2xl bg-holo text-3xl transition group-hover:scale-110 sm:h-20 sm:w-20">
               ✨
             </span>

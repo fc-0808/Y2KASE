@@ -16,18 +16,63 @@ import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
 import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
 
 export default async function HomePage() {
-  const [featured, tree, pools, sanrioItems, helloKittyItems] =
-    await Promise.all([
-      getFeaturedProducts(8),
-      getCollectionTree().catch(() => []),
-      getCollectionImagePools().catch(() => new Map<number, string[]>()),
-      getProducts({ collection: "sanrio" })
-        .then((r) => r.items)
-        .catch(() => [] as ProductListItem[]),
-      getProducts({ collection: "hello-kitty" })
-        .then((r) => r.items)
-        .catch(() => [] as ProductListItem[]),
-    ]);
+  const col = (slug: string) =>
+    getProducts({ collection: slug })
+      .then((r) => r.items)
+      .catch(() => [] as ProductListItem[]);
+
+  const [
+    featured,
+    tree,
+    pools,
+    sanrioItems,
+    helloKittyItems,
+    myMelodyItems,
+    cinnamorollItems,
+  ] = await Promise.all([
+    getFeaturedProducts(8),
+    getCollectionTree().catch(() => []),
+    getCollectionImagePools().catch(() => new Map<number, string[]>()),
+    col("sanrio"),
+    col("hello-kitty"),
+    col("my-melody"),
+    col("cinnamoroll"),
+  ]);
+
+  // ── Global product de-duplication ────────────────────────────────────────
+  // No product should appear in more than one rail on the page. We reserve the
+  // Hello Kitty section's items first, then fill the Sanrio rail with whatever
+  // is left (which naturally surfaces other characters for variety).
+  const usedIds = new Set<number>(featured.map((p) => p.id));
+  const pickDistinct = (items: ProductListItem[], n: number) => {
+    const out: ProductListItem[] = [];
+    for (const p of items) {
+      if (out.length >= n) break;
+      if (usedIds.has(p.id) || !p.imageUrl) continue;
+      usedIds.add(p.id);
+      out.push(p);
+    }
+    return out;
+  };
+  const helloKittyPicks = pickDistinct(helloKittyItems, 12);
+  const sanrioPicks = pickDistinct(sanrioItems, 12);
+
+  // Club collage uses 3 DISTINCT real products from different characters.
+  const clubPicks: ProductListItem[] = [];
+  const clubSeen = new Set<number>();
+  for (const arr of [
+    helloKittyItems,
+    myMelodyItems,
+    cinnamorollItems,
+    sanrioItems,
+  ]) {
+    if (clubPicks.length >= 3) break;
+    const p = arr.find((x) => x.imageUrl && !clubSeen.has(x.id));
+    if (p) {
+      clubSeen.add(p.id);
+      clubPicks.push(p);
+    }
+  }
 
   // Flatten the taxonomy (roots + character children), stocked collections
   // first. Keep each node's id so we can assign a representative photo.
@@ -115,7 +160,7 @@ export default async function HomePage() {
         title="The Sanrio Collection"
         href="/collections/sanrio"
         accent="#ff7eb6"
-        products={sanrioItems}
+        products={sanrioPicks}
       />
 
       {/* ── Hello Kitty spotlight ─────────────────────────────────────────── */}
@@ -124,7 +169,7 @@ export default async function HomePage() {
         title="Hello Kitty Spotlight"
         href="/collections/hello-kitty"
         accent="#ff4d6d"
-        products={helloKittyItems}
+        products={helloKittyPicks}
       />
 
       {/* ── Shop by device ────────────────────────────────────────────────── */}
@@ -192,17 +237,7 @@ export default async function HomePage() {
                 <Gift className="h-4 w-4" /> Start shopping
               </Link>
             </div>
-            <div className="relative w-full">
-              <div className="relative aspect-[3/2] overflow-hidden rounded-3xl border-2 border-white shadow-lg">
-                <Image
-                  src="/brand/club.webp"
-                  alt="Welcome to the Y2KASE Club"
-                  fill
-                  sizes="(max-width: 1024px) 100vw, 45vw"
-                  className="object-cover"
-                />
-              </div>
-            </div>
+            <ClubCollage products={clubPicks} />
           </div>
         </div>
       </section>
@@ -275,6 +310,46 @@ function CollectionShowcase({
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * ClubCollage — a fanned arrangement of REAL, distinct product photos for the
+ * membership band. Using live catalog images (not an AI render) guarantees no
+ * duplicated or made-up products.
+ */
+function ClubCollage({ products }: { products: ProductListItem[] }) {
+  const cards = products.filter((p) => p.imageUrl).slice(0, 3);
+  if (cards.length === 0) {
+    return (
+      <div className="relative aspect-[3/2] w-full overflow-hidden rounded-3xl border-2 border-white shadow-lg">
+        <Image src="/brand/club.webp" alt="Y2KASE Club" fill sizes="45vw" className="object-cover" />
+      </div>
+    );
+  }
+  // Rotation + overlap per card position (left / centre / right).
+  const styles =
+    cards.length === 3
+      ? ["-rotate-[8deg] z-10 translate-y-3", "rotate-[2deg] z-20 -mx-6", "rotate-[8deg] z-10 translate-y-3"]
+      : cards.length === 2
+        ? ["-rotate-[6deg] z-10", "rotate-[6deg] z-20 -ml-6"]
+        : ["rotate-[2deg] z-20"];
+  return (
+    <div className="flex items-center justify-center py-4">
+      {cards.map((p, i) => (
+        <div key={p.id} className={`transition duration-300 ${styles[i]}`}>
+          <div className="relative h-56 w-40 overflow-hidden rounded-[1.75rem] border-2 border-white bg-[var(--muted)] shadow-xl sm:h-64 sm:w-44">
+            <Image
+              src={p.imageUrl!}
+              alt={p.title}
+              fill
+              sizes="176px"
+              className="object-cover"
+            />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
