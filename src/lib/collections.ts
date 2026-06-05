@@ -1,6 +1,11 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
-import { collections, productCollections, products } from "@/lib/db/schema";
+import {
+  collections,
+  productCollections,
+  productImages,
+  products,
+} from "@/lib/db/schema";
 import type { Collection } from "@/lib/db/schema";
 
 /** A collection enriched with its children and product counts, for menus/pages. */
@@ -266,6 +271,67 @@ export async function getAdminCollectionOptions(): Promise<
     }
   }
   return out;
+}
+
+/**
+ * A representative product image for every collection id — used as the tile art
+ * in the homepage category rail (far more premium than a generic icon). A
+ * collection's thumbnail is its own first product image, or, if it has none of
+ * its own, the first image found in any descendant (so "Sanrio" borrows a
+ * "Hello Kitty" photo). Returns a map of collectionId → image URL.
+ */
+export async function getCollectionThumbnails(): Promise<Map<number, string>> {
+  if (!isDbConfigured()) return new Map();
+
+  const [imgRows, cols] = await Promise.all([
+    db
+      .select({
+        collectionId: productCollections.collectionId,
+        url: productImages.url,
+        position: productImages.position,
+      })
+      .from(productCollections)
+      .innerJoin(products, eq(products.id, productCollections.productId))
+      .innerJoin(productImages, eq(productImages.productId, products.id))
+      .where(eq(products.status, "active")),
+    db.query.collections.findMany({ columns: { id: true, parentId: true } }),
+  ]);
+
+  // Best (lowest-position) image directly assigned to each collection.
+  const direct = new Map<number, { url: string; pos: number }>();
+  for (const r of imgRows) {
+    const cur = direct.get(r.collectionId);
+    if (!cur || r.position < cur.pos) {
+      direct.set(r.collectionId, { url: r.url, pos: r.position });
+    }
+  }
+
+  const childrenOf = new Map<number, number[]>();
+  for (const c of cols) {
+    if (c.parentId == null) continue;
+    const arr = childrenOf.get(c.parentId) ?? [];
+    arr.push(c.id);
+    childrenOf.set(c.parentId, arr);
+  }
+
+  function resolve(id: number, seen = new Set<number>()): string | null {
+    if (seen.has(id)) return null;
+    seen.add(id);
+    const own = direct.get(id);
+    if (own) return own.url;
+    for (const child of childrenOf.get(id) ?? []) {
+      const found = resolve(child, seen);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const result = new Map<number, string>();
+  for (const c of cols) {
+    const url = resolve(c.id);
+    if (url) result.set(c.id, url);
+  }
+  return result;
 }
 
 /** Count of products assigned per collection id (active only). */

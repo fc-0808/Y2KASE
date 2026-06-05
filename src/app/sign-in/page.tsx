@@ -27,7 +27,7 @@ export default async function SignInPage({
   }
 
   return (
-    <div className="flex min-h-[80dvh] items-center justify-center px-4 py-16">
+    <div className="flex min-h-[calc(100svh-5.75rem)] items-center justify-center px-4 py-16">
       <SignInClient
         googleEnabled={authProviders.google}
         magicLinkEnabled={authProviders.magicLink}

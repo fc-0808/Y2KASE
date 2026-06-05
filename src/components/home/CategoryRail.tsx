@@ -12,6 +12,7 @@
 
 import { useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CategoryIcon } from "@/components/brand/CategoryIcon";
 
@@ -22,6 +23,8 @@ export type RailCategory = {
   accent: string | null;
   count: number;
   kind: string;
+  /** Representative product photo (preferred over the icon when present). */
+  thumb?: string | null;
 };
 
 export function CategoryRail({ categories }: { categories: RailCategory[] }) {
@@ -65,33 +68,44 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
             <Link
               key={c.slug}
               href={`/collections/${c.slug}`}
-              className="group relative flex w-32 shrink-0 snap-start flex-col items-center justify-center gap-2.5 overflow-hidden rounded-3xl border border-white p-4 text-center shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 hover:-translate-y-1.5 hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.5)] sm:w-40"
-              style={{
-                aspectRatio: "1 / 1",
-                background: `linear-gradient(150deg, ${accent}38 0%, ${accent}14 55%, #ffffff 100%)`,
-              }}
+              className="group flex w-32 shrink-0 snap-start flex-col gap-2 sm:w-40"
             >
-              {/* subtle grid sheen */}
-              <span className="bg-grid pointer-events-none absolute inset-0 opacity-30" />
-              <span
-                className="grid h-16 w-16 place-items-center rounded-2xl shadow-inner transition duration-300 group-hover:scale-110 sm:h-20 sm:w-20"
-                style={{ background: `${accent}26` }}
+              {/* Square art tile — real product photo when available, else icon */}
+              <div
+                className="relative aspect-square overflow-hidden rounded-3xl border border-white shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 group-hover:-translate-y-1.5 group-hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.5)]"
+                style={{
+                  background: `linear-gradient(150deg, ${accent}38 0%, ${accent}14 55%, #ffffff 100%)`,
+                }}
               >
-                <CategoryIcon
-                  slug={c.slug}
-                  color={accent}
-                  kind={c.kind}
-                  className="h-10 w-10 sm:h-12 sm:w-12"
-                />
-              </span>
-              <span className="relative font-display text-sm font-extrabold leading-tight text-[var(--foreground)] group-hover:text-[var(--primary)]">
-                {c.name}
-              </span>
-              {c.count > 0 && (
-                <span className="relative text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
-                  {c.count} item{c.count === 1 ? "" : "s"}
-                </span>
-              )}
+                {c.thumb ? (
+                  <Image
+                    src={c.thumb}
+                    alt={c.name}
+                    fill
+                    sizes="(max-width: 640px) 128px, 160px"
+                    className="object-cover transition duration-500 group-hover:scale-105"
+                  />
+                ) : (
+                  <span className="absolute inset-0 grid place-items-center">
+                    <CategoryIcon
+                      slug={c.slug}
+                      color={accent}
+                      kind={c.kind}
+                      className="h-14 w-14 sm:h-16 sm:w-16"
+                    />
+                  </span>
+                )}
+              </div>
+              <div className="px-1 text-center">
+                <p className="font-display text-sm font-extrabold leading-tight text-[var(--foreground)] group-hover:text-[var(--primary)]">
+                  {c.name}
+                </p>
+                {c.count > 0 && (
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
+                    {c.count} item{c.count === 1 ? "" : "s"}
+                  </p>
+                )}
+              </div>
             </Link>
           );
         })}
@@ -99,15 +113,16 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
         {/* Trailing "view all" tile */}
         <Link
           href="/collections"
-          className="group relative flex w-32 shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-[var(--primary)]/40 bg-[var(--card)] p-4 text-center transition hover:-translate-y-1.5 hover:border-[var(--primary)] sm:w-40"
-          style={{ aspectRatio: "1 / 1" }}
+          className="group flex w-32 shrink-0 snap-start flex-col gap-2 sm:w-40"
         >
-          <span className="grid h-16 w-16 place-items-center rounded-2xl bg-holo text-3xl transition group-hover:scale-110 sm:h-20 sm:w-20">
-            ✨
-          </span>
-          <span className="font-display text-sm font-extrabold text-[var(--primary)]">
+          <div className="grid aspect-square place-items-center rounded-3xl border-2 border-dashed border-[var(--primary)]/40 bg-[var(--card)] transition duration-300 group-hover:-translate-y-1.5 group-hover:border-[var(--primary)]">
+            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-holo text-3xl transition group-hover:scale-110 sm:h-16 sm:w-16">
+              ✨
+            </span>
+          </div>
+          <p className="px-1 text-center font-display text-sm font-extrabold text-[var(--primary)]">
             View all
-          </span>
+          </p>
         </Link>
       </div>
     </div>

@@ -10,7 +10,11 @@
 import { inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
-import { STYLE_OPTION_NAME, getStylePrice } from "@/lib/pricing";
+import {
+  STYLE_OPTION_NAME,
+  getStylePrice,
+  shippingQuote,
+} from "@/lib/pricing";
 
 /** What the browser is allowed to send us — note: NO price. */
 export type CheckoutLineInput = {
@@ -38,14 +42,6 @@ export type PricedCart = {
   subtotalCents: number;
   shippingCents: number;
   totalCents: number;
-};
-
-/** Free-shipping threshold + flat rate per currency, in minor units (cents). */
-const SHIPPING: Record<string, { freeOverCents: number; flatCents: number }> = {
-  USD: { freeOverCents: 3500, flatCents: 499 },
-  CAD: { freeOverCents: 4900, flatCents: 699 },
-  HKD: { freeOverCents: 27000, flatCents: 3900 },
-  CNY: { freeOverCents: 25000, flatCents: 3500 },
 };
 
 const MAX_QTY_PER_LINE = 20;
@@ -132,8 +128,7 @@ export async function priceCart(
     0,
   );
 
-  const ship = SHIPPING[currency.toUpperCase()] ?? SHIPPING.USD;
-  const shippingCents = subtotalCents >= ship.freeOverCents ? 0 : ship.flatCents;
+  const { shippingCents } = shippingQuote(currency, subtotalCents);
 
   return {
     lines,

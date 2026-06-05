@@ -216,25 +216,8 @@ export function HeroCarousel() {
         );
       })}
 
-      {/* Edge arrows (desktop) */}
-      <button
-        type="button"
-        onClick={() => go(index - 1)}
-        aria-label="Previous slide"
-        className="absolute left-4 top-1/2 hidden h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-[var(--border)] bg-[var(--card)]/70 text-[var(--foreground)] backdrop-blur transition hover:bg-[var(--card)] hover:text-[var(--primary)] md:grid"
-      >
-        <ChevronLeft className="h-5 w-5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => go(index + 1)}
-        aria-label="Next slide"
-        className="absolute right-4 top-1/2 hidden h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-[var(--border)] bg-[var(--card)]/70 text-[var(--foreground)] backdrop-blur transition hover:bg-[var(--card)] hover:text-[var(--primary)] md:grid"
-      >
-        <ChevronRight className="h-5 w-5" />
-      </button>
-
-      {/* Dot indicators */}
+      {/* Controls live in the bottom band so they never overlap the headline. */}
+      {/* Dot indicators — bottom centre */}
       <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2.5">
         {SLIDES.map((_, i) => (
           <button
@@ -250,6 +233,26 @@ export function HeroCarousel() {
             }`}
           />
         ))}
+      </div>
+
+      {/* Prev / next — bottom-right cluster (desktop), clear of the copy */}
+      <div className="absolute bottom-4 right-4 hidden items-center gap-2 sm:right-6 md:flex lg:right-8">
+        <button
+          type="button"
+          onClick={() => go(index - 1)}
+          aria-label="Previous slide"
+          className="grid h-11 w-11 place-items-center rounded-full border border-[var(--border)] bg-[var(--card)]/80 text-[var(--foreground)] backdrop-blur transition hover:bg-[var(--card)] hover:text-[var(--primary)]"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => go(index + 1)}
+          aria-label="Next slide"
+          className="grid h-11 w-11 place-items-center rounded-full border border-[var(--border)] bg-[var(--card)]/80 text-[var(--foreground)] backdrop-blur transition hover:bg-[var(--card)] hover:text-[var(--primary)]"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
       </div>
     </section>
   );

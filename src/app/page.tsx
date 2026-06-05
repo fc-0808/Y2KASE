@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Truck, ShieldCheck, Heart, Gift } from "lucide-react";
 import { getFeaturedProducts } from "@/lib/products";
-import { getCollectionTree } from "@/lib/collections";
+import { getCollectionTree, getCollectionThumbnails } from "@/lib/collections";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { ProductCard } from "@/components/ProductCard";
 import { DeviceIcon } from "@/components/brand/DeviceIcon";
@@ -12,9 +12,10 @@ import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
 import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
 
 export default async function HomePage() {
-  const [featured, tree] = await Promise.all([
+  const [featured, tree, thumbs] = await Promise.all([
     getFeaturedProducts(8),
     getCollectionTree().catch(() => []),
+    getCollectionThumbnails().catch(() => new Map<number, string>()),
   ]);
 
   // Flatten the taxonomy (roots + character children) into a single rail,
@@ -32,6 +33,7 @@ export default async function HomePage() {
         accent: n.accentColor,
         count: n.totalCount,
         kind: n.kind,
+        thumb: thumbs.get(n.id) ?? null,
       });
     }
   }

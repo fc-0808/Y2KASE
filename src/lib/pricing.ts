@@ -85,6 +85,47 @@ export const PRICE_TABLE: Record<string, Record<Style, number>> = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shipping — single source of truth shared by the client cart and the server
+// checkout, so the total the buyer sees pre-checkout matches Stripe exactly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Free-shipping threshold + flat rate per currency, in minor units (cents). */
+export const SHIPPING: Record<
+  string,
+  { freeOverCents: number; flatCents: number }
+> = {
+  USD: { freeOverCents: 3500, flatCents: 499 },
+  CAD: { freeOverCents: 4900, flatCents: 699 },
+  HKD: { freeOverCents: 27000, flatCents: 3900 },
+  CNY: { freeOverCents: 25000, flatCents: 3500 },
+};
+
+export type ShippingQuote = {
+  shippingCents: number;
+  freeOverCents: number;
+  flatCents: number;
+  /** Cents still needed to unlock free shipping (0 if already qualified). */
+  remainingCents: number;
+  qualifiesFree: boolean;
+};
+
+/** Compute the shipping quote for a subtotal (in cents) and currency. */
+export function shippingQuote(
+  currency: string,
+  subtotalCents: number,
+): ShippingQuote {
+  const cfg = SHIPPING[currency?.toUpperCase()] ?? SHIPPING.USD;
+  const qualifiesFree = subtotalCents >= cfg.freeOverCents;
+  return {
+    shippingCents: qualifiesFree ? 0 : cfg.flatCents,
+    freeOverCents: cfg.freeOverCents,
+    flatCents: cfg.flatCents,
+    remainingCents: Math.max(0, cfg.freeOverCents - subtotalCents),
+    qualifiesFree,
+  };
+}
+
 /** Currency used when an unknown currency is requested. */
 const FALLBACK_CURRENCY = "USD";
 

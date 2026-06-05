@@ -1,21 +1,21 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { X, Minus, Plus, Trash2, Loader2 } from "lucide-react";
+import { X, Minus, Plus, Trash2, Truck } from "lucide-react";
 import {
   useCart,
   cartSubtotal,
   lineKey,
   type CartItem,
 } from "@/lib/store/cart";
+import { shippingQuote } from "@/lib/pricing";
 import { formatPrice } from "@/lib/utils";
 
 export function CartDrawer() {
   const { items, isOpen, close, removeItem, updateQuantity } = useCart();
   const [mounted, setMounted] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   // Hydration guard: cart state lives in a persisted client store.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
@@ -24,34 +24,8 @@ export function CartDrawer() {
 
   const subtotal = cartSubtotal(items);
   const currency = items[0]?.currency ?? "USD";
-
-  async function handleCheckout() {
-    setError(null);
-    setCheckingOut(true);
-    try {
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          // Send only identity + selection — the server re-prices everything.
-          items: items.map((i) => ({
-            productId: i.productId,
-            options: i.options,
-            quantity: i.quantity,
-          })),
-        }),
-      });
-      const data = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !data.url) {
-        throw new Error(data.error ?? "Could not start checkout.");
-      }
-      // Hand off to Stripe's hosted checkout.
-      window.location.href = data.url;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-      setCheckingOut(false);
-    }
-  }
+  const quote = shippingQuote(currency, Math.round(subtotal * 100));
+  const remaining = quote.remainingCents / 100;
 
   return (
     <>
@@ -108,26 +82,24 @@ export function CartDrawer() {
 
         {items.length > 0 && (
           <div className="space-y-3 border-t border-[var(--border)] px-5 py-4">
+            {/* Free-shipping nudge so the buyer always knows where they stand */}
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]/70">
+              <Truck className="h-3.5 w-3.5 text-[var(--primary)]" />
+              {quote.qualifiesFree
+                ? "You've unlocked free shipping! 🎉"
+                : `Add ${formatPrice(remaining, currency)} for free shipping`}
+            </p>
             <div className="flex items-center justify-between text-base font-bold">
               <span>Subtotal</span>
               <span>{formatPrice(subtotal, currency)}</span>
             </div>
-            <p className="text-xs text-[var(--foreground)]/60">
-              Shipping & taxes calculated at checkout.
-            </p>
-            {error && (
-              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">
-                {error}
-              </p>
-            )}
-            <button
-              onClick={handleCheckout}
-              disabled={checkingOut}
-              className="btn-candy flex w-full items-center justify-center gap-2 py-3 disabled:opacity-60"
+            <Link
+              href="/cart"
+              onClick={close}
+              className="btn-candy flex w-full items-center justify-center gap-2 py-3"
             >
-              {checkingOut && <Loader2 className="h-4 w-4 animate-spin" />}
-              {checkingOut ? "Redirecting…" : "Checkout"}
-            </button>
+              View bag & checkout
+            </Link>
           </div>
         )}
       </aside>
