@@ -21,6 +21,7 @@ import { db } from "@/lib/db";
 import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { priceCart, CheckoutError, type CheckoutLineInput } from "@/lib/checkout";
+import { resolvePromotionCode } from "@/lib/coupon";
 import { getSession } from "@/lib/auth";
 
 // Stripe's SDK needs Node APIs (crypto) — not the edge runtime.
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { items?: CheckoutLineInput[] };
+  let body: { items?: CheckoutLineInput[]; promotionCode?: string };
   try {
     body = await request.json();
   } catch {
@@ -51,6 +52,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const cart = await priceCart(body.items ?? []);
+
+    // Resolve an optional promo code to a Stripe promotion code id. If valid we
+    // pre-apply it via `discounts`; otherwise we let the buyer enter one on the
+    // Stripe page via `allow_promotion_codes` (the two are mutually exclusive).
+    let promotionCodeId: string | null = null;
+    if (body.promotionCode?.trim()) {
+      const resolved = await resolvePromotionCode(body.promotionCode);
+      if (resolved) promotionCodeId = resolved.promotionCodeId;
+    }
 
     // Tie the order to a logged-in user if there is one (guests are fine too).
     const session = await getSession(await headers());
@@ -134,7 +144,10 @@ export async function POST(request: NextRequest) {
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
       phone_number_collection: { enabled: true },
       billing_address_collection: "auto",
-      allow_promotion_codes: true,
+      // Either pre-apply the entered code, or let them add one on Stripe — never both.
+      ...(promotionCodeId
+        ? { discounts: [{ promotion_code: promotionCodeId }] }
+        : { allow_promotion_codes: true }),
       automatic_tax: { enabled: false },
       // Reconstruct & fulfill the order in the webhook.
       client_reference_id: String(order.id),
