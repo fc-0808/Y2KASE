@@ -274,21 +274,27 @@ export async function getAdminCollectionOptions(): Promise<
 }
 
 /**
- * A representative product image for every collection id — used as the tile art
- * in the homepage category rail (far more premium than a generic icon). A
- * collection's thumbnail is its own first product image, or, if it has none of
- * its own, the first image found in any descendant (so "Sanrio" borrows a
- * "Hello Kitty" photo). Returns a map of collectionId → image URL.
+ * An ordered POOL of representative product images per collection id — used as
+ * the tile art in the homepage category rail. Returning a pool (not a single
+ * image) lets the caller assign a DISTINCT photo to each tile, so neighbouring
+ * categories (e.g. Kawaii / Y2K / Anime, which share many products) never show
+ * the same picture. Each collection's pool is its own product photos first,
+ * then its descendants' (so "Sanrio" can borrow "Hello Kitty" shots). One image
+ * per product, newest products first, capped for weight.
  */
-export async function getCollectionThumbnails(): Promise<Map<number, string>> {
+export async function getCollectionImagePools(): Promise<
+  Map<number, string[]>
+> {
   if (!isDbConfigured()) return new Map();
 
   const [imgRows, cols] = await Promise.all([
     db
       .select({
         collectionId: productCollections.collectionId,
+        productId: products.id,
         url: productImages.url,
         position: productImages.position,
+        createdAt: products.createdAt,
       })
       .from(productCollections)
       .innerJoin(products, eq(products.id, productCollections.productId))
@@ -297,13 +303,31 @@ export async function getCollectionThumbnails(): Promise<Map<number, string>> {
     db.query.collections.findMany({ columns: { id: true, parentId: true } }),
   ]);
 
-  // Best (lowest-position) image directly assigned to each collection.
-  const direct = new Map<number, { url: string; pos: number }>();
+  // collectionId → (productId → best/first image of that product)
+  const perColProd = new Map<
+    number,
+    Map<number, { url: string; pos: number; createdAt: Date }>
+  >();
   for (const r of imgRows) {
-    const cur = direct.get(r.collectionId);
+    let pm = perColProd.get(r.collectionId);
+    if (!pm) perColProd.set(r.collectionId, (pm = new Map()));
+    const cur = pm.get(r.productId);
     if (!cur || r.position < cur.pos) {
-      direct.set(r.collectionId, { url: r.url, pos: r.position });
+      pm.set(r.productId, {
+        url: r.url,
+        pos: r.position,
+        createdAt: (r.createdAt as Date) ?? new Date(0),
+      });
     }
+  }
+
+  // Direct image list per collection, newest product first.
+  const directList = new Map<number, string[]>();
+  for (const [cid, pm] of perColProd) {
+    const urls = [...pm.values()]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((x) => x.url);
+    directList.set(cid, urls);
   }
 
   const childrenOf = new Map<number, number[]>();
@@ -314,23 +338,23 @@ export async function getCollectionThumbnails(): Promise<Map<number, string>> {
     childrenOf.set(c.parentId, arr);
   }
 
-  function resolve(id: number, seen = new Set<number>()): string | null {
-    if (seen.has(id)) return null;
+  const CAP = 12;
+  function pool(id: number, seen = new Set<number>()): string[] {
+    if (seen.has(id)) return [];
     seen.add(id);
-    const own = direct.get(id);
-    if (own) return own.url;
+    const out: string[] = [];
+    const push = (u: string) => {
+      if (out.length < CAP && !out.includes(u)) out.push(u);
+    };
+    for (const u of directList.get(id) ?? []) push(u);
     for (const child of childrenOf.get(id) ?? []) {
-      const found = resolve(child, seen);
-      if (found) return found;
+      for (const u of pool(child, seen)) push(u);
     }
-    return null;
+    return out;
   }
 
-  const result = new Map<number, string>();
-  for (const c of cols) {
-    const url = resolve(c.id);
-    if (url) result.set(c.id, url);
-  }
+  const result = new Map<number, string[]>();
+  for (const c of cols) result.set(c.id, pool(c.id));
   return result;
 }
 

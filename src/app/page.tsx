@@ -1,8 +1,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Truck, ShieldCheck, Heart, Gift } from "lucide-react";
-import { getFeaturedProducts } from "@/lib/products";
-import { getCollectionTree, getCollectionThumbnails } from "@/lib/collections";
+import {
+  getFeaturedProducts,
+  getProducts,
+  type ProductListItem,
+} from "@/lib/products";
+import { getCollectionTree, getCollectionImagePools } from "@/lib/collections";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { ProductCard } from "@/components/ProductCard";
 import { DeviceIcon } from "@/components/brand/DeviceIcon";
@@ -12,34 +16,57 @@ import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
 import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
 
 export default async function HomePage() {
-  const [featured, tree, thumbs] = await Promise.all([
-    getFeaturedProducts(8),
-    getCollectionTree().catch(() => []),
-    getCollectionThumbnails().catch(() => new Map<number, string>()),
-  ]);
+  const [featured, tree, pools, sanrioItems, helloKittyItems] =
+    await Promise.all([
+      getFeaturedProducts(8),
+      getCollectionTree().catch(() => []),
+      getCollectionImagePools().catch(() => new Map<number, string[]>()),
+      getProducts({ collection: "sanrio" })
+        .then((r) => r.items)
+        .catch(() => [] as ProductListItem[]),
+      getProducts({ collection: "hello-kitty" })
+        .then((r) => r.items)
+        .catch(() => [] as ProductListItem[]),
+    ]);
 
-  // Flatten the taxonomy (roots + character children) into a single rail,
-  // surfacing stocked collections first, then any featured-but-empty ones.
-  const flat: RailCategory[] = [];
+  // Flatten the taxonomy (roots + character children), stocked collections
+  // first. Keep each node's id so we can assign a representative photo.
+  const nodes: { id: number; cat: RailCategory }[] = [];
   const seen = new Set<string>();
   for (const node of tree) {
     for (const n of [node, ...node.children]) {
       if (seen.has(n.slug)) continue;
       seen.add(n.slug);
-      flat.push({
-        slug: n.slug,
-        name: n.name,
-        icon: n.icon,
-        accent: n.accentColor,
-        count: n.totalCount,
-        kind: n.kind,
-        thumb: thumbs.get(n.id) ?? null,
+      nodes.push({
+        id: n.id,
+        cat: {
+          slug: n.slug,
+          name: n.name,
+          icon: n.icon,
+          accent: n.accentColor,
+          count: n.totalCount,
+          kind: n.kind,
+          thumb: null,
+        },
       });
     }
   }
-  const railCategories = flat
-    .sort((a, b) => Number(b.count > 0) - Number(a.count > 0) || b.count - a.count)
-    .slice(0, 14);
+  nodes.sort(
+    (a, b) =>
+      Number(b.cat.count > 0) - Number(a.cat.count > 0) ||
+      b.cat.count - a.cat.count,
+  );
+  const top = nodes.slice(0, 14);
+
+  // Greedily assign a DISTINCT photo to each tile so no two categories repeat.
+  const usedImages = new Set<string>();
+  for (const { id, cat } of top) {
+    const pool = pools.get(id) ?? [];
+    const pick = pool.find((u) => !usedImages.has(u)) ?? pool[0] ?? null;
+    if (pick) usedImages.add(pick);
+    cat.thumb = pick;
+  }
+  const railCategories = top.map((t) => t.cat);
 
   const devices = DEVICE_FAMILIES.flatMap((f) => f.devices).slice(0, 6);
 
@@ -81,6 +108,24 @@ export default async function HomePage() {
           <EmptyState />
         )}
       </section>
+
+      {/* ── Sanrio collection ─────────────────────────────────────────────── */}
+      <CollectionShowcase
+        eyebrow="Fan favourite"
+        title="The Sanrio Collection"
+        href="/collections/sanrio"
+        accent="#ff7eb6"
+        products={sanrioItems}
+      />
+
+      {/* ── Hello Kitty spotlight ─────────────────────────────────────────── */}
+      <CollectionShowcase
+        eyebrow="Icon status"
+        title="Hello Kitty Spotlight"
+        href="/collections/hello-kitty"
+        accent="#ff4d6d"
+        products={helloKittyItems}
+      />
 
       {/* ── Shop by device ────────────────────────────────────────────────── */}
       <section className="mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
@@ -147,14 +192,14 @@ export default async function HomePage() {
                 <Gift className="h-4 w-4" /> Start shopping
               </Link>
             </div>
-            <div className="relative mx-auto w-full max-w-sm">
-              <div className="overflow-hidden rounded-3xl border-2 border-white shadow-lg">
+            <div className="relative w-full">
+              <div className="relative aspect-[3/2] overflow-hidden rounded-3xl border-2 border-white shadow-lg">
                 <Image
-                  src="/brand/club.png"
+                  src="/brand/club.webp"
                   alt="Welcome to the Y2KASE Club"
-                  width={700}
-                  height={875}
-                  className="h-full w-full object-cover"
+                  fill
+                  sizes="(max-width: 1024px) 100vw, 45vw"
+                  className="object-cover"
                 />
               </div>
             </div>
@@ -169,18 +214,24 @@ function SectionHeading({
   eyebrow,
   title,
   href,
+  accent,
 }: {
   eyebrow: string;
   title: string;
   href: string;
+  accent?: string;
 }) {
   return (
-    <div className="mb-6 flex items-end justify-between gap-4">
+    <div className="mb-7 flex items-end justify-between gap-4">
       <div>
-        <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
+        <p
+          className="font-pixel text-[10px] uppercase tracking-tight"
+          style={{ color: accent ?? "var(--primary)" }}
+        >
           {eyebrow}
         </p>
-        <h2 className="mt-1.5 font-display text-2xl font-extrabold sm:text-3xl">
+        {/* Pixel-arcade title — the Y2KASE signature voice. */}
+        <h2 className="mt-2.5 font-pixel text-base leading-[1.35] sm:text-lg lg:text-xl">
           {title}
         </h2>
       </div>
@@ -191,6 +242,39 @@ function SectionHeading({
         View all <ArrowRight className="h-4 w-4" />
       </Link>
     </div>
+  );
+}
+
+/**
+ * CollectionShowcase — an editorial horizontal product rail for a single
+ * collection (e.g. Sanrio, Hello Kitty). Brand-skinned with an accent eyebrow;
+ * renders nothing when the collection has no stocked products.
+ */
+function CollectionShowcase({
+  eyebrow,
+  title,
+  href,
+  accent,
+  products,
+}: {
+  eyebrow: string;
+  title: string;
+  href: string;
+  accent: string;
+  products: ProductListItem[];
+}) {
+  if (!products || products.length === 0) return null;
+  return (
+    <section className="mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
+      <SectionHeading eyebrow={eyebrow} title={title} href={href} accent={accent} />
+      <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
+        {products.slice(0, 12).map((product) => (
+          <div key={product.id} className="w-40 shrink-0 sm:w-52">
+            <ProductCard product={product} />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

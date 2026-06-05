@@ -173,7 +173,7 @@ export function HeroCarousel() {
                   <span className="sticker font-pixel text-[9px] uppercase tracking-tight">
                     {slide.eyebrow}
                   </span>
-                  <h1 className="mt-4 font-display text-5xl font-extrabold leading-[0.98] tracking-tight text-[var(--foreground)] drop-shadow-sm sm:text-6xl lg:text-7xl">
+                  <h1 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
                     {slide.title}
                   </h1>
                   <p

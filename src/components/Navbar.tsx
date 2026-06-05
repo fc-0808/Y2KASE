@@ -79,12 +79,17 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
       ref={headerRef}
       className="relative border-b border-[var(--border)] bg-[var(--background)]/85 backdrop-blur-md"
     >
-      <div className="mx-auto flex h-16 max-w-[1800px] items-center justify-between gap-4 px-4 sm:px-6">
-        {/* Left: logo + desktop triggers */}
-        <div className="flex items-center gap-7">
-          <Link href="/" aria-label="Y2KASE home" className="flex items-center">
-            <Wordmark className="text-base sm:text-lg" />
-          </Link>
+      <div className="mx-auto grid h-16 max-w-[1800px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 sm:px-6">
+        {/* Left: mobile menu toggle + desktop nav triggers */}
+        <div className="flex items-center gap-1 justify-self-start">
+          <button
+            type="button"
+            onClick={() => setMobileOpen((v) => !v)}
+            aria-label="Menu"
+            className="grid h-10 w-10 place-items-center rounded-full hover:bg-[var(--muted)] md:hidden"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
 
           <nav className="hidden items-center gap-1 text-sm font-bold md:flex">
             <MenuTrigger
@@ -108,8 +113,17 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
           </nav>
         </div>
 
+        {/* Center: wordmark */}
+        <Link
+          href="/"
+          aria-label="Y2KASE home"
+          className="flex items-center justify-self-center"
+        >
+          <Wordmark className="text-lg sm:text-xl" />
+        </Link>
+
         {/* Right: actions */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 justify-self-end">
           <Link
             href="/products"
             aria-label="Search products"
@@ -133,14 +147,6 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
           <div className="hidden md:block">
             <UserButton />
           </div>
-          <button
-            type="button"
-            onClick={() => setMobileOpen((v) => !v)}
-            aria-label="Menu"
-            className="grid h-10 w-10 place-items-center rounded-full hover:bg-[var(--muted)] md:hidden"
-          >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
         </div>
       </div>
 
