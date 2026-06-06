@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import type { Metadata } from "next";
 import { ArrowRight, Truck, ShieldCheck, Heart, Gift } from "lucide-react";
 import {
   getFeaturedProducts,
@@ -14,6 +15,10 @@ import { HeroCarousel } from "@/components/home/HeroCarousel";
 import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
 import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 export default async function HomePage() {
   const col = (slug: string) =>
@@ -179,7 +184,9 @@ export default async function HomePage() {
           {devices.map((d) => (
             <Link
               key={d.id}
-              href={`/products?device=${d.id}`}
+              // Live devices have a dedicated, indexable landing page; others
+              // fall back to the filtered catalog until they're stocked.
+              href={d.comingSoon ? `/products?device=${d.id}` : `/devices/${d.id}`}
               className="card-cute group flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-1 hover:border-[var(--primary)]"
             >
               <span className="grid h-12 w-12 place-items-center rounded-2xl bg-holo text-[var(--primary)] transition group-hover:scale-110">

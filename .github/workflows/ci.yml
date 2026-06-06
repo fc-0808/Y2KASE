@@ -1,0 +1,46 @@
+name: CI
+
+# Gate every push and pull request on the same checks we run locally, so a
+# regression can never reach a deploy. Mirrors the "lint → typecheck → build"
+# pipeline a production DTC team runs on each commit.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+        env:
+          # The build must succeed without real secrets — pages degrade to empty
+          # states when services aren't configured. A placeholder keeps the
+          # Next.js metadataBase / canonical URLs deterministic in CI.
+          NEXT_PUBLIC_SITE_URL: https://y2kase.com

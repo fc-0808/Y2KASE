@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { X, Sparkles, Gift } from "lucide-react";
 
 const LS_KEY_SHOWN_AT = "y2k_popup_shown_at";
@@ -262,12 +263,12 @@ export function EmailCapturePop() {
                   </p>
                 </div>
 
-                <a
+                <Link
                   href="/products"
                   className="btn-candy inline-block px-8 py-3 text-sm"
                 >
                   Shop Now ✨
-                </a>
+                </Link>
               </div>
             )}
           </div>

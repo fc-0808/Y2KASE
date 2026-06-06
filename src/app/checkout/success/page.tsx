@@ -8,6 +8,7 @@ import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { formatPrice } from "@/lib/utils";
 import { ClearCartOnMount } from "@/components/checkout/ClearCartOnMount";
+import { PurchaseTracking } from "@/components/checkout/PurchaseTracking";
 
 export const metadata: Metadata = {
   title: "Order confirmed ✨",
@@ -52,6 +53,25 @@ export default async function CheckoutSuccessPage({
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-16 sm:px-6">
       <ClearCartOnMount />
+      {paid && order && (
+        <PurchaseTracking
+          order={{
+            transactionId: String(order.id),
+            value: order.totalCents / 100,
+            shipping: order.shippingCents / 100,
+            tax: order.taxCents / 100,
+            currency: order.currency,
+            items: order.items.map((item) => ({
+              productId: item.productId ?? item.productSlug,
+              slug: item.productSlug,
+              title: item.productTitle,
+              price: item.unitCents / 100,
+              quantity: item.quantity,
+              options: item.optionValues ?? undefined,
+            })),
+          }}
+        />
+      )}
 
       <div className="card-cute overflow-hidden">
         <div className="h-1.5 w-full bg-holo-vivid" />

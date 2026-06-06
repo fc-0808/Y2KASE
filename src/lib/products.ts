@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, ne, notInArray, or, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { products, productCollections } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
@@ -11,6 +11,19 @@ import {
 import { productTypeLabel } from "@/lib/catalog/product-types";
 import { deviceProductTypes } from "@/lib/catalog/devices";
 import { resolveCollectionFilterIds } from "@/lib/collections";
+import { getReviewSummaries } from "@/lib/reviews";
+
+/** Attach published-review summaries to a list of products for card star ratings. */
+async function withRatings(
+  items: ProductListItem[],
+): Promise<ProductListItem[]> {
+  if (items.length === 0) return items;
+  const summaries = await getReviewSummaries(items.map((i) => i.id));
+  return items.map((i) => {
+    const s = summaries.get(i.id);
+    return s && s.count > 0 ? { ...i, rating: s } : i;
+  });
+}
 
 export type ProductListItem = {
   id: number;
@@ -22,6 +35,8 @@ export type ProductListItem = {
   tags: string[];
   featured: boolean;
   imageUrl: string | null;
+  /** Published-review summary, attached for listing-card star ratings. */
+  rating?: { count: number; average: number };
 };
 
 const PAGE_SIZE = 24;
@@ -129,7 +144,12 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
     imageUrl: p.images[0]?.url ?? null,
   }));
 
-  return { items, total: count, page, pageSize: PAGE_SIZE };
+  return {
+    items: await withRatings(items),
+    total: count,
+    page,
+    pageSize: PAGE_SIZE,
+  };
 }
 
 export async function getFeaturedProducts(
@@ -149,7 +169,7 @@ export async function getFeaturedProducts(
   });
 
   if (rows.length > 0) {
-    return rows.map(toListItem);
+    return withRatings(rows.map(toListItem));
   }
 
   // Fallback: if nothing is explicitly featured yet, show the newest products.
@@ -164,7 +184,70 @@ export async function getFeaturedProducts(
       },
     },
   });
-  return fallback.map(toListItem);
+  return withRatings(fallback.map(toListItem));
+}
+
+/**
+ * Recommend products related to a given one, for the PDP "You may also like"
+ * rail. Relevance is layered: products sharing a collection (most relevant)
+ * first, then topped up with other products of the same device/type. This lifts
+ * AOV and pages-per-session, and deepens internal linking for crawlers.
+ */
+export async function getRelatedProducts(opts: {
+  productId: number;
+  productType: string;
+  limit?: number;
+}): Promise<ProductListItem[]> {
+  if (!isDbConfigured()) return [];
+  const limit = opts.limit ?? 8;
+
+  // 1) Same-collection products (strongest relevance signal).
+  const collRows = await db
+    .select({ cid: productCollections.collectionId })
+    .from(productCollections)
+    .where(eq(productCollections.productId, opts.productId));
+  const collectionIds = collRows.map((r) => r.cid);
+
+  let related: ProductListItem[] = [];
+  if (collectionIds.length > 0) {
+    const idRows = await db
+      .selectDistinct({ pid: productCollections.productId })
+      .from(productCollections)
+      .where(
+        and(
+          inArray(productCollections.collectionId, collectionIds),
+          ne(productCollections.productId, opts.productId),
+        ),
+      );
+    const ids = idRows.map((r) => r.pid);
+    if (ids.length > 0) {
+      const rows = await db.query.products.findMany({
+        where: and(inArray(products.id, ids), eq(products.status, "active")),
+        orderBy: desc(products.featured),
+        limit,
+        with: { images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 } },
+      });
+      related = rows.map(toListItem);
+    }
+  }
+
+  // 2) Top up with same-type products if we're short.
+  if (related.length < limit) {
+    const exclude = [opts.productId, ...related.map((r) => r.id)];
+    const more = await db.query.products.findMany({
+      where: and(
+        eq(products.status, "active"),
+        eq(products.productType, opts.productType),
+        notInArray(products.id, exclude),
+      ),
+      orderBy: desc(products.createdAt),
+      limit: limit - related.length,
+      with: { images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 } },
+    });
+    related = [...related, ...more.map(toListItem)];
+  }
+
+  return withRatings(related.slice(0, limit));
 }
 
 export async function getProductBySlug(

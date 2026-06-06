@@ -1,11 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ShoppingBag, Check, Play } from "lucide-react";
 import { useCart } from "@/lib/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { STYLE_OPTION_NAME, getStylePrice, defaultStyleFor } from "@/lib/pricing";
+import { trackAddToCart, trackViewItem } from "@/lib/analytics/gtag";
+import { Stars } from "@/components/reviews/Stars";
 
 type Option = { id: number; name: string; values: string[] };
 type Img = {
@@ -27,6 +29,8 @@ export function ProductDetailClient({
   price,
   currency,
   productType,
+  ratingAverage = 0,
+  ratingCount = 0,
   videoUrl,
   videoPosition,
   images,
@@ -38,6 +42,8 @@ export function ProductDetailClient({
   price: number;
   currency: string;
   productType: string;
+  ratingAverage?: number;
+  ratingCount?: number;
   videoUrl: string | null;
   videoPosition: number | null;
   images: Img[];
@@ -116,6 +122,17 @@ export function ProductDetailClient({
 
   const current = slides[activeSlide] ?? slides[0];
 
+  // GA4 view_item — fire exactly once when the PDP is first viewed.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (viewedRef.current) return;
+    viewedRef.current = true;
+    trackViewItem(
+      { productId, slug, title, price: currentPrice, options: selected },
+      currency,
+    );
+  }, [productId, slug, title, currentPrice, currency, selected]);
+
   function handleAdd() {
     if (!allSelected) return;
     addItem({
@@ -127,6 +144,10 @@ export function ProductDetailClient({
       imageUrl: visibleImages[0]?.url ?? images[0]?.url ?? null,
       options: selected,
     });
+    trackAddToCart(
+      { productId, slug, title, price: currentPrice, options: selected, quantity: 1 },
+      currency,
+    );
     setAdded(true);
     setTimeout(() => setAdded(false), 1500);
   }
@@ -205,6 +226,17 @@ export function ProductDetailClient({
           <h1 className="text-2xl font-black leading-tight sm:text-3xl">
             {title}
           </h1>
+          {ratingCount > 0 && (
+            <a
+              href="#reviews"
+              className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--foreground)]/70 hover:text-[var(--primary)]"
+            >
+              <Stars rating={ratingAverage} size={15} />
+              <span>
+                {ratingAverage.toFixed(1)} ({ratingCount})
+              </span>
+            </a>
+          )}
           <p className="mt-2 text-2xl font-bold text-[var(--primary)]">
             {formatPrice(currentPrice, currency)}
           </p>

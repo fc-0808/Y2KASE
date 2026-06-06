@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
+import { Stars } from "@/components/reviews/Stars";
 import type { ProductListItem } from "@/lib/products";
 
 export function ProductCard({ product }: { product: ProductListItem }) {
@@ -35,6 +36,14 @@ export function ProductCard({ product }: { product: ProductListItem }) {
         <h3 className="line-clamp-2 text-sm font-bold leading-snug transition group-hover:text-[var(--primary)]">
           {product.title}
         </h3>
+        {product.rating && product.rating.count > 0 && (
+          <div className="flex items-center gap-1">
+            <Stars rating={product.rating.average} size={13} />
+            <span className="text-xs font-semibold text-[var(--foreground)]/50">
+              ({product.rating.count})
+            </span>
+          </div>
+        )}
         <div className="mt-auto flex items-center gap-2">
           <span className="font-extrabold text-[var(--primary)]">
             <span className="text-xs font-semibold text-[var(--foreground)]/45">

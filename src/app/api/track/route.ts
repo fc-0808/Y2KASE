@@ -13,6 +13,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { parseUserAgent, recordPageView } from "@/lib/analytics";
+import { hit } from "@/lib/rate-limit";
 
 /** First-party cookie holding the anonymous visitor id. */
 const VISITOR_COOKIE = "y2k_vid";
@@ -47,6 +48,12 @@ function geo(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Cap the beacon so a single source can't flood the analytics table. On limit
+  // we drop silently (204) — analytics must never surface an error to the user.
+  if (!hit(`track:${clientIp(req)}`, { limit: 120, windowMs: 60_000 }).ok) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   let body: { path?: unknown; referrer?: unknown } = {};
   try {
     body = await req.json();

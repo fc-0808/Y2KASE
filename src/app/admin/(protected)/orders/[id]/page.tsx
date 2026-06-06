@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, MapPin, User as UserIcon, CreditCard } from "lucide-react";
+import { ArrowLeft, MapPin, User as UserIcon, CreditCard, Truck } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { getOrderById } from "@/lib/admin/orders";
 import { formatCents } from "@/lib/utils";
+import { trackingLink } from "@/lib/carriers";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import { ShipForm } from "./ShipForm";
 
 export const metadata: Metadata = { title: "Admin · Order" };
 export const dynamic = "force-dynamic";
@@ -172,6 +174,41 @@ export default async function AdminOrderDetailPage({
                 Session: {order.stripeSessionId}
               </p>
             )}
+          </Card>
+
+          <Card title="Fulfillment" icon={<Truck className="h-4 w-4" />}>
+            {order.shippedAt && (
+              <p className="mb-3 text-xs text-[var(--foreground)]/60">
+                Shipped {dateFmt.format(new Date(order.shippedAt))}
+                {(() => {
+                  const link = trackingLink(
+                    order.carrier,
+                    order.trackingNumber,
+                    order.trackingUrl,
+                  );
+                  return link ? (
+                    <>
+                      {" · "}
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-[var(--primary)] hover:underline"
+                      >
+                        Track
+                      </a>
+                    </>
+                  ) : null;
+                })()}
+              </p>
+            )}
+            <ShipForm
+              orderId={order.id}
+              initialCarrier={order.carrier}
+              initialTracking={order.trackingNumber}
+              initialTrackingUrl={order.trackingUrl}
+              shipped={Boolean(order.shippedAt)}
+            />
           </Card>
         </aside>
       </div>

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import createMDX from "@next/mdx";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,4 +46,11 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Enable .mdx imports for the blog content collection. We deliberately keep the
+// plugin set empty so the loader behaves identically under both the webpack
+// build and the Turbopack dev server (Turbopack requires serializable plugin
+// config), and we do NOT add "mdx" to pageExtensions — content files are
+// imported as modules via the registry, never routed directly.
+const withMDX = createMDX({});
+
+export default withMDX(nextConfig);

@@ -16,6 +16,10 @@ import { db } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
 import { OrderConfirmation } from "@/emails/OrderConfirmation";
 import { MagicLinkEmail } from "@/emails/MagicLinkEmail";
+import { ShipmentEmail } from "@/emails/ShipmentEmail";
+import { AbandonedCartEmail } from "@/emails/AbandonedCartEmail";
+import { ReviewRequestEmail } from "@/emails/ReviewRequestEmail";
+import { trackingLink } from "@/lib/carriers";
 
 let _resend: Resend | null = null;
 
@@ -108,6 +112,75 @@ export async function sendOrderConfirmationOnce(
 }
 
 /**
+ * Send the shipment-notification email exactly once for an order. Claims the
+ * send atomically via orders.shipment_email_sent_at, releasing the claim on
+ * failure so it can be retried. Best-effort: returns a status, never throws.
+ */
+export async function sendShipmentNotificationOnce(
+  orderId: number,
+): Promise<"sent" | "skipped" | "failed"> {
+  const resend = getResend();
+  if (!resend) {
+    console.warn("[email] RESEND_API_KEY not set; skipping shipment email.");
+    return "skipped";
+  }
+
+  const claimed = await db
+    .update(orders)
+    .set({ shipmentEmailSentAt: new Date() })
+    .where(and(eq(orders.id, orderId), isNull(orders.shipmentEmailSentAt)))
+    .returning({ id: orders.id });
+
+  if (claimed.length === 0) return "skipped";
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    with: { items: true },
+  });
+
+  if (!order || !order.email) {
+    await releaseShipmentClaim(orderId);
+    return "failed";
+  }
+
+  try {
+    const element = ShipmentEmail({
+      orderId: order.id,
+      name: order.shippingAddress?.name,
+      carrier: order.carrier,
+      trackingNumber: order.trackingNumber,
+      trackingUrl: trackingLink(
+        order.carrier,
+        order.trackingNumber,
+        order.trackingUrl,
+      ),
+      items: order.items.map((it) => ({
+        title: it.productTitle,
+        quantity: it.quantity,
+      })),
+      siteUrl: SITE_URL,
+    });
+    const [html, text] = await Promise.all([
+      render(element),
+      render(element, { plainText: true }),
+    ]);
+
+    await resend.emails.send({
+      from: FROM,
+      to: order.email,
+      subject: `Your Y2KASE order #${order.id} has shipped 📦✨`,
+      html,
+      text,
+    });
+    return "sent";
+  } catch (err) {
+    console.error(`[email] failed to send shipment email for order ${orderId}:`, err);
+    await releaseShipmentClaim(orderId);
+    return "failed";
+  }
+}
+
+/**
  * Send a passwordless magic sign-in link. Called by Better Auth's magic-link
  * plugin (see src/lib/auth.ts). Throws on failure so Better Auth surfaces the
  * error to the caller instead of silently telling the user "check your email".
@@ -144,6 +217,98 @@ export async function sendMagicLinkEmail(params: {
   });
 }
 
+/**
+ * Send an abandoned-cart reminder. Best-effort; returns whether it sent. The
+ * exactly-once guard (orders.abandoned_email_sent_at) is owned by the caller
+ * (the cron job) so it can claim before the network round-trip.
+ */
+export async function sendAbandonedCartEmail(params: {
+  to: string;
+  name?: string;
+  items: { title: string; quantity: number }[];
+  resumeUrl: string;
+  unsubscribeUrl?: string;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+
+  try {
+    const element = AbandonedCartEmail({
+      name: params.name,
+      items: params.items,
+      resumeUrl: params.resumeUrl,
+      unsubscribeUrl: params.unsubscribeUrl,
+    });
+    const [html, text] = await Promise.all([
+      render(element),
+      render(element, { plainText: true }),
+    ]);
+
+    await resend.emails.send({
+      from: FROM,
+      to: params.to,
+      subject: "You left something cute in your bag 🥺✨",
+      html,
+      text,
+      ...(params.unsubscribeUrl
+        ? {
+            headers: {
+              "List-Unsubscribe": `<${params.unsubscribeUrl}>`,
+            },
+          }
+        : {}),
+    });
+    return true;
+  } catch (err) {
+    console.error("[email] abandoned-cart send failed:", err);
+    return false;
+  }
+}
+
+/**
+ * Send a post-purchase review-request email. Best-effort; returns whether it
+ * sent. Exactly-once is owned by the caller (the cron) via
+ * orders.review_request_email_sent_at.
+ */
+export async function sendReviewRequestEmail(params: {
+  to: string;
+  name?: string;
+  productTitle: string;
+  reviewUrl: string;
+  unsubscribeUrl?: string;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+
+  try {
+    const element = ReviewRequestEmail({
+      name: params.name,
+      productTitle: params.productTitle,
+      reviewUrl: params.reviewUrl,
+      unsubscribeUrl: params.unsubscribeUrl,
+    });
+    const [html, text] = await Promise.all([
+      render(element),
+      render(element, { plainText: true }),
+    ]);
+
+    await resend.emails.send({
+      from: FROM,
+      to: params.to,
+      subject: "How are you loving your Y2KASE order? ⭐",
+      html,
+      text,
+      ...(params.unsubscribeUrl
+        ? { headers: { "List-Unsubscribe": `<${params.unsubscribeUrl}>` } }
+        : {}),
+    });
+    return true;
+  } catch (err) {
+    console.error("[email] review-request send failed:", err);
+    return false;
+  }
+}
+
 /** Release the email claim so a webhook redelivery can retry the send. */
 async function releaseClaim(orderId: number) {
   try {
@@ -153,5 +318,17 @@ async function releaseClaim(orderId: number) {
       .where(eq(orders.id, orderId));
   } catch (err) {
     console.error(`[email] failed to release claim for order ${orderId}:`, err);
+  }
+}
+
+/** Release the shipment-email claim so a later attempt can retry the send. */
+async function releaseShipmentClaim(orderId: number) {
+  try {
+    await db
+      .update(orders)
+      .set({ shipmentEmailSentAt: null })
+      .where(eq(orders.id, orderId));
+  } catch (err) {
+    console.error(`[email] failed to release shipment claim for order ${orderId}:`, err);
   }
 }

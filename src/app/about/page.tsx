@@ -53,7 +53,7 @@ export default function AboutPage() {
         <p>
           Email: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
           <br />
-          Instagram: @y2kase.official
+          Instagram: @y2kase_official
         </p>
       </article>
     </div>

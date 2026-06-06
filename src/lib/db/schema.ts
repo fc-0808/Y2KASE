@@ -139,6 +139,26 @@ export const orders = pgTable(
     confirmationEmailSentAt: timestamp("confirmation_email_sent_at", {
       withTimezone: true,
     }),
+    /** Carrier tracking number, set when the order ships. */
+    trackingNumber: text("tracking_number"),
+    /** Carrier name, e.g. "USPS", "DHL". */
+    carrier: text("carrier"),
+    /** Optional full tracking URL (overrides the carrier-derived link). */
+    trackingUrl: text("tracking_url"),
+    /** When the order was marked shipped. */
+    shippedAt: timestamp("shipped_at", { withTimezone: true }),
+    /** Set when the shipment-notification email is sent — exactly-once guard. */
+    shipmentEmailSentAt: timestamp("shipment_email_sent_at", {
+      withTimezone: true,
+    }),
+    /** Set when an abandoned-cart reminder is sent — prevents duplicate nudges. */
+    abandonedEmailSentAt: timestamp("abandoned_email_sent_at", {
+      withTimezone: true,
+    }),
+    /** Set when the post-purchase review-request email is sent — exactly-once. */
+    reviewRequestEmailSentAt: timestamp("review_request_email_sent_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -383,6 +403,50 @@ export const productCollections = pgTable(
 );
 
 /**
+ * reviews — customer product reviews + star ratings.
+ *
+ * Powers social proof on the PDP and, crucially, the aggregateRating in the
+ * Product structured data (the star ratings Google shows in search results).
+ * Verified-purchase reviews auto-publish; everything else is held for admin
+ * moderation so the storefront can't be spammed.
+ */
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: serial("id").primaryKey(),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    /** Linked order when we can match the reviewer to a purchase. */
+    orderId: integer("order_id").references(() => orders.id, {
+      onDelete: "set null",
+    }),
+    /** Optional signed-in author. */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Public display name. */
+    authorName: text("author_name").notNull(),
+    /** Private — used for verified-purchase matching, never displayed. */
+    authorEmail: text("author_email"),
+    /** Integer 1–5. */
+    rating: integer("rating").notNull(),
+    title: text("title"),
+    body: text("body").notNull(),
+    /** pending | published | rejected */
+    status: text("status").notNull().default("pending"),
+    /** True when the reviewer has a matching paid order for this product. */
+    verified: boolean("verified").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("reviews_product_idx").on(t.productId),
+    index("reviews_status_idx").on(t.status),
+  ],
+);
+
+/**
  * provenance_events — append-only audit log carried over from the MDM pipeline.
  */
 export const provenanceEvents = pgTable("provenance_events", {
@@ -403,6 +467,16 @@ export const productsRelations = relations(products, ({ many }) => ({
   options: many(productOptions),
   variants: many(productVariants),
   collections: many(productCollections),
+  reviews: many(reviews),
+}));
+
+export const reviewsRelations = relations(reviews, ({ one }) => ({
+  product: one(products, {
+    fields: [reviews.productId],
+    references: [products.id],
+  }),
+  order: one(orders, { fields: [reviews.orderId], references: [orders.id] }),
+  user: one(users, { fields: [reviews.userId], references: [users.id] }),
 }));
 
 export const collectionsRelations = relations(collections, ({ one, many }) => ({
@@ -461,6 +535,8 @@ export type ProductVariant = typeof productVariants.$inferSelect;
 export type Collection = typeof collections.$inferSelect;
 export type NewCollection = typeof collections.$inferInsert;
 export type ProductCollection = typeof productCollections.$inferSelect;
+export type Review = typeof reviews.$inferSelect;
+export type NewReview = typeof reviews.$inferInsert;
 
 export type ProductWithRelations = Product & {
   images: ProductImage[];

@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { products, collections } from "@/lib/db/schema";
 import { LEGAL_SLUGS } from "@/lib/legal";
+import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
+import { getAllPosts } from "@/lib/blog";
 
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
@@ -11,10 +13,34 @@ const SITE_URL =
 export const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // Live (stocked) device landing pages — high-intent SEO category pages.
+  const deviceRoutes: MetadataRoute.Sitemap = DEVICE_FAMILIES.flatMap((f) =>
+    f.devices,
+  )
+    .filter((d) => !d.comingSoon)
+    .map((d) => ({
+      url: `${SITE_URL}/devices/${d.id}`,
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+    }));
+
+  // Blog index + posts — the organic content engine.
+  const blogRoutes: MetadataRoute.Sitemap = [
+    { url: `${SITE_URL}/blog`, changeFrequency: "weekly", priority: 0.7 },
+    ...getAllPosts().map((p) => ({
+      url: `${SITE_URL}/blog/${p.slug}`,
+      lastModified: new Date(`${p.meta.date}T00:00:00Z`),
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    })),
+  ];
+
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: `${SITE_URL}/`, changeFrequency: "daily", priority: 1 },
     { url: `${SITE_URL}/products`, changeFrequency: "daily", priority: 0.9 },
     { url: `${SITE_URL}/collections`, changeFrequency: "weekly", priority: 0.8 },
+    ...deviceRoutes,
+    ...blogRoutes,
     { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.4 },
     { url: `${SITE_URL}/faq`, changeFrequency: "monthly", priority: 0.4 },
     { url: `${SITE_URL}/contact`, changeFrequency: "monthly", priority: 0.4 },

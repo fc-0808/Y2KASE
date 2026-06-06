@@ -8,6 +8,9 @@ import { ProductCard } from "@/components/ProductCard";
 export const metadata: Metadata = {
   title: "Shop All",
   description: "Browse all Y2KASE phone cases, charms, and accessories.",
+  // Filtered/paginated variants (?tag, ?page, ?sort, …) all consolidate to the
+  // canonical catalog URL so search engines don't index thin duplicates.
+  alternates: { canonical: "/products" },
 };
 
 type SearchParams = {

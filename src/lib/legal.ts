@@ -79,7 +79,7 @@ export const LEGAL_DOCS: Record<string, LegalDoc> = {
     title: "Privacy Policy",
     description:
       "How Y2KASE collects, uses and protects your personal information.",
-    updated: "2026-06-04",
+    updated: "2026-06-06",
     body: `
 <p>Y2KASE ("we", "us", "our") is committed to protecting your personal information. This policy explains how we collect, use, and protect your data.</p>
 <h2>Information We Collect</h2>
@@ -96,11 +96,16 @@ export const LEGAL_DOCS: Record<string, LegalDoc> = {
 <li>To send marketing emails (only with your consent)</li>
 </ul>
 <h2>Sharing Your Information</h2>
-<p>We do not sell your personal data. We share information only with the service providers necessary to operate our store — including <strong>Stripe</strong> (payment processing), our shipping carriers, and our email provider.</p>
+<p>We do not sell your personal data. We share information only with the service providers necessary to operate our store — including <strong>Stripe</strong> (payment processing), our shipping carriers, our email provider, and <strong>Google Analytics</strong> (traffic measurement, used only with your consent).</p>
 <h2>Your Rights (GDPR)</h2>
 <p>If you are located in the EU or UK, you have the right to access, correct, or delete your personal data. Contact us at <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> to exercise these rights.</p>
-<h2>Cookies</h2>
-<p>We use cookies to maintain your shopping session, remember preferences, and analyse traffic. You can disable cookies in your browser settings.</p>
+<h2>Cookies &amp; Consent</h2>
+<p>We use two categories of cookies:</p>
+<ul>
+<li><strong>Essential cookies</strong> keep the store working — your shopping bag, sign-in session, and security. These are always on.</li>
+<li><strong>Analytics cookies</strong> (Google Analytics 4 and our own first-party visitor measurement) help us understand how the store is used so we can improve it. These load only after you accept.</li>
+</ul>
+<p>When you first visit, we ask for your choice via a cookie banner and apply <strong>Google Consent Mode</strong> — until you accept, analytics and advertising storage stay disabled. You can change your decision at any time using the <strong>“Cookie settings”</strong> link in the footer, or by clearing cookies in your browser.</p>
 <h2>Data Retention</h2>
 <p>We retain order data for 7 years for accounting purposes. You may request deletion of marketing data at any time.</p>
 <h2>Contact</h2>

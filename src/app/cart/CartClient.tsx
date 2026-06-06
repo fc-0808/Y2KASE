@@ -34,6 +34,7 @@ import {
 } from "@/lib/store/cart";
 import { shippingQuote } from "@/lib/pricing";
 import { formatPrice } from "@/lib/utils";
+import { trackBeginCheckout } from "@/lib/analytics/gtag";
 
 type AppliedCoupon = { code: string; label: string; discountCents: number };
 
@@ -127,6 +128,7 @@ export function CartClient() {
   async function handleCheckout() {
     setError(null);
     setCheckingOut(true);
+    trackBeginCheckout(items, currency, coupon?.code);
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",

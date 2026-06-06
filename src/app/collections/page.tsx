@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   title: "Collections",
   description:
     "Browse Y2KASE by character, brand and theme — Sanrio, Miffy, Tamagotchi, anime and more.",
+  alternates: { canonical: "/collections" },
 };
 
 export default async function CollectionsIndexPage() {
@@ -35,7 +36,7 @@ export default async function CollectionsIndexPage() {
           {DEVICE_FAMILIES.flatMap((f) => f.devices).map((d) => (
             <Link
               key={d.id}
-              href={`/products?device=${d.id}`}
+              href={d.comingSoon ? `/products?device=${d.id}` : `/devices/${d.id}`}
               className="card-cute group flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-1 hover:border-[var(--primary)]"
             >
               <span className="grid h-12 w-12 place-items-center rounded-2xl bg-holo text-2xl transition group-hover:scale-110">

@@ -13,14 +13,30 @@ import { eq } from "drizzle-orm";
 import { Resend } from "resend";
 import { render } from "@react-email/components";
 import { WelcomeEmail } from "@/emails/WelcomeEmail";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { listUnsubscribeHeaders, unsubscribeUrl } from "@/lib/unsubscribe";
 
 export const runtime = "nodejs";
 
 const PROMO_CODE = "WELCOME10";
 
-const resend = new Resend(process.env.RESEND_API_KEY!);
+// Lazily construct the client so a missing key can't crash the module at import
+// time (which would 500 the whole route instead of degrading gracefully).
+let _resend: Resend | null = null;
+function getResend(): Resend | null {
+  if (!process.env.RESEND_API_KEY) return null;
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
 export async function POST(request: NextRequest) {
+  // Throttle to blunt automated signup spam against the email provider.
+  const limited = enforceRateLimit(request, "subscribe", {
+    limit: 5,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   try {
     const body = await request.json();
     const email = (body.email ?? "").trim().toLowerCase();
@@ -56,19 +72,30 @@ export async function POST(request: NextRequest) {
     });
 
     // Send welcome email. Best-effort — never block the response on email.
-    try {
-      const html = await render(WelcomeEmail({ name: name ?? undefined, code: PROMO_CODE }));
-      const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\nHere is your 10% off code for your first order:\n\n${PROMO_CODE}\n\nEnter it at checkout at https://y2kase.com\n\nShop now: https://y2kase.com/products`;
+    const resend = getResend();
+    if (resend) {
+      try {
+        const unsubUrl = unsubscribeUrl(email);
+        const html = await render(
+          WelcomeEmail({ name: name ?? undefined, code: PROMO_CODE, unsubscribeUrl: unsubUrl }),
+        );
+        const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\nHere is your 10% off code for your first order:\n\n${PROMO_CODE}\n\nEnter it at checkout at https://y2kase.com\n\nShop now: https://y2kase.com/products\n\nUnsubscribe: ${unsubUrl}`;
 
-      await resend.emails.send({
-        from: process.env.EMAIL_FROM ?? "Y2KASE <onboarding@resend.dev>",
-        to: email,
-        subject: "✨ Your 10% off code is here, bestie!",
-        html,
-        text,
-      });
-    } catch (emailErr) {
-      console.error("[subscribe] email send failed:", emailErr);
+        await resend.emails.send({
+          from: process.env.EMAIL_FROM ?? "Y2KASE <onboarding@resend.dev>",
+          to: email,
+          subject: "✨ Your 10% off code is here, bestie!",
+          html,
+          text,
+          // One-click unsubscribe (RFC 8058) — required for bulk senders and
+          // a strong deliverability signal to Gmail/Yahoo.
+          headers: listUnsubscribeHeaders(email),
+        });
+      } catch (emailErr) {
+        console.error("[subscribe] email send failed:", emailErr);
+      }
+    } else {
+      console.warn("[subscribe] RESEND_API_KEY not set; skipping welcome email.");
     }
 
     return NextResponse.json({ ok: true, code: PROMO_CODE });

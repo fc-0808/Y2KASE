@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "@/lib/auth-client";
 import { Wordmark, Sparkle } from "@/components/brand/Decor";
@@ -219,19 +220,19 @@ export function SignInClient({
 
         <p className="mt-6 text-xs leading-relaxed text-[var(--foreground)]/40">
           By signing in you agree to our{" "}
-          <a
+          <Link
             href="/policies/terms-of-service"
             className="underline hover:text-[var(--primary)]"
           >
             Terms
-          </a>{" "}
+          </Link>{" "}
           and{" "}
-          <a
+          <Link
             href="/policies/privacy-policy"
             className="underline hover:text-[var(--primary)]"
           >
             Privacy Policy
-          </a>
+          </Link>
           .
         </p>
       </div>

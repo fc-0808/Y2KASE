@@ -110,6 +110,12 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
             >
               Shop All
             </Link>
+            <Link
+              href="/blog"
+              className="rounded-full px-3 py-2 transition hover:bg-[var(--muted)] hover:text-[var(--primary)]"
+            >
+              Blog
+            </Link>
           </nav>
         </div>
 

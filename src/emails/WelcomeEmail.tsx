@@ -14,9 +14,11 @@ import * as React from "react";
 interface WelcomeEmailProps {
   name?: string;
   code: string;
+  /** Signed one-click unsubscribe link (marketing email requirement). */
+  unsubscribeUrl?: string;
 }
 
-export function WelcomeEmail({ name, code }: WelcomeEmailProps) {
+export function WelcomeEmail({ name, code, unsubscribeUrl }: WelcomeEmailProps) {
   const greeting = name ? `Hey ${name}! ✨` : "Welcome, bestie! ✨";
 
   return (
@@ -82,6 +84,15 @@ export function WelcomeEmail({ name, code }: WelcomeEmailProps) {
               <a href="https://y2kase.com/policies/refund-policy" style={footerLinkStyle}>
                 Refund Policy
               </a>
+              {unsubscribeUrl ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <a href={unsubscribeUrl} style={footerLinkStyle}>
+                    Unsubscribe
+                  </a>
+                </>
+              ) : null}
             </Text>
           </Section>
         </Container>

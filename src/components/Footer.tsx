@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Globe } from "lucide-react";
 import { Wordmark, PixelHeart, Sparkle } from "@/components/brand/Decor";
+import { CookieSettingsLink } from "@/components/analytics/CookieSettingsLink";
 
 /** lucide v1 dropped brand glyphs (trademark), so we inline them. */
 function InstagramIcon() {
@@ -32,7 +33,7 @@ export function Footer() {
           </p>
           <div className="mt-4 flex gap-2">
             <Social
-              href="https://instagram.com/y2kase.official"
+              href="https://instagram.com/y2kase_official"
               label="Instagram"
             >
               <InstagramIcon />
@@ -50,7 +51,7 @@ export function Footer() {
           title="Shop"
           links={[
             { href: "/products", label: "All Products" },
-            { href: "/products?device=iphone", label: "iPhone Cases" },
+            { href: "/devices/iphone", label: "iPhone Cases" },
             { href: "/collections", label: "Collections" },
             { href: "/products?tag=phone_charm", label: "Charms" },
           ]}
@@ -77,20 +78,25 @@ export function Footer() {
           title="Company"
           links={[
             { href: "/about", label: "About" },
+            { href: "/blog", label: "Blog" },
             { href: "/policies/privacy-policy", label: "Privacy Policy" },
             { href: "/policies/terms-of-service", label: "Terms of Service" },
             {
-              href: "https://instagram.com/y2kase.official",
-              label: "@y2kase.official",
+              href: "https://instagram.com/y2kase_official",
+              label: "@y2kase_official",
             },
           ]}
         />
       </div>
 
-      <div className="flex items-center justify-center gap-1.5 border-t border-[var(--border)] py-4 text-center text-xs font-semibold text-[var(--foreground)]/55">
-        <Sparkle className="h-3 w-3 text-[var(--accent)]" />© {new Date().getFullYear()}{" "}
-        Y2KASE — made with <PixelHeart className="inline h-3.5 w-3.5" /> for
-        besties everywhere
+      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-[var(--border)] py-4 text-center text-xs font-semibold text-[var(--foreground)]/55">
+        <span className="inline-flex items-center gap-1.5">
+          <Sparkle className="h-3 w-3 text-[var(--accent)]" />© {new Date().getFullYear()}{" "}
+          Y2KASE — made with <PixelHeart className="inline h-3.5 w-3.5" /> for
+          besties everywhere
+        </span>
+        <span aria-hidden>·</span>
+        <CookieSettingsLink className="hover:text-[var(--primary)]" />
       </div>
     </footer>
   );

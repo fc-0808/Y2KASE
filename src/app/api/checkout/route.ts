@@ -23,6 +23,7 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { priceCart, CheckoutError, type CheckoutLineInput } from "@/lib/checkout";
 import { resolvePromotionCode } from "@/lib/coupon";
 import { getSession } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 // Stripe's SDK needs Node APIs (crypto) — not the edge runtime.
 export const runtime = "nodejs";
@@ -36,6 +37,13 @@ const SHIPPING_COUNTRIES: Stripe.Checkout.SessionCreateParams.ShippingAddressCol
   ["US", "CA", "GB", "AU", "HK", "SG", "JP", "DE", "FR", "NL", "NZ"];
 
 export async function POST(request: NextRequest) {
+  // Each session create costs a Stripe API call + a DB write, so cap bursts.
+  const limited = enforceRateLimit(request, "checkout", {
+    limit: 10,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   if (!isStripeConfigured()) {
     return NextResponse.json(
       { error: "Checkout is not available right now." },

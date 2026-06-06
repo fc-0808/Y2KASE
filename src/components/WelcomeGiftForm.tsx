@@ -15,6 +15,7 @@
  */
 
 import { useState } from "react";
+import Link from "next/link";
 import { Gift, Sparkles, Check, Copy, ArrowRight } from "lucide-react";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -121,12 +122,12 @@ export function WelcomeGiftForm() {
           </p>
         </div>
 
-        <a
+        <Link
           href="/products"
           className="btn-candy mt-5 inline-flex w-full items-center justify-center gap-2 py-3.5 text-sm"
         >
           Shop the collection <ArrowRight className="h-4 w-4" />
-        </a>
+        </Link>
       </div>
     );
   }
@@ -201,9 +202,9 @@ export function WelcomeGiftForm() {
 
         <p className="text-center text-[11px] text-[var(--foreground)]/40">
           No spam, ever. Unsubscribe anytime. By joining you agree to our{" "}
-          <a href="/policies/privacy-policy" className="underline">
+          <Link href="/policies/privacy-policy" className="underline">
             Privacy Policy
-          </a>
+          </Link>
           .
         </p>
       </form>

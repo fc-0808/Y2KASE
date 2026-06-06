@@ -7,6 +7,11 @@ import { Footer } from "@/components/Footer";
 import { CartDrawer } from "@/components/CartDrawer";
 import { EmailCapturePopLoader } from "@/components/EmailCapturePopLoader";
 import { VisitorTracker } from "@/components/VisitorTracker";
+import { JsonLd } from "@/components/JsonLd";
+import { ConsentMode } from "@/components/analytics/ConsentMode";
+import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics";
+import { CookieConsent } from "@/components/analytics/CookieConsent";
+import { organizationJsonLd, websiteJsonLd } from "@/lib/seo";
 
 // Body — rounded, friendly, highly legible.
 const nunito = Nunito({
@@ -82,6 +87,8 @@ export default function RootLayout({
       className={`${nunito.variable} ${baloo.variable} ${pixel.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-dvh flex-col">
+        <ConsentMode />
+        <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
         <SiteHeader />
         <main className="flex-1">{children}</main>
         <Footer />
@@ -89,6 +96,8 @@ export default function RootLayout({
         <EmailCapturePopLoader />
         <Analytics />
         <VisitorTracker />
+        <GoogleAnalytics />
+        <CookieConsent />
       </body>
     </html>
   );

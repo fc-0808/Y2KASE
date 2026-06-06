@@ -2,8 +2,14 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { getProductBySlug } from "@/lib/products";
+import { getProductBySlug, getRelatedProducts } from "@/lib/products";
+import { getReviewSummary, getPublishedReviews } from "@/lib/reviews";
 import { ProductDetailClient } from "@/components/ProductDetailClient";
+import { ProductReviews } from "@/components/reviews/ProductReviews";
+import { ProductCard } from "@/components/ProductCard";
+import { RecentlyViewed } from "@/components/RecentlyViewed";
+import { JsonLd } from "@/components/JsonLd";
+import { BRAND, breadcrumbJsonLd, productJsonLd } from "@/lib/seo";
 
 export const revalidate = 3600; // ISR: refresh product pages hourly.
 
@@ -15,12 +21,27 @@ export async function generateMetadata({
   const { slug } = await params;
   const product = await getProductBySlug(slug);
   if (!product) return { title: "Product not found" };
+
+  const description =
+    product.description?.trim().slice(0, 160) || BRAND.description;
+  const canonical = `/products/${product.slug}`;
+
+  // og:image comes from the colocated opengraph-image.tsx (branded card);
+  // Twitter falls back to it automatically.
   return {
     title: product.title,
-    description: product.description?.slice(0, 160) ?? undefined,
+    description,
+    alternates: { canonical },
     openGraph: {
+      type: "website",
       title: product.title,
-      images: product.images[0]?.url ? [product.images[0].url] : [],
+      description,
+      url: canonical,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: product.title,
+      description,
     },
   };
 }
@@ -34,8 +55,24 @@ export default async function ProductPage({
   const product = await getProductBySlug(slug);
   if (!product) notFound();
 
+  const [reviewSummary, reviews, related] = await Promise.all([
+    getReviewSummary(product.id),
+    getPublishedReviews(product.id),
+    getRelatedProducts({ productId: product.id, productType: product.productType }),
+  ]);
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+      <JsonLd
+        data={[
+          productJsonLd(product, reviewSummary),
+          breadcrumbJsonLd([
+            { name: "Home", url: "/" },
+            { name: "Shop", url: "/products" },
+            { name: product.title, url: `/products/${product.slug}` },
+          ]),
+        ]}
+      />
       <Link
         href="/products"
         className="mb-6 inline-flex items-center gap-1 text-sm font-semibold text-[var(--foreground)]/60 hover:text-[var(--primary)]"
@@ -50,6 +87,8 @@ export default async function ProductPage({
         price={Number(product.price)}
         currency={product.currency}
         productType={product.productType}
+        ratingAverage={reviewSummary.average}
+        ratingCount={reviewSummary.count}
         videoUrl={product.videoUrl}
         videoPosition={product.videoPosition}
         images={product.images.map((i) => ({
@@ -93,6 +132,36 @@ export default async function ProductPage({
           ))}
         </section>
       )}
+
+      {related.length > 0 && (
+        <section className="mt-16">
+          <h2 className="mb-5 text-xl font-black">You may also like</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {related.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <ProductReviews
+        productId={product.id}
+        slug={product.slug}
+        summary={reviewSummary}
+        reviews={reviews}
+      />
+
+      <RecentlyViewed
+        current={{
+          id: product.id,
+          slug: product.slug,
+          title: product.title,
+          price: product.price,
+          compareAtPrice: product.compareAtPrice,
+          currency: product.currency,
+          imageUrl: product.images[0]?.url ?? null,
+        }}
+      />
     </div>
   );
 }

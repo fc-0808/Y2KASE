@@ -9,6 +9,8 @@ import {
 } from "@/lib/collections";
 import { getProducts } from "@/lib/products";
 import { ProductCard } from "@/components/ProductCard";
+import { JsonLd } from "@/components/JsonLd";
+import { breadcrumbJsonLd, collectionPageJsonLd } from "@/lib/seo";
 
 export const revalidate = 3600;
 
@@ -22,11 +24,20 @@ export async function generateMetadata({
   const { slug } = await params;
   const collection = await getCollectionBySlug(slug);
   if (!collection) return { title: "Collection not found" };
+  const description =
+    collection.description ??
+    `Shop the ${collection.name} collection at Y2KASE.`;
   return {
     title: collection.name,
-    description:
-      collection.description ??
-      `Shop the ${collection.name} collection at Y2KASE.`,
+    description,
+    alternates: { canonical: `/collections/${slug}` },
+    openGraph: {
+      type: "website",
+      title: collection.name,
+      description,
+      url: `/collections/${slug}`,
+      // og:image comes from the colocated opengraph-image.tsx (branded card).
+    },
   };
 }
 
@@ -63,6 +74,24 @@ export default async function CollectionPage({
 
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6">
+      <JsonLd
+        data={[
+          breadcrumbJsonLd([
+            { name: "Home", url: "/" },
+            { name: "Collections", url: "/collections" },
+            ...breadcrumb.map((c) => ({
+              name: c.name,
+              url: `/collections/${c.slug}`,
+            })),
+          ]),
+          collectionPageJsonLd({
+            name: collection.name,
+            description: collection.description,
+            url: `/collections/${slug}`,
+            productUrls: items.map((p) => `/products/${p.slug}`),
+          }),
+        ]}
+      />
       {/* Breadcrumb */}
       <nav className="mb-6 flex flex-wrap items-center gap-1 text-sm text-[var(--foreground)]/55">
         <Link href="/collections" className="hover:text-[var(--primary)]">
