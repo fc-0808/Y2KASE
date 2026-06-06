@@ -12,6 +12,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Cookie } from "lucide-react";
+
+declare global {
+  interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fbq?: (...args: any[]) => void;
+  }
+}
 import {
   CONSENT_GRANT_ALL,
   CONSENT_DENY_ALL,
@@ -37,8 +44,19 @@ export function CookieConsent() {
   if (!open) return null;
 
   function choose(granted: boolean) {
-    saveConsent(granted ? CONSENT_GRANT_ALL : CONSENT_DENY_ALL);
+    const state = granted ? CONSENT_GRANT_ALL : CONSENT_DENY_ALL;
+    saveConsent(state);
     setOpen(false);
+    // Notify TikTok Pixel and Pinterest Tag (they listen for this event to load
+    // their scripts only after the user has explicitly opted in).
+    window.dispatchEvent(new CustomEvent("y2k:consent-update", { detail: state }));
+    // Grant Meta Pixel consent so fbq can start firing events.
+    if (granted) {
+      if (typeof window.fbq === "function") {
+        window.fbq("consent", "grant");
+        window.fbq("track", "PageView");
+      }
+    }
   }
 
   return (

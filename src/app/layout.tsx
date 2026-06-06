@@ -10,6 +10,10 @@ import { VisitorTracker } from "@/components/VisitorTracker";
 import { JsonLd } from "@/components/JsonLd";
 import { ConsentMode } from "@/components/analytics/ConsentMode";
 import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics";
+import { MetaPixel } from "@/components/analytics/MetaPixel";
+import { TikTokPixel } from "@/components/analytics/TikTokPixel";
+import { PinterestTag } from "@/components/analytics/PinterestTag";
+import { UtmCapture } from "@/components/analytics/UtmCapture";
 import { CookieConsent } from "@/components/analytics/CookieConsent";
 import { organizationJsonLd, websiteJsonLd } from "@/lib/seo";
 
@@ -97,6 +101,10 @@ export default function RootLayout({
         <Analytics />
         <VisitorTracker />
         <GoogleAnalytics />
+        <MetaPixel />
+        <TikTokPixel />
+        <PinterestTag />
+        <UtmCapture />
         <CookieConsent />
       </body>
     </html>

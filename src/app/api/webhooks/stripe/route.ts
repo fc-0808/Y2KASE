@@ -20,9 +20,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import type Stripe from "stripe";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { orders } from "@/lib/db/schema";
+import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe } from "@/lib/stripe";
 import { sendOrderConfirmationOnce } from "@/lib/email";
+import { sendCapiPurchase } from "@/lib/analytics/meta-capi";
 
 export const runtime = "nodejs";
 
@@ -146,4 +147,27 @@ async function markOrderPaid(session: Stripe.Checkout.Session) {
   // mail failure can't make Stripe retry an already-fulfilled order.
   const result = await sendOrderConfirmationOnce(orderId);
   console.log(`[webhook] order ${orderId} paid; confirmation email: ${result}`);
+
+  // Server-side Meta CAPI purchase event — bypasses iOS 14 restrictions and
+  // ad blockers for accurate purchase attribution. Deduplicated via event_id.
+  const items = await db
+    .select({
+      productId: orderItems.productId,
+      quantity: orderItems.quantity,
+      unitCents: orderItems.unitCents,
+    })
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId));
+
+  await sendCapiPurchase({
+    orderId: String(orderId),
+    totalCents: session.amount_total ?? 0,
+    currency: session.currency ?? "usd",
+    email: session.customer_details?.email ?? session.customer_email ?? undefined,
+    items: items.map((i) => ({
+      productId: String(i.productId ?? ""),
+      quantity: i.quantity,
+      unitCents: i.unitCents,
+    })),
+  });
 }

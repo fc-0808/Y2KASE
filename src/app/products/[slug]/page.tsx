@@ -8,8 +8,12 @@ import { ProductDetailClient } from "@/components/ProductDetailClient";
 import { ProductReviews } from "@/components/reviews/ProductReviews";
 import { ProductCard } from "@/components/ProductCard";
 import { RecentlyViewed } from "@/components/RecentlyViewed";
+import { SocialShare } from "@/components/SocialShare";
 import { JsonLd } from "@/components/JsonLd";
 import { BRAND, breadcrumbJsonLd, productJsonLd } from "@/lib/seo";
+
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://y2kase.com";
 
 export const revalidate = 3600; // ISR: refresh product pages hourly.
 
@@ -118,6 +122,15 @@ export default async function ProductPage({
           )}
         </section>
       )}
+
+      {/* Social sharing — Pinterest Save + copy link for organic virality */}
+      <div className="mt-8">
+        <SocialShare
+          url={`${SITE_URL}/products/${product.slug}`}
+          title={product.title}
+          imageUrl={product.images[0]?.url ?? undefined}
+        />
+      </div>
 
       {product.tags.length > 0 && (
         <section className="mt-8 flex flex-wrap gap-2">
