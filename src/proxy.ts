@@ -21,7 +21,12 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ── Protect /admin routes ────────────────────────────────────────────────
-  if (pathname.startsWith("/admin")) {
+  // Match the admin area precisely: the bare "/admin" route and anything under
+  // "/admin/". A plain startsWith("/admin") check would also capture unrelated
+  // paths like "/admins" or "/administrator", redirecting them into the auth
+  // flow and then bouncing back to a 404 after login.
+  const isAdminPath = pathname === "/admin" || pathname.startsWith("/admin/");
+  if (isAdminPath) {
     // Skip the sign-in page itself to avoid redirect loops.
     if (pathname === "/admin/sign-in") return NextResponse.next();
 

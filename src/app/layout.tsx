@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Footer } from "@/components/Footer";
 import { CartDrawer } from "@/components/CartDrawer";
 import { EmailCapturePopLoader } from "@/components/EmailCapturePopLoader";
+import { VisitorTracker } from "@/components/VisitorTracker";
 
 // Body — rounded, friendly, highly legible.
 const nunito = Nunito({
@@ -87,6 +88,7 @@ export default function RootLayout({
         <CartDrawer />
         <EmailCapturePopLoader />
         <Analytics />
+        <VisitorTracker />
       </body>
     </html>
   );

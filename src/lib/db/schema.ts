@@ -505,6 +505,64 @@ export const emailSubscribers = pgTable(
 
 export type EmailSubscriber = typeof emailSubscribers.$inferSelect;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// VISITOR ANALYTICS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * page_views — first-party, privacy-conscious web analytics.
+ *
+ * One row per page view, captured by a lightweight client beacon
+ * (`/api/track`). The server enriches each event with the visitor's IP and
+ * approximate geolocation (derived from Vercel's edge headers in production),
+ * a derived device/browser/OS, and a first-party `visitor_id` cookie used to
+ * count *unique* visitors without third-party fingerprinting.
+ *
+ * This is the same model used by self-hosted analytics (Plausible, Fathom,
+ * Umami): no external tracker, the data stays in our own database, and bots are
+ * filtered out at capture time so the numbers reflect real humans.
+ */
+export const pageViews = pgTable(
+  "page_views",
+  {
+    id: serial("id").primaryKey(),
+    /** Anonymous first-party visitor id (cookie). Powers unique-visitor counts. */
+    visitorId: text("visitor_id").notNull(),
+    /** Set when the visitor is a logged-in user at view time. */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Pathname visited, e.g. "/products/hello-kitty-case". */
+    path: text("path").notNull(),
+    /** Document referrer, when present. */
+    referrer: text("referrer"),
+    /** Best-effort client IP (first hop of x-forwarded-for). */
+    ip: text("ip"),
+    country: text("country"),
+    region: text("region"),
+    city: text("city"),
+    latitude: numeric("latitude", { precision: 9, scale: 6 }),
+    longitude: numeric("longitude", { precision: 9, scale: 6 }),
+    timezone: text("timezone"),
+    /** Raw User-Agent string for auditing. */
+    userAgent: text("user_agent"),
+    /** Derived from UA: mobile | tablet | desktop | bot. */
+    device: text("device"),
+    browser: text("browser"),
+    os: text("os"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("page_views_created_idx").on(t.createdAt),
+    index("page_views_visitor_idx").on(t.visitorId),
+    index("page_views_path_idx").on(t.path),
+    index("page_views_country_idx").on(t.country),
+  ],
+);
+
+export type PageView = typeof pageViews.$inferSelect;
+export type NewPageView = typeof pageViews.$inferInsert;
+
 export type User = typeof users.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;

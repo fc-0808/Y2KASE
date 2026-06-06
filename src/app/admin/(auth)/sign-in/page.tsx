@@ -5,11 +5,40 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles, Loader2 } from "lucide-react";
 import { signIn } from "@/lib/auth-client";
 
+/** Where admins land after signing in when no (valid) callback is supplied. */
+const DEFAULT_CALLBACK = "/admin/products";
+
+/**
+ * Resolve the post-login destination to a SAFE internal admin path.
+ *
+ * This guards against two problems:
+ *  1. Open redirects — an attacker-supplied `?callbackUrl=https://evil.com`
+ *     (or protocol-relative `//evil.com`) must never be followed.
+ *  2. Dead-end navigations — values like `/admins` that aren't real admin
+ *     routes would push the user straight into a 404 after a successful login.
+ *
+ * We therefore only accept relative paths that live inside the admin area and
+ * are not the sign-in page itself; everything else falls back to the default.
+ */
+function resolveCallbackUrl(raw: string | null): string {
+  if (!raw) return DEFAULT_CALLBACK;
+  // Must be a relative path on this origin. Reject absolute URLs and
+  // protocol-relative URLs ("//host") that browsers treat as cross-origin.
+  if (!raw.startsWith("/") || raw.startsWith("//")) return DEFAULT_CALLBACK;
+  // Never bounce back to the sign-in page (would look like a failed login).
+  if (raw === "/admin/sign-in" || raw.startsWith("/admin/sign-in")) {
+    return DEFAULT_CALLBACK;
+  }
+  // Only navigate within the admin area; "/admins" & friends are not admin.
+  if (raw === "/admin" || raw.startsWith("/admin/")) return raw;
+  return DEFAULT_CALLBACK;
+}
+
 // Inner component isolates useSearchParams() inside the required Suspense boundary.
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/admin/products";
+  const callbackUrl = resolveCallbackUrl(searchParams.get("callbackUrl"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

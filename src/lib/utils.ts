@@ -29,3 +29,11 @@ export function formatPrice(
     currency,
   }).format(Number.isFinite(value) ? value : 0);
 }
+
+/** Format an integer amount of minor units (cents) as a currency string. */
+export function formatCents(
+  cents: number,
+  currency = process.env.NEXT_PUBLIC_STORE_CURRENCY ?? "USD",
+) {
+  return formatPrice((Number.isFinite(cents) ? cents : 0) / 100, currency);
+}

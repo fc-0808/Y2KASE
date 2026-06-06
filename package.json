@@ -14,6 +14,7 @@
     "db:collections": "tsx scripts/apply-collections-schema.ts",
     "db:orders": "tsx scripts/apply-orders-schema.ts",
     "db:subscribers": "tsx scripts/apply-subscribers-schema.ts",
+    "db:analytics": "tsx scripts/apply-analytics-schema.ts",
     "seed:collections": "tsx scripts/seed-collections.ts",
     "backfill:collections": "tsx scripts/backfill-collections.ts",
     "import:catalog": "tsx scripts/migrate-sqlite.ts",
