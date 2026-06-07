@@ -142,10 +142,15 @@ export type RecentVisit = {
 export type CountRow = { label: string; value: number };
 export type DailyPoint = { date: string; views: number; uniques: number };
 
+/** Returns midnight of the current day in Hong Kong Time (UTC+8). */
 const startOfToday = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+  const hkDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Hong_Kong",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date()); // e.g. "2026-06-07"
+  return new Date(`${hkDate}T00:00:00+08:00`);
 };
 const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 

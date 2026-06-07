@@ -22,6 +22,7 @@ const timeFmt = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   hour: "numeric",
   minute: "2-digit",
+  timeZone: "Asia/Hong_Kong",
 });
 
 /** Turn a 2-letter ISO country code into its flag emoji. */
