@@ -26,6 +26,17 @@ import { pageViews, type NewPageView } from "@/lib/db/schema";
 const EXCLUDED_COUNTRIES = ["CN", "TW", "HK"] as const;
 const EXCLUDED_IPS = ["::1", "127.0.0.1", "0.0.0.0"] as const;
 
+// Postgres regex that matches the first two octets of all known crawler
+// IP ranges — Google (Googlebot + JS Rendering Service), Bing, Meta, Applebot.
+// Google's renderer sends a real Chrome UA so UA-based filtering misses it;
+// the IP prefix is the only reliable signal for those historical rows too.
+const CRAWLER_IP_REGEX =
+  "^(66\\.249\\.|64\\.233\\.|66\\.102\\.|72\\.14\\.|74\\.125\\." +
+  "|209\\.85\\.|216\\.58\\.|216\\.239\\.|35\\.191\\.|130\\.211\\." + // Google
+  "|40\\.77\\.|157\\.55\\.|207\\.46\\.|65\\.52\\." +                 // Bing
+  "|66\\.220\\.|69\\.63\\.|69\\.171\\.|173\\.252\\." +               // Meta
+  "|17\\.0\\.|17\\.172\\.|17\\.253\\.)";                             // Applebot
+
 /** SQL predicate: keep rows that are not internal owner/supplier traffic. */
 const humanTraffic = and(
   or(
@@ -35,6 +46,12 @@ const humanTraffic = and(
   or(
     isNull(pageViews.ip),
     notInArray(pageViews.ip, EXCLUDED_IPS as unknown as string[]),
+  ),
+  // Exclude known crawler IPs (catches historical rows pre-dating the
+  // IP filter in /api/track, as well as any future gaps in UA detection).
+  or(
+    isNull(pageViews.ip),
+    sql`${pageViews.ip} !~ ${CRAWLER_IP_REGEX}`,
   ),
 );
 
