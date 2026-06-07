@@ -17,6 +17,7 @@ import {
   UploadCloud,
   Megaphone,
   ExternalLink,
+  Inbox,
 } from "lucide-react";
 import { signOut } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/reviews", label: "Reviews", icon: Star },
   { href: "/admin/members", label: "Members", icon: Users },
   { href: "/admin/subscribers", label: "Subscribers", icon: Mail },
+  { href: "/admin/inbox", label: "Inbox", icon: Inbox },
   { href: "/admin/visitors", label: "Visitors", icon: Globe },
   { href: "/admin/social", label: "Social", icon: Megaphone },
   { href: "/admin/upload", label: "Upload", icon: UploadCloud },
