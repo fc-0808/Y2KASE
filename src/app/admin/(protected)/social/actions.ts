@@ -18,9 +18,17 @@ import {
   deleteCreative,
   updateCreativeCopy,
   countCreativesSince,
+  getCreativeById,
+  scheduleCreative,
   CREATIVE_STATUSES,
   type CreativeStatus,
 } from "@/lib/social/creatives";
+import { publishCreative } from "@/lib/social/publish";
+import {
+  isPinterestConfigured,
+  listBoards,
+  type PinterestBoard,
+} from "@/lib/social/pinterest";
 
 export type SocialActionResult = {
   ok: boolean;
@@ -169,6 +177,82 @@ export async function editCreativeCopy(
   await updateCreativeCopy(id, caption.trim(), hashtags);
   revalidatePath("/admin/social");
   return { ok: true, message: "Copy updated." };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLISHING (Pinterest)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BoardsResult = {
+  ok: boolean;
+  message: string;
+  configured: boolean;
+  boards: PinterestBoard[];
+};
+
+/** Fetch the connected Pinterest account's boards for the publish picker. */
+export async function fetchPinterestBoards(): Promise<BoardsResult> {
+  if (!(await guard())) {
+    return { ok: false, message: "Not authorized.", configured: false, boards: [] };
+  }
+  if (!isPinterestConfigured()) {
+    return {
+      ok: false,
+      message: "PINTEREST_ACCESS_TOKEN is not set.",
+      configured: false,
+      boards: [],
+    };
+  }
+  try {
+    const boards = await listBoards();
+    return { ok: true, message: "", configured: true, boards };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to load boards.";
+    return { ok: false, message: msg, configured: true, boards: [] };
+  }
+}
+
+/** Publish a creative to Pinterest immediately. */
+export async function publishNow(
+  id: number,
+  boardId: string,
+): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  if (!boardId) return { ok: false, message: "Pick a board first." };
+
+  const creative = await getCreativeById(id);
+  if (!creative) return { ok: false, message: "Creative not found." };
+
+  const outcome = await publishCreative(creative, {
+    boardId,
+    revertToScheduledOnError: false,
+  });
+  revalidatePath("/admin/social");
+  return outcome.ok
+    ? { ok: true, message: "Published to Pinterest 📌", creativeId: id }
+    : { ok: false, message: outcome.error };
+}
+
+/** Schedule a creative for automated publishing. `whenIso` is an ISO datetime. */
+export async function schedulePublish(
+  id: number,
+  whenIso: string,
+  boardId: string,
+): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  if (!boardId) return { ok: false, message: "Pick a board first." };
+
+  const when = new Date(whenIso);
+  if (Number.isNaN(when.getTime())) {
+    return { ok: false, message: "Invalid date/time." };
+  }
+  if (when.getTime() < Date.now() - 60_000) {
+    return { ok: false, message: "Pick a time in the future." };
+  }
+
+  await scheduleCreative(id, when, boardId);
+  revalidatePath("/admin/social");
+  return { ok: true, message: "Scheduled ⏰", creativeId: id };
 }
 
 /** Delete a creative and clean up its R2 object. */

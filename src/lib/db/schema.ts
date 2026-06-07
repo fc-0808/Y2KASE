@@ -480,12 +480,22 @@ export const socialCreatives = pgTable(
     caption: text("caption"),
     /** Hashtags (no leading '#'). */
     hashtags: text("hashtags").array().notNull().default([]),
-    /** draft | approved | published | rejected */
+    /** draft | approved | scheduled | published | rejected */
     status: text("status").notNull().default("draft"),
     /** Image model used, e.g. "gpt-image-1". */
     model: text("model"),
     /** Approx generation cost in USD cents (for spend tracking). */
     costCents: integer("cost_cents"),
+    /** When set + status=scheduled, the publish cron will post at/after this. */
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    /** Target Pinterest board id for publishing. */
+    boardId: text("board_id"),
+    /** External id returned by the platform after publishing (e.g. pin id). */
+    externalId: text("external_id"),
+    /** Public URL of the published post. */
+    externalUrl: text("external_url"),
+    /** Last publish error message, if a publish attempt failed. */
+    lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -497,6 +507,7 @@ export const socialCreatives = pgTable(
   (t) => [
     index("social_creatives_status_idx").on(t.status),
     index("social_creatives_product_idx").on(t.productId),
+    index("social_creatives_scheduled_idx").on(t.scheduledAt),
   ],
 );
 

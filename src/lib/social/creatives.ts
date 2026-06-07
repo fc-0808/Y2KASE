@@ -6,13 +6,14 @@
  * setCreativeStatus so callers can't write arbitrary states.
  */
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { socialCreatives } from "@/lib/db/schema";
 
 export const CREATIVE_STATUSES = [
   "draft",
   "approved",
+  "scheduled",
   "published",
   "rejected",
 ] as const;
@@ -31,6 +32,11 @@ export type SocialCreative = {
   status: string;
   model: string | null;
   costCents: number | null;
+  scheduledAt: Date | null;
+  boardId: string | null;
+  externalId: string | null;
+  externalUrl: string | null;
+  lastError: string | null;
   createdAt: Date;
   updatedAt: Date;
   publishedAt: Date | null;
@@ -131,6 +137,7 @@ export async function deleteCreative(id: number): Promise<string | null> {
 export type CreativeStatusCounts = {
   draft: number;
   approved: number;
+  scheduled: number;
   published: number;
   rejected: number;
   totalCostCents: number;
@@ -138,7 +145,14 @@ export type CreativeStatusCounts = {
 
 export async function getCreativeStatusCounts(): Promise<CreativeStatusCounts> {
   if (!isDbConfigured()) {
-    return { draft: 0, approved: 0, published: 0, rejected: 0, totalCostCents: 0 };
+    return {
+      draft: 0,
+      approved: 0,
+      scheduled: 0,
+      published: 0,
+      rejected: 0,
+      totalCostCents: 0,
+    };
   }
   const rows = await db
     .select({
@@ -152,6 +166,7 @@ export async function getCreativeStatusCounts(): Promise<CreativeStatusCounts> {
   const out: CreativeStatusCounts = {
     draft: 0,
     approved: 0,
+    scheduled: 0,
     published: 0,
     rejected: 0,
     totalCostCents: 0,
@@ -174,4 +189,97 @@ export async function countCreativesSince(since: Date): Promise<number> {
     .from(socialCreatives)
     .where(and(sql`${socialCreatives.createdAt} >= ${since.toISOString()}`));
   return row?.count ?? 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLISHING (P3 — Pinterest)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Schedule a creative for automated publishing at a future time. */
+export async function scheduleCreative(
+  id: number,
+  when: Date,
+  boardId: string,
+): Promise<void> {
+  await db
+    .update(socialCreatives)
+    .set({
+      status: "scheduled",
+      scheduledAt: when,
+      boardId,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(socialCreatives.id, id));
+}
+
+/**
+ * Atomically claim a scheduled creative for publishing. Flips it to "published"
+ * up front so a concurrent cron invocation can't double-post; the caller then
+ * fills in the external id/url (or rolls back to "scheduled" with lastError on
+ * failure). Returns true if this caller won the claim.
+ */
+export async function claimForPublish(id: number): Promise<boolean> {
+  const rows = await db
+    .update(socialCreatives)
+    .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(socialCreatives.id, id), eq(socialCreatives.status, "scheduled")))
+    .returning({ id: socialCreatives.id });
+  return rows.length > 0;
+}
+
+/** Record a successful publish (external id + url). */
+export async function markPublished(
+  id: number,
+  externalId: string,
+  externalUrl: string,
+): Promise<void> {
+  await db
+    .update(socialCreatives)
+    .set({
+      status: "published",
+      externalId,
+      externalUrl,
+      lastError: null,
+      publishedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(socialCreatives.id, id));
+}
+
+/** Record a failed publish; revert to scheduled so it can be retried. */
+export async function markPublishFailed(
+  id: number,
+  error: string,
+  revertToScheduled: boolean,
+): Promise<void> {
+  await db
+    .update(socialCreatives)
+    .set({
+      status: revertToScheduled ? "scheduled" : "approved",
+      lastError: error.slice(0, 500),
+      publishedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(socialCreatives.id, id));
+}
+
+/** Scheduled creatives whose time has come (for the publish cron). */
+export async function getDueScheduled(
+  now: Date,
+  limit = 25,
+): Promise<SocialCreative[]> {
+  if (!isDbConfigured()) return [];
+  const rows = await db
+    .select()
+    .from(socialCreatives)
+    .where(
+      and(
+        eq(socialCreatives.status, "scheduled"),
+        lte(socialCreatives.scheduledAt, now),
+      ),
+    )
+    .orderBy(asc(socialCreatives.scheduledAt))
+    .limit(limit);
+  return rows as SocialCreative[];
 }

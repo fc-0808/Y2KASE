@@ -9,6 +9,7 @@ import {
   CREATIVE_STATUSES,
 } from "@/lib/social/creatives";
 import { isImageGenConfigured } from "@/lib/social/image-gen";
+import { isPinterestConfigured } from "@/lib/social/pinterest";
 import { SocialStudio } from "./SocialStudio";
 
 export const metadata: Metadata = { title: "Admin · Social Studio" };
@@ -39,17 +40,24 @@ export default async function AdminSocialPage({
     getProductsByStatus("active"),
   ]);
 
-  const total = counts.draft + counts.approved + counts.published + counts.rejected;
+  const total =
+    counts.draft +
+    counts.approved +
+    counts.scheduled +
+    counts.published +
+    counts.rejected;
   const tabs = [
     { key: undefined as string | undefined, label: "All", count: total },
     { key: "draft", label: "draft", count: counts.draft },
     { key: "approved", label: "approved", count: counts.approved },
+    { key: "scheduled", label: "scheduled", count: counts.scheduled },
     { key: "published", label: "published", count: counts.published },
     { key: "rejected", label: "rejected", count: counts.rejected },
   ];
 
   const spend = (counts.totalCostCents / 100).toFixed(2);
   const apiReady = isImageGenConfigured();
+  const pinterestReady = isPinterestConfigured();
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
@@ -93,6 +101,7 @@ export default async function AdminSocialPage({
 
       <SocialStudio
         creatives={creatives}
+        pinterestReady={pinterestReady}
         products={products.map((p) => ({
           id: p.id,
           title: p.title,

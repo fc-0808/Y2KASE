@@ -38,6 +38,15 @@ async function main() {
   await sql`CREATE INDEX IF NOT EXISTS "social_creatives_status_idx" ON "social_creatives" ("status")`;
   await sql`CREATE INDEX IF NOT EXISTS "social_creatives_product_idx" ON "social_creatives" ("product_id")`;
 
+  // Publishing columns (added in the P3 Pinterest publishing release). Safe to
+  // run against an existing table — each column is created only if missing.
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "scheduled_at" timestamptz`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "board_id" text`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "external_id" text`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "external_url" text`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "last_error" text`;
+  await sql`CREATE INDEX IF NOT EXISTS "social_creatives_scheduled_idx" ON "social_creatives" ("scheduled_at")`;
+
   console.log("✓ Social Studio schema applied.");
   process.exit(0);
 }
