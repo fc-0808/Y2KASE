@@ -134,16 +134,16 @@ export function WelcomeGiftForm() {
 
   return (
     <div>
-      <div className="mb-5 text-center">
-        <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--primary-soft)]">
-          <Gift className="h-7 w-7 text-[var(--primary)]" />
+      <div className="mb-4 text-center sm:mb-5">
+        <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--primary-soft)] sm:h-14 sm:w-14">
+          <Gift className="h-6 w-6 text-[var(--primary)] sm:h-7 sm:w-7" />
         </div>
         <h2 className="font-display text-2xl font-black leading-tight text-[var(--foreground)]">
           Claim your 10% off ✨
         </h2>
-        <p className="mt-2 text-sm text-[var(--foreground)]/65">
-          Drop your email and we&apos;ll send your welcome code straight to your
-          inbox — plus first dibs on new drops. 🌸
+        <p className="mx-auto mt-2 max-w-xs text-sm text-[var(--foreground)]/65 sm:max-w-none">
+          Drop your email and we&apos;ll send your code straight to your inbox —
+          plus first dibs on new drops. 🌸
         </p>
       </div>
 
