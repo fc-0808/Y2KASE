@@ -1,21 +1,20 @@
 /**
  * Pinterest API v5 client — programmatic publishing for the Social Studio.
  *
- * Pinterest is the one major social platform that supports true end-to-end
- * automated publishing (TikTok requires an app audit; Instagram needs a
- * Business account + Graph API). We use a long-lived access token tied to the
- * brand's own account, generated once in the Pinterest developer portal.
+ * Token resolution order:
+ *   1. social_tokens DB table (updated by OAuth callback + refresh cron).
+ *   2. PINTEREST_ACCESS_TOKEN env var (manual bootstrap fallback).
  *
- * Setup (one-time):
- *   1. developers.pinterest.com → create an app (Standard access).
- *   2. Generate an access token with scopes: boards:read, pins:read, pins:write.
- *   3. Set PINTEREST_ACCESS_TOKEN in the environment.
+ * The DB-backed token is preferred because it auto-rotates every ~20 days
+ * via /api/cron/pinterest-refresh, keeping the pipeline alive indefinitely.
  *
  * Docs: https://developers.pinterest.com/docs/api/v5/pins-create/
  *
  * Note: image_url passed to createPin must be a publicly reachable HTTPS URL —
  * our creatives live on the public R2 bucket, so they qualify.
  */
+
+import { getToken } from "@/lib/social/token-store";
 
 const API_BASE =
   process.env.PINTEREST_API_BASE?.replace(/\/$/, "") ??
@@ -25,9 +24,21 @@ export function isPinterestConfigured(): boolean {
   return Boolean(process.env.PINTEREST_ACCESS_TOKEN);
 }
 
-function authHeaders(): HeadersInit {
-  const token = process.env.PINTEREST_ACCESS_TOKEN;
-  if (!token) throw new Error("PINTEREST_ACCESS_TOKEN is not set.");
+/** Resolve the best available access token. DB row wins over env var. */
+async function resolveToken(): Promise<string> {
+  try {
+    const row = await getToken("pinterest");
+    if (row?.accessToken) return row.accessToken;
+  } catch {
+    // DB not available — fall through to env var
+  }
+  const env = process.env.PINTEREST_ACCESS_TOKEN;
+  if (!env) throw new Error("PINTEREST_ACCESS_TOKEN is not set.");
+  return env;
+}
+
+async function authHeaders(): Promise<HeadersInit> {
+  const token = await resolveToken();
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -49,7 +60,7 @@ async function pinterestFetch<T>(
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+    headers: { ...(await authHeaders()), ...(init?.headers ?? {}) },
   });
   const text = await res.text();
   if (!res.ok) {

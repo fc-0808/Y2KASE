@@ -199,6 +199,40 @@ export type ConnectionResult = {
   message: string;
 };
 
+/**
+ * Generate the Pinterest OAuth URL so the admin can (re)connect the brand
+ * account. Requires PINTEREST_APP_ID to be set.
+ */
+export async function getPinterestConnectUrl(): Promise<{
+  ok: boolean;
+  url?: string;
+  message: string;
+}> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  const appId = process.env.PINTEREST_APP_ID;
+  if (!appId) {
+    return {
+      ok: false,
+      message:
+        "PINTEREST_APP_ID is not set. Find it at developers.pinterest.com → My Apps → App ID.",
+    };
+  }
+
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://y2kase.com";
+  const redirectUri = encodeURIComponent(
+    `${siteUrl}/api/auth/pinterest/callback`,
+  );
+  const scopes = encodeURIComponent("boards:read,boards:write,pins:read,pins:write,user_accounts:read");
+  const url =
+    `https://www.pinterest.com/oauth/?` +
+    `client_id=${appId}&redirect_uri=${redirectUri}` +
+    `&response_type=code&scope=${scopes}&state=y2kase-admin`;
+
+  return { ok: true, url, message: "Click the URL to connect Pinterest." };
+}
+
 /** Verify the Pinterest token works and return the connected account. */
 export async function checkPinterestConnection(): Promise<ConnectionResult> {
   if (!(await guard())) {

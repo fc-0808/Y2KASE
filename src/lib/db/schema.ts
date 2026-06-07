@@ -558,6 +558,36 @@ export const socialJobs = pgTable(
 );
 
 /**
+ * social_tokens — encrypted OAuth tokens for social platform integrations.
+ *
+ * One row per platform (e.g. "pinterest"). The Social Studio reads the access
+ * token from here first; falls back to PINTEREST_ACCESS_TOKEN env var.
+ * A cron job uses the refresh_token to rotate before expiry so the pipeline
+ * never silently stops posting.
+ */
+export const socialTokens = pgTable("social_tokens", {
+  /** Platform identifier, e.g. "pinterest". Primary key. */
+  platform: text("platform").primaryKey(),
+  accessToken: text("access_token").notNull(),
+  /** pinr_ prefix token; used to rotate access token before expiry. */
+  refreshToken: text("refresh_token"),
+  /** When the access token expires (UTC). */
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  /** When the refresh token expires. */
+  refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }),
+  /** Space-separated scopes granted (e.g. "boards:read pins:read pins:write"). */
+  scopes: text("scopes"),
+  /** Platform account id / username — for display in the admin. */
+  accountId: text("account_id"),
+  accountName: text("account_name"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type SocialToken = typeof socialTokens.$inferSelect;
+
+/**
  * provenance_events — append-only audit log carried over from the MDM pipeline.
  */
 export const provenanceEvents = pgTable("provenance_events", {

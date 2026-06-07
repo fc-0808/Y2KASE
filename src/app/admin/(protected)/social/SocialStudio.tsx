@@ -33,6 +33,7 @@ import {
   clearQueue,
   checkPinterestConnection,
   refreshAnalytics,
+  getPinterestConnectUrl,
   type ConnectionResult,
 } from "./actions";
 import {
@@ -651,11 +652,7 @@ export function SocialStudio({
           </span>
         </section>
       ) : (
-        <section className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-3 text-xs text-[var(--foreground)]/60">
-          📌 Set <code className="font-mono">PINTEREST_ACCESS_TOKEN</code> to
-          enable one-click + scheduled publishing to Pinterest. Until then,
-          download creatives and post them manually.
-        </section>
+        <PinterestConnectBanner />
       )}
 
       {/* ── Creatives grid ───────────────────────────────────────────── */}
@@ -1108,5 +1105,48 @@ function PublishControls({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Pinterest connect banner ─────────────────────────────────────────────────
+
+function PinterestConnectBanner() {
+  const [pending, startTransition] = useTransition();
+  const [msg, setMsg] = useState("");
+
+  function handleConnect() {
+    startTransition(async () => {
+      const res = await getPinterestConnectUrl();
+      if (res.ok && res.url) {
+        window.open(res.url, "_blank", "noopener,noreferrer");
+      } else {
+        setMsg(res.message);
+      }
+    });
+  }
+
+  return (
+    <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-[#E60023]/40 bg-[var(--card)] px-4 py-3">
+      <span className="text-sm font-bold text-[#E60023]">📌 Pinterest</span>
+      <span className="text-xs text-[var(--foreground)]/60">
+        Not connected — publish directly to Pinterest by connecting your brand account.
+      </span>
+      <button
+        type="button"
+        onClick={handleConnect}
+        disabled={pending}
+        className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full bg-[#E60023] px-4 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔗"}
+        Connect Pinterest
+      </button>
+      {msg && (
+        <p className="w-full text-xs text-rose-600">{msg}</p>
+      )}
+      <p className="w-full text-[11px] text-[var(--foreground)]/40">
+        Requires <code className="font-mono">PINTEREST_APP_ID</code> in your Vercel env.
+        Once connected, tokens auto-refresh — no manual steps needed.
+      </p>
+    </section>
   );
 }

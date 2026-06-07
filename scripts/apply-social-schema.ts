@@ -75,6 +75,46 @@ async function main() {
   await sql`CREATE INDEX IF NOT EXISTS "social_jobs_status_idx" ON "social_jobs" ("status")`;
   await sql`CREATE INDEX IF NOT EXISTS "social_jobs_created_idx" ON "social_jobs" ("created_at")`;
 
+  // OAuth token store (Pinterest auto-refresh).
+  await sql`
+    CREATE TABLE IF NOT EXISTS "social_tokens" (
+      "platform" text PRIMARY KEY,
+      "access_token" text NOT NULL,
+      "refresh_token" text,
+      "expires_at" timestamptz,
+      "refresh_expires_at" timestamptz,
+      "scopes" text,
+      "account_id" text,
+      "account_name" text,
+      "updated_at" timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+
+  // Seed the current PINTEREST_ACCESS_TOKEN into the DB (bootstrap).
+  const accessToken = process.env.PINTEREST_ACCESS_TOKEN;
+  const appSecret = process.env.PINTEREST_APP_SECRET;
+  if (accessToken) {
+    await sql`
+      INSERT INTO "social_tokens" ("platform", "access_token", "expires_at", "updated_at")
+      VALUES (
+        'pinterest',
+        ${accessToken},
+        now() + interval '30 days',
+        now()
+      )
+      ON CONFLICT ("platform") DO UPDATE SET
+        "access_token" = EXCLUDED."access_token",
+        "expires_at"   = COALESCE("social_tokens"."expires_at", now() + interval '30 days'),
+        "updated_at"   = now()
+    `;
+    console.log("✓ PINTEREST_ACCESS_TOKEN seeded into social_tokens.");
+    if (!appSecret) {
+      console.warn("⚠ PINTEREST_APP_SECRET not set — auto-refresh won't work until you set it.");
+    }
+  } else {
+    console.warn("⚠ PINTEREST_ACCESS_TOKEN not set — skipping social_tokens seed.");
+  }
+
   console.log("✓ Social Studio schema applied.");
   process.exit(0);
 }
