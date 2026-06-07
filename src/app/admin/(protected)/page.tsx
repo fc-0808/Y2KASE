@@ -47,12 +47,39 @@ export default async function AdminDashboardPage() {
 
   const [orderStats, memberStats, subStats, visitors, recentOrders, recentVisits] =
     await Promise.all([
-      getOrderStats(),
-      getMemberStats(),
-      getSubscriberStats(),
-      getVisitorOverview(),
-      getOrders().then((o) => o.slice(0, 6)),
-      getRecentVisits(6),
+      getOrderStats().catch(() => ({
+        total: 0,
+        pending: 0,
+        paid: 0,
+        shipped: 0,
+        revenueCents: 0,
+        revenue7dCents: 0,
+      })),
+      getMemberStats().catch(() => ({
+        total: 0,
+        admins: 0,
+        customers: 0,
+        anonymous: 0,
+        newThisWeek: 0,
+      })),
+      getSubscriberStats().catch(() => ({
+        total: 0,
+        active: 0,
+        unsubscribed: 0,
+        newThisWeek: 0,
+      })),
+      getVisitorOverview().catch(() => ({
+        totalViews: 0,
+        uniqueVisitors: 0,
+        viewsToday: 0,
+        uniqueToday: 0,
+        views7d: 0,
+        unique7d: 0,
+      })),
+      getOrders()
+        .then((o) => o.slice(0, 6))
+        .catch(() => []),
+      getRecentVisits(6).catch(() => []),
     ]);
 
   const stats = [
