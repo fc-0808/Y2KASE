@@ -19,6 +19,50 @@ import { hit } from "@/lib/rate-limit";
 const VISITOR_COOKIE = "y2k_vid";
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
+// ---------------------------------------------------------------------------
+// Known crawler IP prefixes (first two octets).
+//
+// Google's JavaScript Rendering Service sends a real Chrome User-Agent so it
+// bypasses User-Agent-based bot detection. The only reliable signal is the
+// source IP, which always falls within Google's published ASN ranges.
+// Bing, Meta, and other major crawlers are listed for the same reason.
+// Format: "A.B." matches any IP starting with that prefix.
+// ---------------------------------------------------------------------------
+const CRAWLER_IP_PREFIXES: readonly string[] = [
+  // Google (Googlebot + Rendering Service + Ads + APIs)
+  "66.249.", // Primary Googlebot range (most common)
+  "64.233.",
+  "66.102.",
+  "72.14.",
+  "74.125.",
+  "209.85.",
+  "216.58.",
+  "216.239.",
+  "35.191.", // Google Cloud / health checks
+  "130.211.", // Google Cloud load balancer
+  // Bing / Microsoft
+  "40.77.",
+  "157.55.",
+  "207.46.",
+  "65.52.",
+  "199.30.",
+  // Meta (Facebook crawler, Instagram)
+  "66.220.",
+  "69.63.",
+  "69.171.",
+  "173.252.",
+  // Apple (Applebot)
+  "17.0.",
+  "17.172.",
+  "17.253.",
+];
+
+/** Returns true if the IP belongs to a known crawler network. */
+function isCrawlerIp(ip: string | null): boolean {
+  if (!ip) return false;
+  return CRAWLER_IP_PREFIXES.some((prefix) => ip.startsWith(prefix));
+}
+
 /** Pull the first public IP from the proxy chain. */
 function clientIp(req: NextRequest): string | null {
   const fwd = req.headers.get("x-forwarded-for");
@@ -48,11 +92,18 @@ function geo(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = clientIp(req);
+
   // Cap the beacon so a single source can't flood the analytics table. On limit
   // we drop silently (204) — analytics must never surface an error to the user.
-  if (!hit(`track:${clientIp(req)}`, { limit: 120, windowMs: 60_000 }).ok) {
+  if (!hit(`track:${ip}`, { limit: 120, windowMs: 60_000 }).ok) {
     return new NextResponse(null, { status: 204 });
   }
+
+  // Drop known crawler IPs before doing any further work. Google's JS renderer
+  // uses a real Chrome UA and bypasses User-Agent detection, so IP is the only
+  // reliable signal for these bots.
+  if (isCrawlerIp(ip)) return new NextResponse(null, { status: 204 });
 
   let body: { path?: unknown; referrer?: unknown } = {};
   try {
@@ -80,7 +131,7 @@ export async function POST(req: NextRequest) {
   const ua = req.headers.get("user-agent");
   const parsed = parseUserAgent(ua);
 
-  // Skip bots entirely so the numbers reflect real humans.
+  // Skip bots identified by User-Agent (catches most non-JS crawlers).
   if (parsed.device === "bot") return new NextResponse(null, { status: 204 });
 
   // Resolve (or mint) the anonymous visitor id.
@@ -104,7 +155,7 @@ export async function POST(req: NextRequest) {
     userId,
     path,
     referrer,
-    ip: clientIp(req),
+    ip,
     country: g.country,
     region: g.region,
     city: g.city,
