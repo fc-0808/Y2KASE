@@ -21,6 +21,13 @@ import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
 import { refreshAllPinMetrics } from "@/lib/social/analytics";
 import {
+  getProductGallery,
+  importProductPhotos,
+  PRODUCT_PHOTO_PRESET,
+  type ProductGallery,
+} from "@/lib/social/product-photos";
+import type { SocialPlatform } from "@/lib/social/presets";
+import {
   isPinterestConfigured,
   listBoards,
   getUserAccount,
@@ -147,6 +154,66 @@ export async function clearQueue(): Promise<SocialActionResult> {
   await clearFinishedJobs();
   revalidatePath("/admin/social");
   return { ok: true, message: "Cleared finished jobs." };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCT PHOTO IMPORT (use real catalog photos instead of AI imagery)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type GalleryResult = {
+  ok: boolean;
+  message: string;
+  gallery: ProductGallery | null;
+};
+
+/** Load a product's real photo gallery for the import picker. */
+export async function listProductPhotos(
+  productId: number,
+): Promise<GalleryResult> {
+  if (!(await guard())) {
+    return { ok: false, message: "Not authorized.", gallery: null };
+  }
+  if (!Number.isFinite(productId)) {
+    return { ok: false, message: "Invalid product.", gallery: null };
+  }
+  const gallery = await getProductGallery(productId);
+  if (!gallery) {
+    return { ok: false, message: "Product not found.", gallery: null };
+  }
+  if (gallery.photos.length === 0) {
+    return { ok: false, message: "This product has no photos.", gallery };
+  }
+  return { ok: true, message: "", gallery };
+}
+
+/** Turn selected real product photos into draft creatives. */
+export async function importPhotos(input: {
+  productId: number;
+  imageUrls: string[];
+  platform?: string;
+  withCaption?: boolean;
+}): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  if (input.withCaption && !isImageGenConfigured()) {
+    // Caption needs OPENAI_API_KEY; degrade gracefully to no-caption import.
+    input.withCaption = false;
+  }
+
+  const result = await importProductPhotos({
+    productId: input.productId,
+    imageUrls: input.imageUrls,
+    platform: (input.platform as SocialPlatform) ?? "pinterest",
+    withCaption: input.withCaption,
+  });
+
+  revalidatePath("/admin/social");
+  return result.ok
+    ? {
+        ok: true,
+        message: `Imported ${result.created} photo${result.created === 1 ? "" : "s"} as drafts 📸`,
+      }
+    : { ok: false, message: result.error };
 }
 
 /** Approve / reject / publish / re-draft a creative. */
@@ -344,8 +411,15 @@ export async function schedulePublish(
 /** Delete a creative and clean up its R2 object. */
 export async function removeCreative(id: number): Promise<SocialActionResult> {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  // Product-photo creatives point at the live storefront image on R2 — we must
+  // NOT delete that object, only the creative row. Only AI-generated creatives
+  // own their R2 asset and may clean it up.
+  const existing = await getCreativeById(id);
+  const isProductPhoto = existing?.preset === PRODUCT_PHOTO_PRESET;
+
   const imageUrl = await deleteCreative(id);
-  if (imageUrl) {
+  if (imageUrl && !isProductPhoto) {
     const key = r2KeyFromUrl(imageUrl);
     if (key) {
       try {

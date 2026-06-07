@@ -34,8 +34,11 @@ import {
   checkPinterestConnection,
   refreshAnalytics,
   getPinterestConnectUrl,
+  listProductPhotos,
+  importPhotos,
   type ConnectionResult,
 } from "./actions";
+import type { ProductGallery } from "@/lib/social/product-photos";
 import {
   Layers,
   Play,
@@ -46,6 +49,7 @@ import {
   BarChart3,
   RefreshCw,
   CheckCircle2,
+  Image as ImageIcon,
 } from "lucide-react";
 
 const numberFmt = new Intl.NumberFormat("en-US", { notation: "compact" });
@@ -91,7 +95,7 @@ export function SocialStudio({
   const [busyId, setBusyId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"single" | "batch">("single");
+  const [mode, setMode] = useState<"single" | "batch" | "photos">("single");
   const [notice, setNotice] = useState<string | null>(null);
 
   // Batch selection state
@@ -102,6 +106,79 @@ export function SocialStudio({
     new Set([PRESETS[0].key]),
   );
   const [queueBusy, setQueueBusy] = useState(false);
+
+  // Product-photo import state
+  const [photoProductId, setPhotoProductId] = useState<number | "">(
+    products[0]?.id ?? "",
+  );
+  const [gallery, setGallery] = useState<ProductGallery | null>(null);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
+  const [photoPlatform, setPhotoPlatform] = useState<string>("pinterest");
+  const [photoCaption, setPhotoCaption] = useState(true);
+  const [importing, setImporting] = useState(false);
+
+  function loadGallery(id: number) {
+    setGalleryLoading(true);
+    setGallery(null);
+    setSelectedPhotos(new Set());
+    setError(null);
+    startTransition(async () => {
+      const res = await listProductPhotos(id);
+      setGalleryLoading(false);
+      if (!res.ok) {
+        setError(res.message);
+        setGallery(res.gallery);
+        return;
+      }
+      setGallery(res.gallery);
+      // Pre-select all photos by default — operator deselects what they skip.
+      setSelectedPhotos(new Set(res.gallery?.photos.map((p) => p.url) ?? []));
+    });
+  }
+
+  // Auto-load the first product's gallery when switching into photo mode.
+  useEffect(() => {
+    if (mode !== "photos") return;
+    if (gallery || galleryLoading) return;
+    if (photoProductId === "") return;
+    loadGallery(Number(photoProductId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  function togglePhoto(url: string) {
+    setSelectedPhotos((prev) => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  }
+
+  function handleImportPhotos() {
+    if (photoProductId === "" || selectedPhotos.size === 0) {
+      setError("Select a product and at least one photo.");
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setImporting(true);
+    startTransition(async () => {
+      const res = await importPhotos({
+        productId: Number(photoProductId),
+        imageUrls: Array.from(selectedPhotos),
+        platform: photoPlatform,
+        withCaption: photoCaption,
+      });
+      setImporting(false);
+      if (!res.ok) {
+        setError(res.message);
+        return;
+      }
+      setNotice(res.message);
+      router.refresh();
+    });
+  }
 
   const queuePending = jobCounts.queued + jobCounts.processing;
 
@@ -329,10 +406,30 @@ export function SocialStudio({
       <section className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-lg font-black">
-            <Sparkles className="h-5 w-5 text-[var(--primary)]" />
-            {mode === "single" ? "Generate a creative" : "Batch factory"}
+            {mode === "photos" ? (
+              <ImageIcon className="h-5 w-5 text-[var(--primary)]" />
+            ) : (
+              <Sparkles className="h-5 w-5 text-[var(--primary)]" />
+            )}
+            {mode === "single"
+              ? "Generate a creative"
+              : mode === "batch"
+                ? "Batch factory"
+                : "Use real product photos"}
           </h2>
           <div className="inline-flex rounded-full bg-[var(--muted)] p-1">
+            <button
+              type="button"
+              onClick={() => setMode("photos")}
+              className={
+                "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition " +
+                (mode === "photos"
+                  ? "bg-[var(--primary)] text-white"
+                  : "text-[var(--foreground)]/60")
+              }
+            >
+              <ImageIcon className="h-3.5 w-3.5" /> Photos
+            </button>
             <button
               type="button"
               onClick={() => setMode("single")}
@@ -343,7 +440,7 @@ export function SocialStudio({
                   : "text-[var(--foreground)]/60")
               }
             >
-              Single
+              <Sparkles className="mr-1 inline h-3.5 w-3.5" /> AI Single
             </button>
             <button
               type="button"
@@ -355,7 +452,7 @@ export function SocialStudio({
                   : "text-[var(--foreground)]/60")
               }
             >
-              <Layers className="h-3.5 w-3.5" /> Batch
+              <Layers className="h-3.5 w-3.5" /> AI Batch
             </button>
           </div>
         </div>
@@ -385,10 +482,37 @@ export function SocialStudio({
           />
         )}
 
+        {mode === "photos" && (
+          <PhotoImportPanel
+            products={products}
+            photoProductId={photoProductId}
+            onProductChange={(id) => {
+              setPhotoProductId(id);
+              if (id !== "") loadGallery(Number(id));
+            }}
+            gallery={gallery}
+            galleryLoading={galleryLoading}
+            selectedPhotos={selectedPhotos}
+            onTogglePhoto={togglePhoto}
+            onSelectAll={() =>
+              setSelectedPhotos(
+                new Set(gallery?.photos.map((p) => p.url) ?? []),
+              )
+            }
+            onClearAll={() => setSelectedPhotos(new Set())}
+            photoPlatform={photoPlatform}
+            setPhotoPlatform={setPhotoPlatform}
+            photoCaption={photoCaption}
+            setPhotoCaption={setPhotoCaption}
+            importing={importing || pending}
+            onImport={handleImportPhotos}
+          />
+        )}
+
         <div
           className={
             "grid gap-4 sm:grid-cols-2 lg:grid-cols-4" +
-            (mode === "batch" ? " hidden" : "")
+            (mode === "batch" || mode === "photos" ? " hidden" : "")
           }
         >
           <label className="block">
@@ -1148,5 +1272,190 @@ function PinterestConnectBanner() {
         Once connected, tokens auto-refresh — no manual steps needed.
       </p>
     </section>
+  );
+}
+
+// ─── Product photo import panel ───────────────────────────────────────────────
+
+function PhotoImportPanel({
+  products,
+  photoProductId,
+  onProductChange,
+  gallery,
+  galleryLoading,
+  selectedPhotos,
+  onTogglePhoto,
+  onSelectAll,
+  onClearAll,
+  photoPlatform,
+  setPhotoPlatform,
+  photoCaption,
+  setPhotoCaption,
+  importing,
+  onImport,
+}: {
+  products: ProductOption[];
+  photoProductId: number | "";
+  onProductChange: (id: number | "") => void;
+  gallery: ProductGallery | null;
+  galleryLoading: boolean;
+  selectedPhotos: Set<string>;
+  onTogglePhoto: (url: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+  photoPlatform: string;
+  setPhotoPlatform: (p: string) => void;
+  photoCaption: boolean;
+  setPhotoCaption: (b: boolean) => void;
+  importing: boolean;
+  onImport: () => void;
+}) {
+  const selectedCount = selectedPhotos.size;
+
+  return (
+    <div className="space-y-4">
+      <p className="rounded-xl bg-sky-50 px-3 py-2 text-xs text-sky-800">
+        📸 Pin your <strong>real</strong> product photos — no AI, $0 cost. The
+        image on the pin is exactly what customers receive. Photos are already
+        hosted, so publishing is instant.
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+            Product
+          </span>
+          <select
+            value={photoProductId}
+            onChange={(e) =>
+              onProductChange(e.target.value ? Number(e.target.value) : "")
+            }
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          >
+            {products.length === 0 && <option value="">No products</option>}
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title.slice(0, 60)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+            Platform
+          </span>
+          <select
+            value={photoPlatform}
+            onChange={(e) => setPhotoPlatform(e.target.value)}
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          >
+            {PLATFORMS.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.emoji} {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex items-end gap-2 pb-1">
+          <input
+            type="checkbox"
+            checked={photoCaption}
+            onChange={(e) => setPhotoCaption(e.target.checked)}
+            className="h-4 w-4 rounded border-[var(--border)]"
+          />
+          <span className="text-xs text-[var(--foreground)]/70">
+            Auto-write a caption + hashtags (AI text, cheap)
+          </span>
+        </label>
+      </div>
+
+      {galleryLoading ? (
+        <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 px-4 py-8 text-sm text-[var(--foreground)]/60">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading photos…
+        </div>
+      ) : gallery && gallery.photos.length > 0 ? (
+        <>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="font-bold text-[var(--foreground)]/70">
+              {selectedCount}/{gallery.photos.length} selected
+            </span>
+            <button
+              type="button"
+              onClick={onSelectAll}
+              className="rounded-full bg-[var(--muted)] px-2.5 py-1 font-semibold text-[var(--foreground)]/70 transition hover:bg-[var(--border)]"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={onClearAll}
+              className="rounded-full bg-[var(--muted)] px-2.5 py-1 font-semibold text-[var(--foreground)]/70 transition hover:bg-[var(--border)]"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+            {gallery.photos.map((photo) => {
+              const selected = selectedPhotos.has(photo.url);
+              return (
+                <button
+                  key={photo.url}
+                  type="button"
+                  onClick={() => onTogglePhoto(photo.url)}
+                  className={
+                    "group relative aspect-square overflow-hidden rounded-xl border-2 transition " +
+                    (selected
+                      ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/30"
+                      : "border-[var(--border)] hover:border-[var(--primary)]/50")
+                  }
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.url}
+                    alt={photo.altText ?? "Product photo"}
+                    className="h-full w-full bg-[var(--muted)] object-cover"
+                  />
+                  <span
+                    className={
+                      "absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-white transition " +
+                      (selected
+                        ? "bg-[var(--primary)]"
+                        : "bg-black/30 opacity-0 group-hover:opacity-100")
+                    }
+                  >
+                    <Check className="h-3 w-3" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={onImport}
+            disabled={importing || selectedCount === 0}
+            className="btn-candy inline-flex items-center gap-2 px-6 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {importing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Importing…
+              </>
+            ) : (
+              <>
+                <ImageIcon className="h-4 w-4" /> Add {selectedCount} photo
+                {selectedCount === 1 ? "" : "s"} as drafts
+              </>
+            )}
+          </button>
+        </>
+      ) : (
+        <div className="rounded-xl border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--foreground)]/50">
+          {gallery ? "This product has no photos." : "Pick a product to load its photos."}
+        </div>
+      )}
+    </div>
   );
 }
