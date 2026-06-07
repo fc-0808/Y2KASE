@@ -12,6 +12,9 @@ import {
   Clock,
   User,
   ChevronLeft,
+  Reply,
+  Send,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -126,6 +129,18 @@ function EmailPane({
   onClose: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [showReply, setShowReply] = useState(false);
+  const [replyBody, setReplyBody] = useState("");
+  const [quoteOriginal, setQuoteOriginal] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [sendStatus, setSendStatus] = useState<"idle" | "ok" | "error">("idle");
+
+  // Reset composer when a different email is opened.
+  useEffect(() => {
+    setShowReply(false);
+    setReplyBody("");
+    setSendStatus("idle");
+  }, [email.uid]);
 
   // Auto-resize iframe to content height.
   useEffect(() => {
@@ -140,6 +155,36 @@ function EmailPane({
     iframe.addEventListener("load", handler);
     return () => iframe.removeEventListener("load", handler);
   }, [email.html]);
+
+  async function handleSend() {
+    if (!replyBody.trim()) return;
+    setSending(true);
+    setSendStatus("idle");
+    try {
+      const res = await fetch("/api/admin/inbox/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email.fromEmail,
+          subject: email.subject,
+          body: replyBody.trim(),
+          quotedText: quoteOriginal ? (email.text || undefined) : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error((e as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+      setSendStatus("ok");
+      setReplyBody("");
+      setTimeout(() => setShowReply(false), 2000);
+    } catch (err) {
+      console.error(err);
+      setSendStatus("error");
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -177,6 +222,19 @@ function EmailPane({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
+            onClick={() => setShowReply((v) => !v)}
+            title="Reply"
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+              showReply
+                ? "bg-[var(--primary)] text-white"
+                : "border border-[var(--border)] text-[var(--foreground)]/60 hover:border-[var(--primary)] hover:text-[var(--primary)]",
+            )}
+          >
+            <Reply className="h-3.5 w-3.5" />
+            Reply
+          </button>
+          <button
             onClick={onMarkUnread}
             title="Mark as unread"
             className="rounded-full p-2 text-[var(--foreground)]/50 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
@@ -210,6 +268,64 @@ function EmailPane({
           </pre>
         )}
       </div>
+
+      {/* Reply composer */}
+      {showReply && (
+        <div className="border-t border-[var(--border)] bg-[var(--card)] p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-[var(--foreground)]/60">
+              Replying to <span className="text-[var(--foreground)]">{email.fromEmail}</span>
+            </p>
+            <button
+              onClick={() => setShowReply(false)}
+              className="rounded-full p-1 text-[var(--foreground)]/40 hover:text-[var(--foreground)]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <textarea
+            value={replyBody}
+            onChange={(e) => setReplyBody(e.target.value)}
+            placeholder="Type your reply…"
+            rows={5}
+            className="w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] outline-none placeholder:text-[var(--foreground)]/30 focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/30"
+          />
+
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--foreground)]/50">
+              <input
+                type="checkbox"
+                checked={quoteOriginal}
+                onChange={(e) => setQuoteOriginal(e.target.checked)}
+                className="rounded"
+              />
+              Quote original message
+            </label>
+
+            <div className="flex items-center gap-2">
+              {sendStatus === "ok" && (
+                <span className="text-xs font-semibold text-emerald-500">✓ Sent!</span>
+              )}
+              {sendStatus === "error" && (
+                <span className="text-xs font-semibold text-red-500">Failed — try again</span>
+              )}
+              <button
+                onClick={handleSend}
+                disabled={sending || !replyBody.trim()}
+                className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {sending ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
