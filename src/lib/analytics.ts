@@ -1,6 +1,40 @@
-import { and, count, countDistinct, desc, gte, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  countDistinct,
+  desc,
+  gte,
+  isNull,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { pageViews, type NewPageView } from "@/lib/db/schema";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal-traffic geo exclusion
+//
+// Visits originating from these countries are predominantly the store owner and
+// suppliers rather than real customers (customers are mostly US/EU). They are
+// filtered out of every reporting query so the dashboard reflects genuine
+// shopper traffic. Rows with an unknown country are kept (could be a real
+// visitor whose geo simply wasn't resolved).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EXCLUDED_COUNTRIES = ["CN", "TW"] as const;
+
+/** SQL predicate: keep rows whose country is not internal (or is unknown). */
+const humanGeo = or(
+  isNull(pageViews.country),
+  notInArray(pageViews.country, EXCLUDED_COUNTRIES as unknown as string[]),
+);
+
+/** Combine the geo filter with an optional extra condition. */
+function withHumanGeo(extra?: SQL): SQL {
+  return (extra ? and(extra, humanGeo) : humanGeo) as SQL;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // User-Agent parsing
@@ -129,21 +163,22 @@ export async function getVisitorOverview(): Promise<VisitorOverview> {
         views: count(),
         uniques: countDistinct(pageViews.visitorId),
       })
-      .from(pageViews),
+      .from(pageViews)
+      .where(withHumanGeo()),
     db
       .select({
         views: count(),
         uniques: countDistinct(pageViews.visitorId),
       })
       .from(pageViews)
-      .where(gte(pageViews.createdAt, today)),
+      .where(withHumanGeo(gte(pageViews.createdAt, today))),
     db
       .select({
         views: count(),
         uniques: countDistinct(pageViews.visitorId),
       })
       .from(pageViews)
-      .where(gte(pageViews.createdAt, weekAgo)),
+      .where(withHumanGeo(gte(pageViews.createdAt, weekAgo))),
   ]);
 
   return {
@@ -173,6 +208,7 @@ export async function getRecentVisits(limit = 100): Promise<RecentVisit[]> {
       createdAt: pageViews.createdAt,
     })
     .from(pageViews)
+    .where(withHumanGeo())
     .orderBy(desc(pageViews.createdAt))
     .limit(limit);
 }
@@ -182,7 +218,7 @@ export async function getTopPages(limit = 8): Promise<CountRow[]> {
   const rows = await db
     .select({ label: pageViews.path, value: count() })
     .from(pageViews)
-    .where(gte(pageViews.createdAt, daysAgo(30)))
+    .where(withHumanGeo(gte(pageViews.createdAt, daysAgo(30))))
     .groupBy(pageViews.path)
     .orderBy(desc(count()))
     .limit(limit);
@@ -195,9 +231,11 @@ export async function getTopCountries(limit = 8): Promise<CountRow[]> {
     .select({ label: pageViews.country, value: count() })
     .from(pageViews)
     .where(
-      and(
-        gte(pageViews.createdAt, daysAgo(30)),
-        sql`${pageViews.country} is not null`,
+      withHumanGeo(
+        and(
+          gte(pageViews.createdAt, daysAgo(30)),
+          sql`${pageViews.country} is not null`,
+        ),
       ),
     )
     .groupBy(pageViews.country)
@@ -211,7 +249,7 @@ export async function getDeviceBreakdown(): Promise<CountRow[]> {
   const rows = await db
     .select({ label: pageViews.device, value: count() })
     .from(pageViews)
-    .where(gte(pageViews.createdAt, daysAgo(30)))
+    .where(withHumanGeo(gte(pageViews.createdAt, daysAgo(30))))
     .groupBy(pageViews.device)
     .orderBy(desc(count()));
   return rows.map((r) => ({ label: r.label ?? "Unknown", value: r.value }));
@@ -228,7 +266,7 @@ export async function getDailyViews(days = 14): Promise<DailyPoint[]> {
       uniques: countDistinct(pageViews.visitorId),
     })
     .from(pageViews)
-    .where(gte(pageViews.createdAt, since))
+    .where(withHumanGeo(gte(pageViews.createdAt, since)))
     .groupBy(sql`date_trunc('day', ${pageViews.createdAt})`)
     .orderBy(sql`date_trunc('day', ${pageViews.createdAt})`);
 

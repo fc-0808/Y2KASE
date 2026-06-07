@@ -2,12 +2,12 @@
 
 /**
  * WelcomeGiftForm — the conversion engine of the /pages/welcome-gift landing
- * page (the destination of the printed QR-code card handed to Etsy buyers).
+ * page.
  *
  * Flow:
  *  1. Collect email (+ optional first name).
- *  2. POST /api/subscribe with `source: "welcome-card"` so QR conversions are
- *     attributable in the subscribers table / analytics.
+ *  2. POST /api/subscribe with `source: "welcome-card"` so welcome-gift
+ *     conversions are attributable in the subscribers table / analytics.
  *  3. Reveal the WELCOME10 code with one-tap copy and a "Shop now" CTA.
  *
  * The API is idempotent: returning besties get their code back without a

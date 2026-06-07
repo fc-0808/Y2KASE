@@ -72,6 +72,16 @@
   border-color: var(--border);
 }
 
+/* Prevent any element (e.g. the off-canvas cart drawer parked at
+   translate-x-full, decorative blobs, wide tables) from creating horizontal
+   page scroll on mobile. `clip` is used instead of `hidden` because it does NOT
+   establish a scroll container, so the sticky site header keeps sticking to the
+   viewport. The root-element overflow is propagated to the viewport, which is
+   exactly what we want here. */
+html {
+  overflow-x: clip;
+}
+
 /* Branded long-form content (policies, about, FAQ). First-party HTML only. */
 .legal-prose {
   color: color-mix(in srgb, var(--foreground) 85%, transparent);

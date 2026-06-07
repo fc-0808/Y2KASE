@@ -183,52 +183,90 @@ export default async function AdminVisitorsPage() {
             <EmptyHint />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-sm">
-              <thead className="bg-[var(--muted)]/50 text-left text-xs uppercase tracking-wide text-[var(--foreground)]/50">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Time</th>
-                  <th className="px-4 py-3 font-semibold">Page</th>
-                  <th className="px-4 py-3 font-semibold">Location</th>
-                  <th className="px-4 py-3 font-semibold">IP</th>
-                  <th className="px-4 py-3 font-semibold">Device</th>
-                  <th className="px-4 py-3 font-semibold">Referrer</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border)]">
-                {recent.map((v) => (
-                  <tr key={v.id} className="hover:bg-[var(--muted)]/30">
-                    <td className="whitespace-nowrap px-4 py-2.5 text-[var(--foreground)]/60">
-                      {timeFmt.format(new Date(v.createdAt))}
-                    </td>
-                    <td className="max-w-[200px] truncate px-4 py-2.5 font-mono text-xs">
+          <>
+            {/* Mobile: stacked cards (the table doesn't fit a phone screen). */}
+            <ul className="divide-y divide-[var(--border)] md:hidden">
+              {recent.map((v) => (
+                <li key={v.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-mono text-xs font-semibold">
                       {v.path}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-2.5">
+                    </span>
+                    <span className="shrink-0 text-xs text-[var(--foreground)]/50">
+                      {timeFmt.format(new Date(v.createdAt))}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--foreground)]/60">
+                    <span>
                       <span className="mr-1">{flag(v.country)}</span>
-                      {[v.city, v.region, v.country].filter(Boolean).join(", ") ||
-                        "Unknown"}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-[var(--foreground)]/60">
-                      {v.ip ?? "—"}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-[var(--foreground)]/70">
-                      <span className="capitalize">{v.device ?? "—"}</span>
-                      {v.browser && (
-                        <span className="text-[var(--foreground)]/40">
-                          {" "}
-                          · {v.browser}
-                        </span>
-                      )}
-                    </td>
-                    <td className="max-w-[180px] truncate px-4 py-2.5 text-xs text-[var(--foreground)]/50">
-                      {v.referrer ?? "Direct"}
-                    </td>
+                      {[v.city, v.region, v.country]
+                        .filter(Boolean)
+                        .join(", ") || "Unknown"}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span className="capitalize">
+                      {v.device ?? "—"}
+                      {v.browser ? ` · ${v.browser}` : ""}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--foreground)]/40">
+                    <span className="font-mono">{v.ip ?? "—"}</span>
+                    <span aria-hidden>·</span>
+                    <span className="truncate">{v.referrer ?? "Direct"}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {/* Desktop: full table. */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead className="bg-[var(--muted)]/50 text-left text-xs uppercase tracking-wide text-[var(--foreground)]/50">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Time</th>
+                    <th className="px-4 py-3 font-semibold">Page</th>
+                    <th className="px-4 py-3 font-semibold">Location</th>
+                    <th className="px-4 py-3 font-semibold">IP</th>
+                    <th className="px-4 py-3 font-semibold">Device</th>
+                    <th className="px-4 py-3 font-semibold">Referrer</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {recent.map((v) => (
+                    <tr key={v.id} className="hover:bg-[var(--muted)]/30">
+                      <td className="whitespace-nowrap px-4 py-2.5 text-[var(--foreground)]/60">
+                        {timeFmt.format(new Date(v.createdAt))}
+                      </td>
+                      <td className="max-w-[200px] truncate px-4 py-2.5 font-mono text-xs">
+                        {v.path}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        <span className="mr-1">{flag(v.country)}</span>
+                        {[v.city, v.region, v.country]
+                          .filter(Boolean)
+                          .join(", ") || "Unknown"}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-[var(--foreground)]/60">
+                        {v.ip ?? "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-[var(--foreground)]/70">
+                        <span className="capitalize">{v.device ?? "—"}</span>
+                        {v.browser && (
+                          <span className="text-[var(--foreground)]/40">
+                            {" "}
+                            · {v.browser}
+                          </span>
+                        )}
+                      </td>
+                      <td className="max-w-[180px] truncate px-4 py-2.5 text-xs text-[var(--foreground)]/50">
+                        {v.referrer ?? "Direct"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
