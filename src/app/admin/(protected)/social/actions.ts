@@ -3,26 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/auth";
-import { getProductForAdmin } from "@/lib/products";
 import { makeR2Client, deleteObjectsFromR2, r2KeyFromUrl } from "@/lib/catalog/r2";
+import { isImageGenConfigured } from "@/lib/social/image-gen";
+import { getPreset } from "@/lib/social/presets";
+import { runGeneration } from "@/lib/social/generate";
 import {
-  generateMarketingImage,
-  isImageGenConfigured,
-  type ImageQuality,
-} from "@/lib/social/image-gen";
-import { generateCaption } from "@/lib/social/caption-gen";
-import { getPreset, type SocialPlatform } from "@/lib/social/presets";
-import {
-  insertCreative,
   setCreativeStatus,
   deleteCreative,
   updateCreativeCopy,
-  countCreativesSince,
   getCreativeById,
   scheduleCreative,
   CREATIVE_STATUSES,
   type CreativeStatus,
 } from "@/lib/social/creatives";
+import { enqueueJobs, clearFinishedJobs } from "@/lib/social/jobs";
+import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
 import {
   isPinterestConfigured,
@@ -36,11 +31,8 @@ export type SocialActionResult = {
   creativeId?: number;
 };
 
-/**
- * Safety cap: max AI creatives generated per rolling 24h. Prevents runaway
- * OpenAI spend from a stuck loop or accidental bulk click. Override via env.
- */
-const DAILY_LIMIT = Number(process.env.SOCIAL_DAILY_LIMIT ?? 50);
+/** Max jobs the manual "Process now" button drains in one click (sync). */
+const MANUAL_DRAIN_MAX = Number(process.env.SOCIAL_MANUAL_DRAIN_MAX ?? 4);
 
 const VALID_STATUS = new Set<string>(CREATIVE_STATUSES);
 
@@ -68,84 +60,91 @@ export async function generateCreative(input: {
     };
   }
 
-  const preset = getPreset(input.preset);
-  if (!preset) return { ok: false, message: "Unknown preset." };
+  const result = await runGeneration(input);
+  revalidatePath("/admin/social");
+  return result.ok
+    ? { ok: true, message: "Creative generated.", creativeId: result.creativeId }
+    : { ok: false, message: result.error };
+}
 
-  // Daily spend guardrail.
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const used = await countCreativesSince(since);
-  if (used >= DAILY_LIMIT) {
+// ─────────────────────────────────────────────────────────────────────────────
+// BATCH FACTORY (generation queue)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Enqueue a batch of generation jobs (one per product × preset). Returns the
+ * number queued. A cron worker (or the manual "Process now" button) drains it.
+ */
+export async function enqueueBatch(input: {
+  productIds: number[];
+  presets: string[];
+  platform?: string;
+  quality?: string;
+  extra?: string;
+}): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  const productIds = Array.from(new Set(input.productIds)).filter((n) =>
+    Number.isFinite(n),
+  );
+  const presets = Array.from(new Set(input.presets)).filter((p) =>
+    Boolean(getPreset(p)),
+  );
+  if (productIds.length === 0 || presets.length === 0) {
+    return { ok: false, message: "Pick at least one product and one preset." };
+  }
+
+  const MAX_BATCH = 200;
+  const jobs = [];
+  for (const productId of productIds) {
+    for (const presetKey of presets) {
+      const preset = getPreset(presetKey)!;
+      jobs.push({
+        productId,
+        preset: presetKey,
+        platform: input.platform ?? preset.platform,
+        quality: input.quality ?? "medium",
+        extra: input.extra,
+      });
+    }
+  }
+  if (jobs.length > MAX_BATCH) {
     return {
       ok: false,
-      message: `Daily generation limit reached (${DAILY_LIMIT}). Try again tomorrow or raise SOCIAL_DAILY_LIMIT.`,
+      message: `That's ${jobs.length} jobs — keep a batch under ${MAX_BATCH}.`,
     };
   }
 
-  const product = await getProductForAdmin(input.productId);
-  if (!product) return { ok: false, message: "Product not found." };
-
-  const platform = (input.platform ?? preset.platform) as SocialPlatform;
-  const quality = (input.quality ?? "medium") as ImageQuality;
-
-  const productCtx = {
-    title: product.title,
-    productType: product.productType,
-    description: product.description,
-    materials: product.materials,
-    tags: product.tags ?? [],
+  const count = await enqueueJobs(jobs);
+  revalidatePath("/admin/social");
+  return {
+    ok: true,
+    message: `Queued ${count} creative${count === 1 ? "" : "s"}. Processing…`,
   };
+}
 
-  const prompt = preset.buildPrompt(productCtx, input.extra);
-
-  try {
-    // 1) Image → R2
-    const image = await generateMarketingImage(prompt, {
-      size: preset.size,
-      quality,
-      keyPrefix: `p${product.id}`,
-    });
-
-    // 2) Caption + hashtags (best-effort — image is the hero, copy can be edited)
-    let caption = "";
-    let hashtags: string[] = [];
-    try {
-      const copy = await generateCaption({
-        productTitle: product.title,
-        productType: product.productType,
-        description: product.description,
-        tags: product.tags ?? [],
-        platform,
-        preset: preset.key,
-        extra: input.extra,
-      });
-      caption = copy.caption;
-      hashtags = copy.hashtags;
-    } catch (err) {
-      console.error("[social] caption generation failed:", err);
-    }
-
-    // 3) Persist as draft
-    const creativeId = await insertCreative({
-      productId: product.id,
-      productTitle: product.title,
-      preset: preset.key,
-      platform,
-      imageUrl: image.imageUrl,
-      prompt,
-      caption,
-      hashtags,
-      model: image.model,
-      costCents: image.costCents,
-    });
-
-    revalidatePath("/admin/social");
-    return { ok: true, message: "Creative generated.", creativeId };
-  } catch (err) {
-    console.error("[social] generation failed:", err);
-    const msg =
-      err instanceof Error ? err.message : "Generation failed. Please try again.";
-    return { ok: false, message: msg };
+/** Drain a bounded number of queued jobs synchronously (instant feedback). */
+export async function processQueueNow(): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  const res = await drainQueue(MANUAL_DRAIN_MAX);
+  revalidatePath("/admin/social");
+  if (res.processed === 0) {
+    return { ok: true, message: "Queue is empty." };
   }
+  const tail =
+    res.stoppedReason === "daily-limit" ? " (daily limit reached)" : "";
+  return {
+    ok: true,
+    message: `Processed ${res.processed}: ${res.done} done, ${res.failed} failed.${tail}`,
+  };
+}
+
+/** Remove finished + failed jobs from the queue table. */
+export async function clearQueue(): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  await clearFinishedJobs();
+  revalidatePath("/admin/social");
+  return { ok: true, message: "Cleared finished jobs." };
 }
 
 /** Approve / reject / publish / re-draft a creative. */

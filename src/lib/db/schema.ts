@@ -512,6 +512,44 @@ export const socialCreatives = pgTable(
 );
 
 /**
+ * social_jobs — generation queue for the Social Studio's batch factory.
+ *
+ * Batch generation can mean dozens of gpt-image-1 calls (~15s each), which far
+ * exceeds a single request's lifetime. So we enqueue one job per
+ * (product × preset) and let a cron worker drain the queue a few at a time —
+ * the standard queue + worker pattern for long-running AI pipelines. A manual
+ * "process now" trigger drains a small bounded batch synchronously for instant
+ * feedback.
+ */
+export const socialJobs = pgTable(
+  "social_jobs",
+  {
+    id: serial("id").primaryKey(),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    preset: text("preset").notNull(),
+    platform: text("platform").notNull().default("generic"),
+    quality: text("quality").notNull().default("medium"),
+    extra: text("extra"),
+    /** queued | processing | done | failed */
+    status: text("status").notNull().default("queued"),
+    /** Creative produced when status=done. */
+    resultCreativeId: integer("result_creative_id"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("social_jobs_status_idx").on(t.status),
+    index("social_jobs_created_idx").on(t.createdAt),
+  ],
+);
+
+/**
  * provenance_events — append-only audit log carried over from the MDM pipeline.
  */
 export const provenanceEvents = pgTable("provenance_events", {

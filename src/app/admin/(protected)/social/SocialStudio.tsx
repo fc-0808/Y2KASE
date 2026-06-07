@@ -19,6 +19,7 @@ import {
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { PRESETS, PLATFORMS } from "@/lib/social/presets";
 import type { SocialCreative } from "@/lib/social/creatives";
+import type { JobQueueCounts } from "@/lib/social/jobs";
 import type { PinterestBoard } from "@/lib/social/pinterest";
 import {
   generateCreative,
@@ -27,7 +28,11 @@ import {
   fetchPinterestBoards,
   publishNow,
   schedulePublish,
+  enqueueBatch,
+  processQueueNow,
+  clearQueue,
 } from "./actions";
+import { Layers, Play, Trash } from "lucide-react";
 
 type ProductOption = { id: number; title: string; imageUrl: string | null };
 
@@ -56,16 +61,38 @@ export function SocialStudio({
   creatives,
   products,
   pinterestReady,
+  jobCounts,
 }: {
   creatives: SocialCreative[];
   products: ProductOption[];
   pinterestReady: boolean;
+  jobCounts: JobQueueCounts;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"single" | "batch">("single");
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Batch selection state
+  const [selectedProducts, setSelectedProducts] = useState<Set<number>>(
+    new Set(),
+  );
+  const [selectedPresets, setSelectedPresets] = useState<Set<string>>(
+    new Set([PRESETS[0].key]),
+  );
+  const [queueBusy, setQueueBusy] = useState(false);
+
+  const queuePending = jobCounts.queued + jobCounts.processing;
+
+  // While the queue is draining, gently poll so new creatives appear.
+  useEffect(() => {
+    if (queuePending === 0) return;
+    const t = setInterval(() => router.refresh(), 8000);
+    return () => clearInterval(t);
+  }, [queuePending, router]);
 
   // Pinterest boards (lazy-loaded once when publishing is available).
   const [boards, setBoards] = useState<PinterestBoard[]>([]);
@@ -123,6 +150,76 @@ export function SocialStudio({
         return;
       }
       setExtra("");
+      router.refresh();
+    });
+  }
+
+  function toggleProduct(id: number) {
+    setSelectedProducts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function togglePreset(key: string) {
+    setSelectedPresets((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const batchCount = selectedProducts.size * selectedPresets.size;
+
+  function handleQueueBatch() {
+    if (batchCount === 0) {
+      setError("Select at least one product and one preset.");
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setQueueBusy(true);
+    startTransition(async () => {
+      const res = await enqueueBatch({
+        productIds: Array.from(selectedProducts),
+        presets: Array.from(selectedPresets),
+        platform,
+        quality,
+        extra: extra.trim() || undefined,
+      });
+      setQueueBusy(false);
+      if (!res.ok) setError(res.message);
+      else {
+        setNotice(res.message);
+        setSelectedProducts(new Set());
+      }
+      router.refresh();
+      // Kick the worker once so generation starts immediately.
+      if (res.ok) void handleProcessNow();
+    });
+  }
+
+  function handleProcessNow() {
+    setQueueBusy(true);
+    return new Promise<void>((resolve) => {
+      startTransition(async () => {
+        const res = await processQueueNow();
+        setQueueBusy(false);
+        if (res.message) setNotice(res.message);
+        router.refresh();
+        resolve();
+      });
+    });
+  }
+
+  function handleClearQueue() {
+    setQueueBusy(true);
+    startTransition(async () => {
+      await clearQueue();
+      setQueueBusy(false);
       router.refresh();
     });
   }
@@ -192,12 +289,70 @@ export function SocialStudio({
     <div className="space-y-8">
       {/* ── Generation panel ─────────────────────────────────────────── */}
       <section className="rounded-3xl border border-[var(--border)] bg-[var(--card)] p-5">
-        <h2 className="mb-4 flex items-center gap-2 text-lg font-black">
-          <Sparkles className="h-5 w-5 text-[var(--primary)]" />
-          Generate a creative
-        </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-lg font-black">
+            <Sparkles className="h-5 w-5 text-[var(--primary)]" />
+            {mode === "single" ? "Generate a creative" : "Batch factory"}
+          </h2>
+          <div className="inline-flex rounded-full bg-[var(--muted)] p-1">
+            <button
+              type="button"
+              onClick={() => setMode("single")}
+              className={
+                "rounded-full px-3 py-1 text-xs font-bold transition " +
+                (mode === "single"
+                  ? "bg-[var(--primary)] text-white"
+                  : "text-[var(--foreground)]/60")
+              }
+            >
+              Single
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("batch")}
+              className={
+                "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition " +
+                (mode === "batch"
+                  ? "bg-[var(--primary)] text-white"
+                  : "text-[var(--foreground)]/60")
+              }
+            >
+              <Layers className="h-3.5 w-3.5" /> Batch
+            </button>
+          </div>
+        </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {notice && (
+          <p className="mb-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+            {notice}
+          </p>
+        )}
+
+        {mode === "batch" && (
+          <BatchPanel
+            products={products}
+            selectedProducts={selectedProducts}
+            selectedPresets={selectedPresets}
+            onToggleProduct={toggleProduct}
+            onTogglePreset={togglePreset}
+            platform={platform}
+            setPlatform={setPlatform}
+            quality={quality}
+            setQuality={setQuality}
+            extra={extra}
+            setExtra={setExtra}
+            batchCount={batchCount}
+            queueBusy={queueBusy || pending}
+            onQueue={handleQueueBatch}
+          />
+        )}
+
+        <div
+          className={
+            "grid gap-4 sm:grid-cols-2 lg:grid-cols-4" +
+            (mode === "batch" ? " hidden" : "")
+          }
+        >
           <label className="block">
             <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
               Product
@@ -274,23 +429,27 @@ export function SocialStudio({
           </label>
         </div>
 
-        <p className="mt-2 text-xs text-[var(--foreground)]/50">
-          {selectedPreset.emoji} {selectedPreset.description} · Output{" "}
-          {selectedPreset.size}
-        </p>
+        {mode === "single" && (
+          <>
+            <p className="mt-2 text-xs text-[var(--foreground)]/50">
+              {selectedPreset.emoji} {selectedPreset.description} · Output{" "}
+              {selectedPreset.size}
+            </p>
 
-        <label className="mt-4 block">
-          <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
-            Extra art direction (optional)
-          </span>
-          <input
-            type="text"
-            value={extra}
-            onChange={(e) => setExtra(e.target.value)}
-            placeholder="e.g. Valentine's Day theme, pastel pink, snowy background…"
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
-          />
-        </label>
+            <label className="mt-4 block">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+                Extra art direction (optional)
+              </span>
+              <input
+                type="text"
+                value={extra}
+                onChange={(e) => setExtra(e.target.value)}
+                placeholder="e.g. Valentine's Day theme, pastel pink, snowy background…"
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+          </>
+        )}
 
         {error && (
           <p className="mt-3 text-sm font-semibold text-red-500" role="alert">
@@ -298,23 +457,71 @@ export function SocialStudio({
           </p>
         )}
 
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={generating || productId === ""}
-          className="btn-candy mt-4 inline-flex items-center gap-2 px-6 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {generating ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" /> Generating… (~15s)
-            </>
-          ) : (
-            <>
-              <Sparkles className="h-4 w-4" /> Generate creative
-            </>
-          )}
-        </button>
+        {mode === "single" && (
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={generating || productId === ""}
+            className="btn-candy mt-4 inline-flex items-center gap-2 px-6 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {generating ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Generating… (~15s)
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" /> Generate creative
+              </>
+            )}
+          </button>
+        )}
       </section>
+
+      {/* ── Generation queue status ──────────────────────────────────── */}
+      {(queuePending > 0 || jobCounts.done > 0 || jobCounts.failed > 0) && (
+        <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+          <span className="flex items-center gap-1.5 text-sm font-bold">
+            <Layers className="h-4 w-4 text-[var(--primary)]" /> Queue
+          </span>
+          <span className="text-xs text-[var(--foreground)]/70">
+            {jobCounts.queued} queued · {jobCounts.processing} processing ·{" "}
+            {jobCounts.done} done
+            {jobCounts.failed > 0 && (
+              <span className="text-red-500"> · {jobCounts.failed} failed</span>
+            )}
+          </span>
+          {queuePending > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleProcessNow()}
+              disabled={queueBusy || pending}
+              className="inline-flex h-8 items-center gap-1 rounded-full bg-[var(--primary)] px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {queueBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              Process now
+            </button>
+          )}
+          {(jobCounts.done > 0 || jobCounts.failed > 0) && (
+            <button
+              type="button"
+              onClick={handleClearQueue}
+              disabled={queueBusy || pending}
+              className="inline-flex h-8 items-center gap-1 rounded-full border border-[var(--border)] px-3 text-xs font-semibold text-[var(--foreground)]/60 transition hover:border-[var(--primary)] disabled:opacity-50"
+            >
+              <Trash className="h-3.5 w-3.5" /> Clear finished
+            </button>
+          )}
+          {queuePending > 0 && (
+            <span className="ml-auto text-xs text-[var(--foreground)]/40">
+              Auto-refreshing… new creatives appear below as they finish.
+            </span>
+          )}
+        </section>
+      )}
 
       {/* ── Pinterest publishing bar ─────────────────────────────────── */}
       {pinterestReady ? (
@@ -521,6 +728,181 @@ export function SocialStudio({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Batch factory: multi-select products × presets → queue generation jobs. */
+function BatchPanel({
+  products,
+  selectedProducts,
+  selectedPresets,
+  onToggleProduct,
+  onTogglePreset,
+  platform,
+  setPlatform,
+  quality,
+  setQuality,
+  extra,
+  setExtra,
+  batchCount,
+  queueBusy,
+  onQueue,
+}: {
+  products: ProductOption[];
+  selectedProducts: Set<number>;
+  selectedPresets: Set<string>;
+  onToggleProduct: (id: number) => void;
+  onTogglePreset: (key: string) => void;
+  platform: string;
+  setPlatform: (v: string) => void;
+  quality: string;
+  setQuality: (v: string) => void;
+  extra: string;
+  setExtra: (v: string) => void;
+  batchCount: number;
+  queueBusy: boolean;
+  onQueue: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Presets multi-select */}
+      <div>
+        <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+          Presets ({selectedPresets.size} selected)
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {PRESETS.map((p) => {
+            const on = selectedPresets.has(p.key);
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => onTogglePreset(p.key)}
+                className={
+                  "rounded-full px-3 py-1.5 text-xs font-semibold transition " +
+                  (on
+                    ? "bg-[var(--primary)] text-white"
+                    : "bg-[var(--muted)] text-[var(--foreground)]/70 hover:bg-[var(--border)]")
+                }
+              >
+                {p.emoji} {p.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Products multi-select */}
+      <div>
+        <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+          Products ({selectedProducts.size} selected)
+        </span>
+        <div className="max-h-56 overflow-y-auto rounded-xl border border-[var(--border)] p-2">
+          {products.length === 0 && (
+            <p className="p-2 text-xs text-[var(--foreground)]/50">No products.</p>
+          )}
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            {products.map((p) => {
+              const on = selectedProducts.has(p.id);
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onToggleProduct(p.id)}
+                  className={
+                    "flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition " +
+                    (on
+                      ? "bg-[var(--primary-soft)] text-[var(--foreground)]"
+                      : "hover:bg-[var(--muted)]")
+                  }
+                >
+                  <span
+                    className={
+                      "grid h-4 w-4 shrink-0 place-items-center rounded border " +
+                      (on
+                        ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                        : "border-[var(--border)]")
+                    }
+                  >
+                    {on && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="line-clamp-1">{p.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Platform + quality + extra */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+            Platform
+          </span>
+          <select
+            value={platform}
+            onChange={(e) => setPlatform(e.target.value)}
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          >
+            {PLATFORMS.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.emoji} {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+            Quality
+          </span>
+          <select
+            value={quality}
+            onChange={(e) => setQuality(e.target.value)}
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          >
+            {QUALITIES.map((q) => (
+              <option key={q.key} value={q.key}>
+                {q.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
+            Extra art direction
+          </span>
+          <input
+            type="text"
+            value={extra}
+            onChange={(e) => setExtra(e.target.value)}
+            placeholder="optional theme…"
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onQueue}
+          disabled={queueBusy || batchCount === 0}
+          className="btn-candy inline-flex items-center gap-2 px-6 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {queueBusy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Layers className="h-4 w-4" />
+          )}
+          Queue {batchCount > 0 ? `${batchCount} ` : ""}creative
+          {batchCount === 1 ? "" : "s"}
+        </button>
+        <span className="text-xs text-[var(--foreground)]/50">
+          {selectedProducts.size} products × {selectedPresets.size} presets ={" "}
+          {batchCount} jobs
+        </span>
+      </div>
     </div>
   );
 }

@@ -47,6 +47,26 @@ async function main() {
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "last_error" text`;
   await sql`CREATE INDEX IF NOT EXISTS "social_creatives_scheduled_idx" ON "social_creatives" ("scheduled_at")`;
 
+  // Generation queue (batch factory — P4).
+  await sql`
+    CREATE TABLE IF NOT EXISTS "social_jobs" (
+      "id" serial PRIMARY KEY,
+      "product_id" integer NOT NULL REFERENCES "products"("id") ON DELETE CASCADE,
+      "preset" text NOT NULL,
+      "platform" text NOT NULL DEFAULT 'generic',
+      "quality" text NOT NULL DEFAULT 'medium',
+      "extra" text,
+      "status" text NOT NULL DEFAULT 'queued',
+      "result_creative_id" integer,
+      "error" text,
+      "attempts" integer NOT NULL DEFAULT 0,
+      "created_at" timestamptz NOT NULL DEFAULT now(),
+      "processed_at" timestamptz
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS "social_jobs_status_idx" ON "social_jobs" ("status")`;
+  await sql`CREATE INDEX IF NOT EXISTS "social_jobs_created_idx" ON "social_jobs" ("created_at")`;
+
   console.log("✓ Social Studio schema applied.");
   process.exit(0);
 }

@@ -10,6 +10,7 @@ import {
 } from "@/lib/social/creatives";
 import { isImageGenConfigured } from "@/lib/social/image-gen";
 import { isPinterestConfigured } from "@/lib/social/pinterest";
+import { getJobCounts } from "@/lib/social/jobs";
 import { SocialStudio } from "./SocialStudio";
 
 export const metadata: Metadata = { title: "Admin · Social Studio" };
@@ -34,10 +35,11 @@ export default async function AdminSocialPage({
       ? sp.status
       : undefined;
 
-  const [creatives, counts, products] = await Promise.all([
+  const [creatives, counts, products, jobCounts] = await Promise.all([
     getCreatives(activeStatus),
     getCreativeStatusCounts(),
     getProductsByStatus("active"),
+    getJobCounts(),
   ]);
 
   const total =
@@ -102,6 +104,7 @@ export default async function AdminSocialPage({
       <SocialStudio
         creatives={creatives}
         pinterestReady={pinterestReady}
+        jobCounts={jobCounts}
         products={products.map((p) => ({
           id: p.id,
           title: p.title,
