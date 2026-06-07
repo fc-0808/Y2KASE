@@ -16,9 +16,12 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="min-h-dvh bg-background">
       <AdminNavbar user={session.user} />
-      <main className="flex-1 bg-[var(--background)]">{children}</main>
+      {/* lg:pl-64 offsets content to the right of the fixed 256px sidebar */}
+      <div className="lg:pl-64">
+        <main className="min-h-dvh">{children}</main>
+      </div>
     </div>
   );
 }
