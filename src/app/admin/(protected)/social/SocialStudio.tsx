@@ -197,6 +197,21 @@ export function SocialStudio({
   // Pinterest connection status (account verification).
   const [connection, setConnection] = useState<ConnectionResult | null>(null);
   const [refreshingMetrics, setRefreshingMetrics] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+
+  function handleReconnectPinterest() {
+    setReconnecting(true);
+    setError(null);
+    startTransition(async () => {
+      const res = await getPinterestConnectUrl();
+      setReconnecting(false);
+      if (res.ok && res.url) {
+        window.open(res.url, "_blank", "noopener,noreferrer");
+      } else {
+        setError(res.message);
+      }
+    });
+  }
 
   useEffect(() => {
     if (!pinterestReady || boardsLoaded) return;
@@ -771,12 +786,23 @@ export function SocialStudio({
               </option>
             ))}
           </select>
-          <span className="ml-auto text-xs text-[var(--foreground)]/40">
-            Approved creatives can be published now or scheduled.
-          </span>
+          <button
+            type="button"
+            onClick={handleReconnectPinterest}
+            disabled={reconnecting || pending}
+            title="Re-authorize with publishing (write) permissions"
+            className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-[#E60023]/40 px-3 text-xs font-bold text-[#E60023] transition hover:bg-[#E60023]/10 disabled:opacity-50"
+          >
+            {reconnecting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="h-3.5 w-3.5" />
+            )}
+            Reconnect
+          </button>
         </section>
       ) : (
-        <PinterestConnectBanner />
+        <PinterestConnectBanner onConnect={handleReconnectPinterest} reconnecting={reconnecting} />
       )}
 
       {/* ── Creatives grid ───────────────────────────────────────────── */}
@@ -1234,21 +1260,13 @@ function PublishControls({
 
 // ─── Pinterest connect banner ─────────────────────────────────────────────────
 
-function PinterestConnectBanner() {
-  const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState("");
-
-  function handleConnect() {
-    startTransition(async () => {
-      const res = await getPinterestConnectUrl();
-      if (res.ok && res.url) {
-        window.open(res.url, "_blank", "noopener,noreferrer");
-      } else {
-        setMsg(res.message);
-      }
-    });
-  }
-
+function PinterestConnectBanner({
+  onConnect,
+  reconnecting,
+}: {
+  onConnect: () => void;
+  reconnecting: boolean;
+}) {
   return (
     <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-[#E60023]/40 bg-[var(--card)] px-4 py-3">
       <span className="text-sm font-bold text-[#E60023]">📌 Pinterest</span>
@@ -1257,16 +1275,13 @@ function PinterestConnectBanner() {
       </span>
       <button
         type="button"
-        onClick={handleConnect}
-        disabled={pending}
+        onClick={onConnect}
+        disabled={reconnecting}
         className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full bg-[#E60023] px-4 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
       >
-        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔗"}
+        {reconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔗"}
         Connect Pinterest
       </button>
-      {msg && (
-        <p className="w-full text-xs text-rose-600">{msg}</p>
-      )}
       <p className="w-full text-[11px] text-[var(--foreground)]/40">
         Requires <code className="font-mono">PINTEREST_APP_ID</code> in your Vercel env.
         Once connected, tokens auto-refresh — no manual steps needed.

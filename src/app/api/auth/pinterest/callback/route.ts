@@ -82,32 +82,29 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       scope?: string;
     };
 
-    // Fetch account info for display in the admin UI.
-    let accountName: string | undefined;
-    let accountId: string | undefined;
-    try {
-      // Temporarily override env for the initial account fetch.
-      const prevToken = process.env.PINTEREST_ACCESS_TOKEN;
-      process.env.PINTEREST_ACCESS_TOKEN = data.access_token;
-      const account = await getUserAccount();
-      process.env.PINTEREST_ACCESS_TOKEN = prevToken;
-      accountName = account.username;
-      accountId = account.username;
-    } catch {
-      // Non-fatal — we still save the token.
-    }
-
+    // Store the new token first so the Pinterest client (which reads the DB
+    // before the env var) immediately uses it for the account lookup below.
     await upsertToken("pinterest", {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresIn: data.expires_in,
       refreshExpiresIn: data.refresh_token_expires_in,
       scopes: data.scope,
-      accountId,
-      accountName,
     });
 
-    console.info("[pinterest-callback] Token stored for", accountName ?? "unknown");
+    // Enrich with the connected account name for the admin UI (best-effort).
+    try {
+      const account = await getUserAccount();
+      await upsertToken("pinterest", {
+        accessToken: data.access_token,
+        accountId: account.username,
+        accountName: account.username,
+      });
+      console.info("[pinterest-callback] Token stored for", account.username);
+    } catch {
+      console.info("[pinterest-callback] Token stored (account lookup skipped).");
+    }
+
     return NextResponse.redirect(new URL("/admin/social?pinterest_connected=1", req.url));
   } catch (err) {
     console.error("[pinterest-callback] Unexpected error:", err);
