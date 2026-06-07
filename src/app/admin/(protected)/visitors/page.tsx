@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Globe, Users, Eye, CalendarDays } from "lucide-react";
+import { Globe, Users, Eye, CalendarDays, ExternalLink } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import {
   getVisitorOverview,
@@ -250,9 +250,15 @@ export default async function AdminVisitorsPage({
               {recent.map((v) => (
                 <li key={v.id} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate font-mono text-xs font-semibold">
-                      {v.path}
-                    </span>
+                    <a
+                      href={v.path}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group flex min-w-0 items-center gap-1 truncate font-mono text-xs font-semibold hover:text-primary"
+                    >
+                      <span className="truncate">{v.path}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
+                    </a>
                     <span className="shrink-0 text-xs text-[var(--foreground)]/50">
                       {timeFmt.format(new Date(v.createdAt))}
                     </span>
@@ -300,8 +306,16 @@ export default async function AdminVisitorsPage({
                       <td className="whitespace-nowrap px-4 py-2.5 text-[var(--foreground)]/60">
                         {timeFmt.format(new Date(v.createdAt))}
                       </td>
-                      <td className="max-w-[200px] truncate px-4 py-2.5 font-mono text-xs">
-                        {v.path}
+                      <td className="max-w-[200px] px-4 py-2.5 font-mono text-xs">
+                        <a
+                          href={v.path}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-center gap-1 truncate hover:text-primary"
+                        >
+                          <span className="truncate">{v.path}</span>
+                          <ExternalLink className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
+                        </a>
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5">
                         <span className="mr-1">{flag(v.country)}</span>
