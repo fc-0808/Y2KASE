@@ -36,13 +36,21 @@ export function CartDrawer() {
           isOpen ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
-      <aside
-        role="dialog"
-        aria-label="Shopping cart"
-        className={`fixed right-0 top-0 z-50 flex h-dvh w-full max-w-md flex-col bg-[var(--card)] shadow-2xl transition-transform duration-300 ${
-          isOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
+      {/* Viewport-sized clip layer: keeps the off-canvas panel (parked at
+          translate-x-full) from ever extending the page's overflow region.
+          Because the panel is `absolute` inside this `overflow-x-hidden` box,
+          it cannot cause horizontal scroll / mobile zoom-out on ANY browser —
+          including iOS Safari, where root `overflow-x: clip` is unreliable for
+          fixed-positioned descendants. The layer ignores pointer events so the
+          backdrop behind it stays clickable; the panel re-enables them. */}
+      <div className="pointer-events-none fixed inset-0 z-50 overflow-x-hidden">
+        <aside
+          role="dialog"
+          aria-label="Shopping cart"
+          className={`pointer-events-auto absolute right-0 top-0 flex h-dvh w-full max-w-md flex-col bg-[var(--card)] shadow-2xl transition-transform duration-300 ${
+            isOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
         <div className="h-1 w-full shrink-0 bg-holo-vivid" />
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <h2 className="font-display text-lg font-extrabold">Your Bag ✨</h2>
@@ -102,7 +110,8 @@ export function CartDrawer() {
             </Link>
           </div>
         )}
-      </aside>
+        </aside>
+      </div>
     </>
   );
 }
