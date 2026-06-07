@@ -83,12 +83,12 @@ export default function WelcomeGiftPage() {
   return (
     <div className="flex flex-col">
       {/* ── Hero + claim form ─────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-[1080px] px-4 pt-6 sm:px-6 sm:pt-12">
-        <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-holo-shimmer p-5 shadow-[0_30px_80px_-40px_rgba(120,60,120,0.45)] sm:rounded-[2.5rem] sm:p-10">
+      <section className="mx-auto w-full max-w-[1080px] px-4 pt-3 sm:px-6 sm:pt-12">
+        <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-holo-shimmer p-4 shadow-[0_30px_80px_-40px_rgba(120,60,120,0.45)] sm:rounded-[2.5rem] sm:p-10">
           <div className="bg-grid absolute inset-0 opacity-30" />
           <SparkleField />
 
-          <div className="relative grid items-center gap-6 lg:grid-cols-[1.05fr_1fr] lg:gap-10">
+          <div className="relative grid items-center gap-4 sm:gap-6 lg:grid-cols-[1.05fr_1fr] lg:gap-10">
             {/* Pitch — compact on mobile so the form is the focal point */}
             <div className="text-center lg:text-left">
               <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
@@ -96,15 +96,15 @@ export default function WelcomeGiftPage() {
                 <Sticker className="text-[var(--accent)]">Stay cute</Sticker>
               </div>
 
-              <p className="mt-4 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)] sm:mt-6">
+              <p className="mt-3 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)] sm:mt-6">
                 Your welcome gift
               </p>
-              <h1 className="mt-2.5 font-display text-[1.75rem] font-black leading-[1.1] sm:text-4xl lg:text-[2.9rem]">
+              <h1 className="mt-2 font-display text-[1.4rem] font-black leading-[1.12] sm:text-4xl lg:text-[2.9rem]">
                 Welcome to the{" "}
-                <Wordmark className="text-2xl sm:text-3xl lg:text-[2.4rem]" />{" "}
+                <Wordmark className="text-xl sm:text-3xl lg:text-[2.4rem]" />{" "}
                 Club! 🎀
               </h1>
-              <p className="mx-auto mt-2.5 max-w-md text-sm leading-relaxed text-[var(--foreground)]/75 sm:mt-4 sm:text-[15px] lg:mx-0">
+              <p className="mx-auto mt-2 max-w-md text-[13px] leading-snug text-[var(--foreground)]/75 sm:mt-4 sm:text-[15px] sm:leading-relaxed lg:mx-0">
                 Here&apos;s{" "}
                 <strong className="text-[var(--primary)]">10% off</strong> your
                 first order — plus free shipping, member-only drops and perks
@@ -126,7 +126,7 @@ export default function WelcomeGiftPage() {
             </div>
 
             {/* Claim card — the conversion focal point */}
-            <div className="card-cute relative overflow-hidden p-5 ring-1 ring-white/60 sm:p-8">
+            <div className="card-cute relative overflow-hidden p-4 ring-1 ring-white/60 sm:p-8">
               <div className="absolute inset-x-0 top-0 h-1.5 bg-holo-vivid" />
               <WelcomeGiftForm />
             </div>

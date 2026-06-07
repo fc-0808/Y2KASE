@@ -135,7 +135,7 @@ export function EmailCapturePop() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="popup-title"
-        className="fixed inset-x-4 bottom-8 z-50 mx-auto max-w-md animate-float-up sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2"
+        className="fixed inset-x-4 bottom-4 z-50 mx-auto max-h-[calc(100svh-2rem)] max-w-md overflow-y-auto animate-float-up sm:inset-x-auto sm:left-1/2 sm:bottom-auto sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2"
       >
         <div className="card-cute relative overflow-hidden">
           {/* Holographic stripe at top */}

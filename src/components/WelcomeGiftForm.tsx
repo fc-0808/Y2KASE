@@ -134,20 +134,22 @@ export function WelcomeGiftForm() {
 
   return (
     <div>
-      <div className="mb-4 text-center sm:mb-5">
-        <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--primary-soft)] sm:h-14 sm:w-14">
+      <div className="mb-3 text-center sm:mb-5">
+        {/* Icon is decorative + duplicates the hero — hidden on mobile to keep
+            the fields above the fold; restored on larger screens. */}
+        <div className="mx-auto mb-3 hidden h-12 w-12 items-center justify-center rounded-full bg-[var(--primary-soft)] sm:inline-flex sm:h-14 sm:w-14">
           <Gift className="h-6 w-6 text-[var(--primary)] sm:h-7 sm:w-7" />
         </div>
-        <h2 className="font-display text-2xl font-black leading-tight text-[var(--foreground)]">
+        <h2 className="font-display text-xl font-black leading-tight text-[var(--foreground)] sm:text-2xl">
           Claim your 10% off ✨
         </h2>
-        <p className="mx-auto mt-2 max-w-xs text-sm text-[var(--foreground)]/65 sm:max-w-none">
+        <p className="mx-auto mt-2 hidden max-w-xs text-sm text-[var(--foreground)]/65 sm:block sm:max-w-none">
           Drop your email and we&apos;ll send your code straight to your inbox —
           plus first dibs on new drops. 🌸
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3" noValidate>
+      <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3" noValidate>
         <div>
           <label
             htmlFor="wg-name"
