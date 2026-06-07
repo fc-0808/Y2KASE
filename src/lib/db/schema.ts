@@ -447,6 +447,60 @@ export const reviews = pgTable(
 );
 
 /**
+ * social_creatives — AI-generated marketing assets for the Social Studio.
+ *
+ * Each row is one generated image (gpt-image-1) + its platform-tailored caption
+ * and hashtags. Creatives move through a moderation lifecycle
+ * (draft → approved → published / rejected) so a human reviews every asset
+ * before it goes out — the brand-safe pattern top DTC teams use.
+ *
+ * The product is referenced loosely (set null) and we snapshot the product
+ * title so a creative remains meaningful even if the source product is later
+ * archived or deleted.
+ */
+export const socialCreatives = pgTable(
+  "social_creatives",
+  {
+    id: serial("id").primaryKey(),
+    /** Source product (nullable — creative survives product deletion). */
+    productId: integer("product_id").references(() => products.id, {
+      onDelete: "set null",
+    }),
+    /** Snapshot of the product title at generation time. */
+    productTitle: text("product_title"),
+    /** Preset key used to build the image prompt (see lib/social/presets). */
+    preset: text("preset").notNull(),
+    /** Target platform: pinterest | tiktok | instagram | generic. */
+    platform: text("platform").notNull().default("generic"),
+    /** Public R2 URL of the generated image. */
+    imageUrl: text("image_url").notNull(),
+    /** The full prompt sent to the image model (audit + regenerate). */
+    prompt: text("prompt").notNull(),
+    /** Platform-tailored caption copy. */
+    caption: text("caption"),
+    /** Hashtags (no leading '#'). */
+    hashtags: text("hashtags").array().notNull().default([]),
+    /** draft | approved | published | rejected */
+    status: text("status").notNull().default("draft"),
+    /** Image model used, e.g. "gpt-image-1". */
+    model: text("model"),
+    /** Approx generation cost in USD cents (for spend tracking). */
+    costCents: integer("cost_cents"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("social_creatives_status_idx").on(t.status),
+    index("social_creatives_product_idx").on(t.productId),
+  ],
+);
+
+/**
  * provenance_events — append-only audit log carried over from the MDM pipeline.
  */
 export const provenanceEvents = pgTable("provenance_events", {

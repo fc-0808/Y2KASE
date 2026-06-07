@@ -77,6 +77,14 @@ export const metadata: Metadata = {
       "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
     images: ["/brand/og.webp"],
   },
+  // Site-ownership verification for search/social platforms. Pinterest reads
+  // <meta name="p:domain_verify"> to claim y2kase.com (unlocks Rich Pins,
+  // catalog ingestion and the Pinterest tag's full attribution).
+  verification: {
+    other: {
+      "p:domain_verify": "4efb02ceeb9f008aabe77ae8f6fed9d1",
+    },
+  },
 };
 
 export default function RootLayout({

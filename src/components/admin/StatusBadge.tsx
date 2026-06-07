@@ -9,6 +9,11 @@ const STATUS_STYLES: Record<string, string> = {
   refunded: "bg-rose-100 text-rose-700",
   active: "bg-emerald-100 text-emerald-700",
   unsubscribed: "bg-gray-200 text-gray-600",
+  // Social Studio creative lifecycle
+  draft: "bg-amber-100 text-amber-700",
+  approved: "bg-emerald-100 text-emerald-700",
+  published: "bg-violet-100 text-violet-700",
+  rejected: "bg-rose-100 text-rose-700",
 };
 
 export function StatusBadge({

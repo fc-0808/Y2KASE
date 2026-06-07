@@ -42,6 +42,30 @@ export async function uploadWebpToR2(
   return publicUrl(key);
 }
 
+/**
+ * Upload an arbitrary image buffer (PNG / WebP / JPEG) to R2 and return its
+ * public URL. Used by the Social Studio for AI-generated marketing creatives,
+ * which gpt-image-1 returns as base64 PNG/WebP rather than a hosted URL.
+ */
+export async function uploadImageToR2(
+  r2: S3Client,
+  bucket: string,
+  key: string,
+  body: Buffer,
+  contentType = "image/png",
+): Promise<string> {
+  await r2.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      CacheControl: "public, max-age=31536000, immutable",
+    }),
+  );
+  return publicUrl(key);
+}
+
 export async function uploadVideoToR2(
   r2: S3Client,
   bucket: string,

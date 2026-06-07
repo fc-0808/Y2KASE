@@ -18,6 +18,7 @@
     "db:reviews": "tsx scripts/apply-reviews-schema.ts",
     "db:subscribers": "tsx scripts/apply-subscribers-schema.ts",
     "db:analytics": "tsx scripts/apply-analytics-schema.ts",
+    "db:social": "tsx scripts/apply-social-schema.ts",
     "seed:collections": "tsx scripts/seed-collections.ts",
     "backfill:collections": "tsx scripts/backfill-collections.ts",
     "import:catalog": "tsx scripts/migrate-sqlite.ts",
