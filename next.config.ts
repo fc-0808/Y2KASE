@@ -6,6 +6,18 @@ import { fileURLToPath } from "node:url";
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      // Stale Google-indexed URLs for products that were renamed or removed.
+      // 301 so Google deindexes the old path and transfers link equity.
+      {
+        source: "/products/coquette-y2k-floral-magsafe-case-for-iphone-17-w-grip",
+        destination: "/products",
+        permanent: true,
+      },
+    ];
+  },
+
   // Pin the workspace root so Next.js doesn't pick up an unrelated lockfile
   // higher up in the user's home directory.
   turbopack: {
