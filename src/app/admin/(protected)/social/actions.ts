@@ -33,6 +33,11 @@ import {
   getUserAccount,
   type PinterestBoard,
 } from "@/lib/social/pinterest";
+import {
+  isTikTokConfigured,
+  getTikTokAccount,
+} from "@/lib/social/tiktok";
+import { getToken } from "@/lib/social/token-store";
 
 export type SocialActionResult = {
   ok: boolean;
@@ -265,6 +270,83 @@ export type ConnectionResult = {
   accountType?: string;
   message: string;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIKTOK CONNECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TikTokConnectionResult = {
+  ok: boolean;
+  configured: boolean;
+  displayName?: string;
+  sandboxOnly?: boolean;
+  message: string;
+};
+
+/** Verify the TikTok token and return account details. */
+export async function checkTikTokConnection(): Promise<TikTokConnectionResult> {
+  if (!(await guard())) {
+    return { ok: false, configured: false, message: "Not authorized." };
+  }
+  if (!isTikTokConfigured()) {
+    return {
+      ok: false,
+      configured: false,
+      message: "TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET not set.",
+    };
+  }
+  const row = await getToken("tiktok");
+  if (!row) {
+    return {
+      ok: false,
+      configured: true,
+      message: "Not connected. Click Connect TikTok to authorise.",
+    };
+  }
+  try {
+    const account = await getTikTokAccount();
+    return {
+      ok: true,
+      configured: true,
+      displayName: account.displayName,
+      // While unaudited, posts go private — note this in the UI.
+      sandboxOnly: true,
+      message: "Connected.",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Connection failed.";
+    return { ok: false, configured: true, message: msg };
+  }
+}
+
+/** Generate the TikTok OAuth URL for the admin to click. */
+export async function getTikTokConnectUrl(): Promise<{
+  ok: boolean;
+  url?: string;
+  message: string;
+}> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  const clientKey = process.env.TIKTOK_CLIENT_KEY;
+  if (!clientKey) {
+    return {
+      ok: false,
+      message:
+        "TIKTOK_CLIENT_KEY is not set. Create a TikTok developer app at developers.tiktok.com and add the key to your environment.",
+    };
+  }
+
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://y2kase.com";
+  const redirectUri = encodeURIComponent(`${siteUrl}/api/auth/tiktok/callback`);
+  const scopes = encodeURIComponent("user.info.basic,video.upload,video.publish");
+  const url =
+    `https://www.tiktok.com/v2/auth/authorize/?` +
+    `client_key=${clientKey}&redirect_uri=${redirectUri}` +
+    `&response_type=code&scope=${scopes}&state=y2kase-admin`;
+
+  return { ok: true, url, message: "Click the URL to connect TikTok." };
+}
 
 /**
  * Generate the Pinterest OAuth URL so the admin can (re)connect the brand

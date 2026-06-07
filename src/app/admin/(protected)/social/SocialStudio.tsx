@@ -36,7 +36,10 @@ import {
   getPinterestConnectUrl,
   listProductPhotos,
   importPhotos,
+  checkTikTokConnection,
+  getTikTokConnectUrl,
   type ConnectionResult,
+  type TikTokConnectionResult,
 } from "./actions";
 import type { ProductGallery } from "@/lib/social/product-photos";
 import {
@@ -199,6 +202,10 @@ export function SocialStudio({
   const [refreshingMetrics, setRefreshingMetrics] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
 
+  // TikTok connection status.
+  const [tiktokConn, setTiktokConn] = useState<TikTokConnectionResult | null>(null);
+  const [tiktokConnecting, setTiktokConnecting] = useState(false);
+
   function handleReconnectPinterest() {
     setReconnecting(true);
     setError(null);
@@ -233,6 +240,31 @@ export function SocialStudio({
       cancelled = true;
     };
   }, [pinterestReady, boardsLoaded]);
+
+  // Probe TikTok on mount (best-effort).
+  useEffect(() => {
+    let cancelled = false;
+    checkTikTokConnection().then((res) => {
+      if (!cancelled) setTiktokConn(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function handleConnectTikTok() {
+    setTiktokConnecting(true);
+    setError(null);
+    startTransition(async () => {
+      const res = await getTikTokConnectUrl();
+      setTiktokConnecting(false);
+      if (res.ok && res.url) {
+        window.open(res.url, "_blank", "noopener,noreferrer");
+      } else {
+        setError(res.message);
+      }
+    });
+  }
 
   function handleRefreshMetrics() {
     setRefreshingMetrics(true);
@@ -805,6 +837,13 @@ export function SocialStudio({
         <PinterestConnectBanner onConnect={handleReconnectPinterest} reconnecting={reconnecting} />
       )}
 
+      {/* ── TikTok connection bar ────────────────────────────────────── */}
+      <TikTokBar
+        conn={tiktokConn}
+        connecting={tiktokConnecting}
+        onConnect={handleConnectTikTok}
+      />
+
       {/* ── Creatives grid ───────────────────────────────────────────── */}
       {creatives.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] p-12 text-center text-[var(--foreground)]/60">
@@ -819,13 +858,24 @@ export function SocialStudio({
                 key={c.id}
                 className="flex flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={c.imageUrl}
-                  alt={c.productTitle ?? "Creative"}
-                  className="aspect-square w-full bg-[var(--muted)] object-cover"
-                  loading="lazy"
-                />
+                {c.platform === "tiktok" ? (
+                  <video
+                    src={c.imageUrl}
+                    className="aspect-[9/16] w-full bg-black object-cover"
+                    muted
+                    playsInline
+                    preload="metadata"
+                    controls
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={c.imageUrl}
+                    alt={c.productTitle ?? "Creative"}
+                    className="aspect-square w-full bg-[var(--muted)] object-cover"
+                    loading="lazy"
+                  />
+                )}
                 <div className="flex flex-1 flex-col gap-2 p-3">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <StatusBadge status={c.status} />
@@ -1290,6 +1340,82 @@ function PinterestConnectBanner({
   );
 }
 
+// ─── TikTok connection bar ────────────────────────────────────────────────────
+
+function TikTokBar({
+  conn,
+  connecting,
+  onConnect,
+}: {
+  conn: TikTokConnectionResult | null;
+  connecting: boolean;
+  onConnect: () => void;
+}) {
+  const TIKTOK_COLOR = "#010101";
+
+  if (conn?.ok) {
+    return (
+      <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+        <span className="flex items-center gap-1.5 text-sm font-bold" style={{ color: TIKTOK_COLOR }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.67a8.15 8.15 0 004.77 1.52V6.72a4.85 4.85 0 01-1-.03z" />
+          </svg>
+          TikTok
+        </span>
+        {conn.displayName && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+            <CheckCircle2 className="h-3 w-3" /> @{conn.displayName}
+          </span>
+        )}
+        {conn.sandboxOnly && (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+            Sandbox — posts go private until app review approves
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onConnect}
+          disabled={connecting}
+          title="Re-authorize TikTok"
+          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition hover:opacity-80 disabled:opacity-50"
+          style={{ borderColor: `${TIKTOK_COLOR}40`, color: TIKTOK_COLOR }}
+        >
+          {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+          Reconnect
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-3">
+      <span className="flex items-center gap-1.5 text-sm font-bold" style={{ color: TIKTOK_COLOR }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.67a8.15 8.15 0 004.77 1.52V6.72a4.85 4.85 0 01-1-.03z" />
+        </svg>
+        TikTok
+      </span>
+      <span className="text-xs text-[var(--foreground)]/60">
+        {conn?.message ?? "Not connected — post product videos to TikTok automatically."}
+      </span>
+      <button
+        type="button"
+        onClick={onConnect}
+        disabled={connecting}
+        className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full px-4 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+        style={{ background: TIKTOK_COLOR }}
+      >
+        {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "🔗"}
+        Connect TikTok
+      </button>
+      <p className="w-full text-[11px] text-[var(--foreground)]/40">
+        Requires <code className="font-mono">TIKTOK_CLIENT_KEY</code> + <code className="font-mono">TIKTOK_CLIENT_SECRET</code> in Vercel env.
+        Register at developers.tiktok.com → request <code className="font-mono">video.publish</code> scope.
+      </p>
+    </section>
+  );
+}
+
 // ─── Product photo import panel ───────────────────────────────────────────────
 
 function PhotoImportPanel({
@@ -1330,9 +1456,9 @@ function PhotoImportPanel({
   return (
     <div className="space-y-4">
       <p className="rounded-xl bg-sky-50 px-3 py-2 text-xs text-sky-800">
-        📸 Pin your <strong>real</strong> product photos — no AI, $0 cost. The
-        image on the pin is exactly what customers receive. Photos are already
-        hosted, so publishing is instant.
+        {photoPlatform === "tiktok"
+          ? "🎬 Queue your product video for TikTok — select the video below and add a caption. Posts go private until TikTok approves your app for production."
+          : "📸 Pin your real product photos — no AI, $0 cost. The image on the pin is exactly what customers receive. Photos are already hosted, so publishing is instant."}
       </p>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -1386,11 +1512,57 @@ function PhotoImportPanel({
         </label>
       </div>
 
+      {/* TikTok: show the product video instead of photo grid */}
+      {photoPlatform === "tiktok" && !galleryLoading && gallery && (
+        <div className="space-y-3">
+          {gallery.videoUrl ? (
+            <>
+              <p className="text-xs font-bold text-[var(--foreground)]/70">Product video</p>
+              <video
+                src={gallery.videoUrl}
+                className="max-h-80 w-full max-w-xs rounded-2xl border border-[var(--border)] bg-black object-contain"
+                controls
+                muted
+                playsInline
+                preload="metadata"
+              />
+              <p className="text-[11px] text-[var(--foreground)]/50">
+                This video will be queued as a TikTok draft creative and posted via the Content Posting API.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  onTogglePhoto(gallery.videoUrl!);
+                  onImport();
+                }}
+                disabled={importing}
+                className="inline-flex h-9 items-center gap-2 rounded-full bg-black px-5 text-xs font-bold text-white transition hover:opacity-80 disabled:opacity-50"
+              >
+                {importing ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Queueing…</>
+                ) : (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.67a8.15 8.15 0 004.77 1.52V6.72a4.85 4.85 0 01-1-.03z" />
+                    </svg>
+                    Queue for TikTok
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--foreground)]/50">
+              This product has no video. Upload an MP4 to the product then re-import.
+            </div>
+          )}
+        </div>
+      )}
+
       {galleryLoading ? (
         <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--muted)]/40 px-4 py-8 text-sm text-[var(--foreground)]/60">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading photos…
         </div>
-      ) : gallery && gallery.photos.length > 0 ? (
+      ) : photoPlatform !== "tiktok" && gallery && gallery.photos.length > 0 ? (
         <>
           <div className="flex items-center gap-3 text-xs">
             <span className="font-bold text-[var(--foreground)]/70">
@@ -1466,11 +1638,11 @@ function PhotoImportPanel({
             )}
           </button>
         </>
-      ) : (
+      ) : photoPlatform !== "tiktok" ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--foreground)]/50">
           {gallery ? "This product has no photos." : "Pick a product to load its photos."}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
