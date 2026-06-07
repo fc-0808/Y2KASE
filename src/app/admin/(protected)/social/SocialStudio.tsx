@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { PRESETS, PLATFORMS } from "@/lib/social/presets";
-import type { SocialCreative } from "@/lib/social/creatives";
+import type { SocialCreative, MetricsTotals } from "@/lib/social/creatives";
 import type { JobQueueCounts } from "@/lib/social/jobs";
 import type { PinterestBoard } from "@/lib/social/pinterest";
 import {
@@ -31,8 +31,23 @@ import {
   enqueueBatch,
   processQueueNow,
   clearQueue,
+  checkPinterestConnection,
+  refreshAnalytics,
+  type ConnectionResult,
 } from "./actions";
-import { Layers, Play, Trash } from "lucide-react";
+import {
+  Layers,
+  Play,
+  Trash,
+  Eye,
+  Bookmark,
+  MousePointerClick,
+  BarChart3,
+  RefreshCw,
+  CheckCircle2,
+} from "lucide-react";
+
+const numberFmt = new Intl.NumberFormat("en-US", { notation: "compact" });
 
 type ProductOption = { id: number; title: string; imageUrl: string | null };
 
@@ -62,11 +77,13 @@ export function SocialStudio({
   products,
   pinterestReady,
   jobCounts,
+  metrics,
 }: {
   creatives: SocialCreative[];
   products: ProductOption[];
   pinterestReady: boolean;
   jobCounts: JobQueueCounts;
+  metrics: MetricsTotals;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -99,21 +116,41 @@ export function SocialStudio({
   const [boardsLoaded, setBoardsLoaded] = useState(false);
   const [boardId, setBoardId] = useState<string>("");
 
+  // Pinterest connection status (account verification).
+  const [connection, setConnection] = useState<ConnectionResult | null>(null);
+  const [refreshingMetrics, setRefreshingMetrics] = useState(false);
+
   useEffect(() => {
     if (!pinterestReady || boardsLoaded) return;
     let cancelled = false;
-    fetchPinterestBoards().then((res) => {
-      if (cancelled) return;
-      setBoardsLoaded(true);
-      if (res.ok) {
-        setBoards(res.boards);
-        if (res.boards[0]) setBoardId((prev) => prev || res.boards[0].id);
-      }
-    });
+    Promise.all([fetchPinterestBoards(), checkPinterestConnection()]).then(
+      ([boardsRes, conn]) => {
+        if (cancelled) return;
+        setBoardsLoaded(true);
+        setConnection(conn);
+        if (boardsRes.ok) {
+          setBoards(boardsRes.boards);
+          if (boardsRes.boards[0]) {
+            setBoardId((prev) => prev || boardsRes.boards[0].id);
+          }
+        }
+      },
+    );
     return () => {
       cancelled = true;
     };
   }, [pinterestReady, boardsLoaded]);
+
+  function handleRefreshMetrics() {
+    setRefreshingMetrics(true);
+    setNotice(null);
+    startTransition(async () => {
+      const res = await refreshAnalytics();
+      setRefreshingMetrics(false);
+      if (res.message) setNotice(res.message);
+      router.refresh();
+    });
+  }
 
   // Generation form state
   const [productId, setProductId] = useState<number | "">(
@@ -523,12 +560,74 @@ export function SocialStudio({
         </section>
       )}
 
+      {/* ── Pinterest performance summary ────────────────────────────── */}
+      {pinterestReady && metrics.trackedPins > 0 && (
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="flex items-center gap-1.5 text-sm font-black">
+              <BarChart3 className="h-4 w-4 text-[#E60023]" /> Pinterest
+              performance
+            </h3>
+            <button
+              type="button"
+              onClick={handleRefreshMetrics}
+              disabled={refreshingMetrics || pending}
+              className="inline-flex h-8 items-center gap-1 rounded-full border border-[var(--border)] px-3 text-xs font-semibold text-[var(--foreground)]/60 transition hover:border-[var(--primary)] disabled:opacity-50"
+            >
+              <RefreshCw
+                className={
+                  "h-3.5 w-3.5" + (refreshingMetrics ? " animate-spin" : "")
+                }
+              />
+              Refresh metrics
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <MetricStat
+              icon={<Eye className="h-4 w-4" />}
+              label="Impressions"
+              value={metrics.impressions}
+            />
+            <MetricStat
+              icon={<Bookmark className="h-4 w-4" />}
+              label="Saves"
+              value={metrics.saves}
+            />
+            <MetricStat
+              icon={<MousePointerClick className="h-4 w-4" />}
+              label="Pin clicks"
+              value={metrics.pinClicks}
+            />
+            <MetricStat
+              icon={<ExternalLink className="h-4 w-4" />}
+              label="Outbound"
+              value={metrics.outboundClicks}
+            />
+          </div>
+          <p className="mt-2 text-[11px] text-[var(--foreground)]/40">
+            Across {metrics.trackedPins} tracked pin
+            {metrics.trackedPins === 1 ? "" : "s"}. Updated daily; refresh for
+            live data.
+          </p>
+        </section>
+      )}
+
       {/* ── Pinterest publishing bar ─────────────────────────────────── */}
       {pinterestReady ? (
         <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
           <span className="flex items-center gap-1.5 text-sm font-bold text-[#E60023]">
             📌 Pinterest
           </span>
+          {connection?.ok && connection.username && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+              <CheckCircle2 className="h-3 w-3" /> @{connection.username}
+            </span>
+          )}
+          {connection && !connection.ok && (
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-600">
+              {connection.message}
+            </span>
+          )}
           <span className="text-xs text-[var(--foreground)]/50">
             Publish target board:
           </span>
@@ -623,6 +722,26 @@ export function SocialStudio({
                     >
                       <ExternalLink className="h-3 w-3" /> View on Pinterest
                     </a>
+                  )}
+                  {c.status === "published" && c.metricsUpdatedAt && (
+                    <div className="flex flex-wrap gap-2 text-[11px] text-[var(--foreground)]/60">
+                      <span className="inline-flex items-center gap-0.5" title="Impressions">
+                        <Eye className="h-3 w-3" />
+                        {numberFmt.format(c.metricImpressions ?? 0)}
+                      </span>
+                      <span className="inline-flex items-center gap-0.5" title="Saves">
+                        <Bookmark className="h-3 w-3" />
+                        {numberFmt.format(c.metricSaves ?? 0)}
+                      </span>
+                      <span className="inline-flex items-center gap-0.5" title="Pin clicks">
+                        <MousePointerClick className="h-3 w-3" />
+                        {numberFmt.format(c.metricPinClicks ?? 0)}
+                      </span>
+                      <span className="inline-flex items-center gap-0.5" title="Outbound clicks">
+                        <ExternalLink className="h-3 w-3" />
+                        {numberFmt.format(c.metricOutboundClicks ?? 0)}
+                      </span>
+                    </div>
                   )}
                   {c.lastError && (
                     <p className="inline-flex items-start gap-1 text-[11px] text-red-500">
@@ -728,6 +847,29 @@ export function SocialStudio({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A single stat tile in the Pinterest performance summary. */
+function MetricStat({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-xl bg-[var(--muted)]/50 p-3">
+      <div className="flex items-center gap-1.5 text-[var(--foreground)]/50">
+        {icon}
+        <span className="text-[11px] font-bold uppercase tracking-wide">
+          {label}
+        </span>
+      </div>
+      <p className="mt-1 text-xl font-black">{numberFmt.format(value)}</p>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { getProductsByStatus } from "@/lib/products";
 import {
   getCreatives,
   getCreativeStatusCounts,
+  getMetricsTotals,
   CREATIVE_STATUSES,
 } from "@/lib/social/creatives";
 import { isImageGenConfigured } from "@/lib/social/image-gen";
@@ -35,11 +36,12 @@ export default async function AdminSocialPage({
       ? sp.status
       : undefined;
 
-  const [creatives, counts, products, jobCounts] = await Promise.all([
+  const [creatives, counts, products, jobCounts, metrics] = await Promise.all([
     getCreatives(activeStatus),
     getCreativeStatusCounts(),
     getProductsByStatus("active"),
     getJobCounts(),
+    getMetricsTotals(),
   ]);
 
   const total =
@@ -105,6 +107,7 @@ export default async function AdminSocialPage({
         creatives={creatives}
         pinterestReady={pinterestReady}
         jobCounts={jobCounts}
+        metrics={metrics}
         products={products.map((p) => ({
           id: p.id,
           title: p.title,

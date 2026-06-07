@@ -19,9 +19,11 @@ import {
 import { enqueueJobs, clearFinishedJobs } from "@/lib/social/jobs";
 import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
+import { refreshAllPinMetrics } from "@/lib/social/analytics";
 import {
   isPinterestConfigured,
   listBoards,
+  getUserAccount,
   type PinterestBoard,
 } from "@/lib/social/pinterest";
 
@@ -188,6 +190,57 @@ export type BoardsResult = {
   configured: boolean;
   boards: PinterestBoard[];
 };
+
+export type ConnectionResult = {
+  ok: boolean;
+  configured: boolean;
+  username?: string;
+  accountType?: string;
+  message: string;
+};
+
+/** Verify the Pinterest token works and return the connected account. */
+export async function checkPinterestConnection(): Promise<ConnectionResult> {
+  if (!(await guard())) {
+    return { ok: false, configured: false, message: "Not authorized." };
+  }
+  if (!isPinterestConfigured()) {
+    return {
+      ok: false,
+      configured: false,
+      message: "PINTEREST_ACCESS_TOKEN is not set.",
+    };
+  }
+  try {
+    const account = await getUserAccount();
+    return {
+      ok: true,
+      configured: true,
+      username: account.username,
+      accountType: account.accountType,
+      message: "Connected.",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Connection failed.";
+    return { ok: false, configured: true, message: msg };
+  }
+}
+
+/** Refresh cached Pinterest metrics for all published creatives. */
+export async function refreshAnalytics(): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  const res = await refreshAllPinMetrics();
+  revalidatePath("/admin/social");
+  if (res.reason === "not-configured") {
+    return { ok: false, message: "PINTEREST_ACCESS_TOKEN is not set." };
+  }
+  return {
+    ok: true,
+    message: `Metrics refreshed: ${res.updated} pin${res.updated === 1 ? "" : "s"}${
+      res.failed ? `, ${res.failed} failed` : ""
+    }.`,
+  };
+}
 
 /** Fetch the connected Pinterest account's boards for the publish picker. */
 export async function fetchPinterestBoards(): Promise<BoardsResult> {

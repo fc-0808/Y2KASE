@@ -468,6 +468,8 @@ export const socialCreatives = pgTable(
     }),
     /** Snapshot of the product title at generation time. */
     productTitle: text("product_title"),
+    /** Snapshot of the product slug — lets published pins deep-link to the PDP. */
+    productSlug: text("product_slug"),
     /** Preset key used to build the image prompt (see lib/social/presets). */
     preset: text("preset").notNull(),
     /** Target platform: pinterest | tiktok | instagram | generic. */
@@ -496,6 +498,12 @@ export const socialCreatives = pgTable(
     externalUrl: text("external_url"),
     /** Last publish error message, if a publish attempt failed. */
     lastError: text("last_error"),
+    /** Cached Pinterest analytics (refreshed from the API). */
+    metricImpressions: integer("metric_impressions"),
+    metricSaves: integer("metric_saves"),
+    metricPinClicks: integer("metric_pin_clicks"),
+    metricOutboundClicks: integer("metric_outbound_clicks"),
+    metricsUpdatedAt: timestamp("metrics_updated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

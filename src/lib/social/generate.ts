@@ -104,6 +104,7 @@ export async function runGeneration(
     const creativeId = await insertCreative({
       productId: product.id,
       productTitle: product.title,
+      productSlug: product.slug,
       preset: preset.key,
       platform,
       imageUrl: image.imageUrl,

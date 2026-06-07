@@ -16,12 +16,15 @@ export type PublishOutcome =
 
 function productLink(creative: SocialCreative): string | undefined {
   const site = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
-  if (!site || !creative.productId) return undefined;
-  // We only have productId on the creative, not the slug — link to the canonical
-  // product resolver via id is not a route, so fall back to the homepage with
-  // attribution when slug is unavailable. (Slug-based deep links are added when
-  // the creative is generated from a slug-aware context.)
-  return `${site}/products?utm_source=pinterest&utm_medium=social&utm_campaign=auto_pin`;
+  if (!site) return undefined;
+  const utm =
+    "utm_source=pinterest&utm_medium=social&utm_campaign=auto_pin";
+  // Deep-link to the specific product page when we have its slug (drives
+  // conversions + clean attribution); fall back to the shop grid otherwise.
+  if (creative.productSlug) {
+    return `${site}/products/${creative.productSlug}?${utm}`;
+  }
+  return `${site}/products?${utm}`;
 }
 
 /**

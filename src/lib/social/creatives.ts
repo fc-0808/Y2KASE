@@ -23,6 +23,7 @@ export type SocialCreative = {
   id: number;
   productId: number | null;
   productTitle: string | null;
+  productSlug: string | null;
   preset: string;
   platform: string;
   imageUrl: string;
@@ -37,6 +38,11 @@ export type SocialCreative = {
   externalId: string | null;
   externalUrl: string | null;
   lastError: string | null;
+  metricImpressions: number | null;
+  metricSaves: number | null;
+  metricPinClicks: number | null;
+  metricOutboundClicks: number | null;
+  metricsUpdatedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   publishedAt: Date | null;
@@ -45,6 +51,7 @@ export type SocialCreative = {
 export type NewCreative = {
   productId: number | null;
   productTitle: string | null;
+  productSlug?: string | null;
   preset: string;
   platform: string;
   imageUrl: string;
@@ -61,6 +68,7 @@ export async function insertCreative(input: NewCreative): Promise<number> {
     .values({
       productId: input.productId,
       productTitle: input.productTitle,
+      productSlug: input.productSlug ?? null,
       preset: input.preset,
       platform: input.platform,
       imageUrl: input.imageUrl,
@@ -282,4 +290,81 @@ export async function getDueScheduled(
     .orderBy(asc(socialCreatives.scheduledAt))
     .limit(limit);
   return rows as SocialCreative[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANALYTICS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Published creatives that have an external pin id (for analytics refresh). */
+export async function getPublishedWithExternalId(
+  limit = 200,
+): Promise<SocialCreative[]> {
+  if (!isDbConfigured()) return [];
+  const rows = await db
+    .select()
+    .from(socialCreatives)
+    .where(
+      and(
+        eq(socialCreatives.status, "published"),
+        sql`${socialCreatives.externalId} is not null`,
+      ),
+    )
+    .orderBy(desc(socialCreatives.publishedAt))
+    .limit(limit);
+  return rows as SocialCreative[];
+}
+
+export async function updateCreativeMetrics(
+  id: number,
+  metrics: {
+    impressions: number;
+    saves: number;
+    pinClicks: number;
+    outboundClicks: number;
+  },
+): Promise<void> {
+  await db
+    .update(socialCreatives)
+    .set({
+      metricImpressions: metrics.impressions,
+      metricSaves: metrics.saves,
+      metricPinClicks: metrics.pinClicks,
+      metricOutboundClicks: metrics.outboundClicks,
+      metricsUpdatedAt: new Date(),
+    })
+    .where(eq(socialCreatives.id, id));
+}
+
+export type MetricsTotals = {
+  impressions: number;
+  saves: number;
+  pinClicks: number;
+  outboundClicks: number;
+  trackedPins: number;
+};
+
+/** Aggregate published-pin metrics for the studio's performance summary. */
+export async function getMetricsTotals(): Promise<MetricsTotals> {
+  if (!isDbConfigured()) {
+    return { impressions: 0, saves: 0, pinClicks: 0, outboundClicks: 0, trackedPins: 0 };
+  }
+  const [row] = await db
+    .select({
+      impressions: sql<number>`coalesce(sum(${socialCreatives.metricImpressions}), 0)::int`,
+      saves: sql<number>`coalesce(sum(${socialCreatives.metricSaves}), 0)::int`,
+      pinClicks: sql<number>`coalesce(sum(${socialCreatives.metricPinClicks}), 0)::int`,
+      outboundClicks: sql<number>`coalesce(sum(${socialCreatives.metricOutboundClicks}), 0)::int`,
+      trackedPins: sql<number>`count(${socialCreatives.metricsUpdatedAt})::int`,
+    })
+    .from(socialCreatives);
+  return (
+    row ?? {
+      impressions: 0,
+      saves: 0,
+      pinClicks: 0,
+      outboundClicks: 0,
+      trackedPins: 0,
+    }
+  );
 }

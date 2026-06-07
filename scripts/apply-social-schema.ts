@@ -47,6 +47,14 @@ async function main() {
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "last_error" text`;
   await sql`CREATE INDEX IF NOT EXISTS "social_creatives_scheduled_idx" ON "social_creatives" ("scheduled_at")`;
 
+  // Product deep-link slug + cached Pinterest analytics (P3 polish).
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "product_slug" text`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_impressions" integer`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_saves" integer`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_pin_clicks" integer`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_outbound_clicks" integer`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metrics_updated_at" timestamptz`;
+
   // Generation queue (batch factory — P4).
   await sql`
     CREATE TABLE IF NOT EXISTS "social_jobs" (
