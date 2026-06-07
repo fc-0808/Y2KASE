@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Globe, Users, Eye, CalendarDays } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import {
@@ -7,7 +8,9 @@ import {
   getTopPages,
   getTopCountries,
   getDeviceBreakdown,
-  getDailyViews,
+  getViewsTrend,
+  TREND_RANGES,
+  type TrendRangeKey,
 } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
@@ -32,7 +35,11 @@ function flag(code: string | null): string {
   );
 }
 
-export default async function AdminVisitorsPage() {
+export default async function AdminVisitorsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string }>;
+}) {
   if (!isDbConfigured()) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16 text-center">
@@ -41,10 +48,17 @@ export default async function AdminVisitorsPage() {
     );
   }
 
-  const [overview, daily, topPages, topCountries, devices, recent] =
+  const { range: rangeParam } = await searchParams;
+  const range: TrendRangeKey = TREND_RANGES.some((r) => r.key === rangeParam)
+    ? (rangeParam as TrendRangeKey)
+    : "14d";
+  const rangeLabel =
+    TREND_RANGES.find((r) => r.key === range)?.label ?? "14 days";
+
+  const [overview, trend, topPages, topCountries, devices, recent] =
     await Promise.all([
       getVisitorOverview(),
-      getDailyViews(14),
+      getViewsTrend(range),
       getTopPages(8),
       getTopCountries(8),
       getDeviceBreakdown(),
@@ -58,8 +72,16 @@ export default async function AdminVisitorsPage() {
     { label: "Views (7d)", value: overview.views7d, icon: Globe, accent: "text-sky-600" },
   ];
 
-  const maxDaily = Math.max(1, ...daily.map((d) => d.views));
+  const maxUniques = Math.max(1, ...trend.map((d) => d.uniques));
   const totalDevices = Math.max(1, devices.reduce((s, d) => s + d.value, 0));
+  // Tight gap for long ranges so up to 90 bars always fit the card width.
+  const barGap = trend.length > 60 ? 1 : trend.length > 31 ? 2 : trend.length > 14 ? 3 : 6;
+  // ~5 evenly-spaced axis ticks (avoids label crowding/overflow on any range).
+  const n = trend.length;
+  const tickIdx =
+    n <= 8
+      ? trend.map((_, i) => i)
+      : [0, Math.floor(n * 0.25), Math.floor(n * 0.5), Math.floor(n * 0.75), n - 1];
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
@@ -89,37 +111,71 @@ export default async function AdminVisitorsPage() {
         ))}
       </div>
 
-      {/* Daily views bar chart */}
+      {/* Unique-visitors trend with range selector */}
       <section className="mb-6 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
-        <h2 className="mb-4 font-bold">Last 14 days</h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold">Unique visitors</h2>
+            <p className="text-xs text-[var(--foreground)]/50">Last {rangeLabel}</p>
+          </div>
+          <nav className="flex flex-wrap gap-1 rounded-full bg-[var(--muted)]/60 p-1">
+            {TREND_RANGES.map((r) => {
+              const active = r.key === range;
+              return (
+                <Link
+                  key={r.key}
+                  href={`/admin/visitors?range=${r.key}`}
+                  scroll={false}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs font-bold transition",
+                    active
+                      ? "bg-[var(--primary)] text-white shadow-sm"
+                      : "text-[var(--foreground)]/60 hover:text-[var(--primary)]",
+                  )}
+                >
+                  {r.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
         {overview.totalViews === 0 ? (
           <EmptyHint />
         ) : (
-          <div className="flex h-40 items-end gap-1.5">
-            {daily.map((d) => (
-              <div
-                key={d.date}
-                className="group flex flex-1 flex-col items-center justify-end gap-1"
-              >
-                <span className="text-[10px] font-semibold text-[var(--foreground)]/0 group-hover:text-[var(--foreground)]/70">
-                  {d.views}
-                </span>
+          <>
+            <div className="flex h-40 items-end" style={{ gap: `${barGap}px` }}>
+              {trend.map((d) => (
                 <div
-                  className="w-full rounded-t-md bg-[var(--primary)]/80 transition group-hover:bg-[var(--primary)]"
-                  style={{ height: `${(d.views / maxDaily) * 100}%`, minHeight: d.views > 0 ? 4 : 0 }}
-                  title={`${d.date}: ${d.views} views, ${d.uniques} unique`}
-                />
-                <span className="text-[9px] text-[var(--foreground)]/40">
-                  {d.date.slice(5)}
-                </span>
-              </div>
-            ))}
-          </div>
+                  key={d.key}
+                  className="group flex min-w-0 flex-1 flex-col items-center justify-end"
+                  title={`${d.full}: ${d.uniques} unique · ${d.views} views`}
+                >
+                  <span className="mb-1 text-[10px] font-semibold text-[var(--foreground)]/0 group-hover:text-[var(--foreground)]/70">
+                    {d.uniques}
+                  </span>
+                  <div
+                    className="w-full rounded-t-md bg-[var(--primary)]/80 transition group-hover:bg-[var(--primary)]"
+                    style={{
+                      height: `${(d.uniques / maxUniques) * 100}%`,
+                      minHeight: d.uniques > 0 ? 4 : 0,
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex justify-between text-[9px] text-[var(--foreground)]/40">
+              {tickIdx.map((i) => (
+                <span key={i}>{trend[i]?.short}</span>
+              ))}
+            </div>
+          </>
         )}
       </section>
 
       {/* Breakdown grids */}
-      <div className="mb-6 grid gap-6 lg:grid-cols-3">
+      <div className="mb-6 grid gap-6 lg:grid-cols-3 [&>*]:min-w-0">
         <BreakdownCard title="Top pages">
           {topPages.length === 0 ? (
             <EmptyHint small />
@@ -138,9 +194,13 @@ export default async function AdminVisitorsPage() {
             <ul className="space-y-2">
               {topCountries.map((c) => (
                 <li key={c.label} className="flex items-center gap-2 text-sm">
-                  <span className="text-base">{flag(c.label)}</span>
-                  <span className="flex-1 font-semibold">{c.label}</span>
-                  <span className="text-[var(--foreground)]/60">{c.value}</span>
+                  <span className="shrink-0 text-base">{flag(c.label)}</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold">
+                    {c.label}
+                  </span>
+                  <span className="shrink-0 text-[var(--foreground)]/60">
+                    {c.value}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -189,7 +249,7 @@ export default async function AdminVisitorsPage() {
               {recent.map((v) => (
                 <li key={v.id} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-mono text-xs font-semibold">
+                    <span className="min-w-0 truncate font-mono text-xs font-semibold">
                       {v.path}
                     </span>
                     <span className="shrink-0 text-xs text-[var(--foreground)]/50">
@@ -209,10 +269,12 @@ export default async function AdminVisitorsPage() {
                       {v.browser ? ` · ${v.browser}` : ""}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--foreground)]/40">
-                    <span className="font-mono">{v.ip ?? "—"}</span>
+                  <div className="mt-1 flex w-full items-center gap-x-2 text-[11px] text-[var(--foreground)]/40">
+                    <span className="shrink-0 font-mono">{v.ip ?? "—"}</span>
                     <span aria-hidden>·</span>
-                    <span className="truncate">{v.referrer ?? "Direct"}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {v.referrer ?? "Direct"}
+                    </span>
                   </div>
                 </li>
               ))}
@@ -281,7 +343,7 @@ function BreakdownCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
       <h2 className="mb-4 font-bold">{title}</h2>
       {children}
     </div>
@@ -304,11 +366,11 @@ function BarList({
             className="absolute inset-y-0 left-0 rounded-md bg-[var(--primary)]/10"
             style={{ width: `${(r.value / max) * 100}%` }}
           />
-          <div className="relative flex items-center justify-between px-2 py-1 text-sm">
-            <span className={cn("truncate", mono && "font-mono text-xs")}>
+          <div className="relative flex items-center justify-between gap-2 px-2 py-1 text-sm">
+            <span className={cn("min-w-0 truncate", mono && "font-mono text-xs")}>
               {r.label}
             </span>
-            <span className="ml-2 font-semibold text-[var(--foreground)]/70">
+            <span className="shrink-0 font-semibold text-[var(--foreground)]/70">
               {r.value}
             </span>
           </div>

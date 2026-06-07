@@ -14,26 +14,33 @@ import { db, isDbConfigured } from "@/lib/db";
 import { pageViews, type NewPageView } from "@/lib/db/schema";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Internal-traffic geo exclusion
+// Internal-traffic exclusion
 //
-// Visits originating from these countries are predominantly the store owner and
-// suppliers rather than real customers (customers are mostly US/EU). They are
-// filtered out of every reporting query so the dashboard reflects genuine
-// shopper traffic. Rows with an unknown country are kept (could be a real
-// visitor whose geo simply wasn't resolved).
+// Visits originating from these countries (predominantly the store owner and
+// suppliers, not real customers — shoppers are mostly US/EU) and from localhost
+// IPs (the owner's own dev/preview hits) are filtered out of every reporting
+// query so the dashboard reflects genuine shopper traffic. Rows with an unknown
+// country/IP are kept (could be a real visitor whose geo simply wasn't resolved).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const EXCLUDED_COUNTRIES = ["CN", "TW"] as const;
+const EXCLUDED_COUNTRIES = ["CN", "TW", "HK"] as const;
+const EXCLUDED_IPS = ["::1", "127.0.0.1", "0.0.0.0"] as const;
 
-/** SQL predicate: keep rows whose country is not internal (or is unknown). */
-const humanGeo = or(
-  isNull(pageViews.country),
-  notInArray(pageViews.country, EXCLUDED_COUNTRIES as unknown as string[]),
+/** SQL predicate: keep rows that are not internal owner/supplier traffic. */
+const humanTraffic = and(
+  or(
+    isNull(pageViews.country),
+    notInArray(pageViews.country, EXCLUDED_COUNTRIES as unknown as string[]),
+  ),
+  or(
+    isNull(pageViews.ip),
+    notInArray(pageViews.ip, EXCLUDED_IPS as unknown as string[]),
+  ),
 );
 
-/** Combine the geo filter with an optional extra condition. */
+/** Combine the human-traffic filter with an optional extra condition. */
 function withHumanGeo(extra?: SQL): SQL {
-  return (extra ? and(extra, humanGeo) : humanGeo) as SQL;
+  return (extra ? and(extra, humanTraffic) : humanTraffic) as SQL;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -284,4 +291,94 @@ export async function getDailyViews(days = 14): Promise<DailyPoint[]> {
     });
   }
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Range-aware traffic trend (powers the admin chart's time-range selector)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TrendRangeKey = "7d" | "14d" | "30d" | "90d" | "12m";
+
+export type TrendPoint = {
+  /** Stable bucket key (YYYY-MM-DD or YYYY-MM). */
+  key: string;
+  /** Compact axis label. */
+  short: string;
+  /** Full label for tooltips. */
+  full: string;
+  views: number;
+  uniques: number;
+};
+
+export const TREND_RANGES: { key: TrendRangeKey; label: string }[] = [
+  { key: "7d", label: "7 days" },
+  { key: "14d", label: "14 days" },
+  { key: "30d", label: "30 days" },
+  { key: "90d", label: "90 days" },
+  { key: "12m", label: "12 months" },
+];
+
+const MONTH_FMT = new Intl.DateTimeFormat("en-US", { month: "short" });
+const MONTH_YEAR_FMT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  year: "numeric",
+});
+const DAY_FMT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+});
+
+/**
+ * Unified visitor trend for the dashboard chart. Short ranges bucket by day;
+ * the 12-month range buckets by calendar month. Gaps are zero-filled so the
+ * axis is continuous. Always filtered to genuine human traffic.
+ */
+export async function getViewsTrend(range: TrendRangeKey): Promise<TrendPoint[]> {
+  if (!isDbConfigured()) return [];
+
+  if (range === "12m") {
+    const since = new Date();
+    since.setMonth(since.getMonth() - 11, 1);
+    since.setHours(0, 0, 0, 0);
+
+    const rows = await db
+      .select({
+        bucket: sql<string>`to_char(date_trunc('month', ${pageViews.createdAt}), 'YYYY-MM')`,
+        views: count(),
+        uniques: countDistinct(pageViews.visitorId),
+      })
+      .from(pageViews)
+      .where(withHumanGeo(gte(pageViews.createdAt, since)))
+      .groupBy(sql`date_trunc('month', ${pageViews.createdAt})`);
+
+    const byBucket = new Map(rows.map((r) => [r.bucket, r]));
+    const out: TrendPoint[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const hit = byBucket.get(key);
+      out.push({
+        key,
+        short: MONTH_FMT.format(d),
+        full: MONTH_YEAR_FMT.format(d),
+        views: hit?.views ?? 0,
+        uniques: hit?.uniques ?? 0,
+      });
+    }
+    return out;
+  }
+
+  const days = range === "7d" ? 7 : range === "14d" ? 14 : range === "30d" ? 30 : 90;
+  const series = await getDailyViews(days);
+  return series.map((p) => {
+    const d = new Date(`${p.date}T00:00:00`);
+    return {
+      key: p.date,
+      short: DAY_FMT.format(d),
+      full: DAY_FMT.format(d),
+      views: p.views,
+      uniques: p.uniques,
+    };
+  });
 }
