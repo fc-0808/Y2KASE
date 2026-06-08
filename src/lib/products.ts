@@ -1,5 +1,7 @@
 import { and, desc, eq, ilike, inArray, ne, notInArray, or, sql } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/lib/db";
+import { CACHE_TAGS } from "@/lib/cache";
 import { products, productCollections } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
 import {
@@ -152,10 +154,26 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
   };
 }
 
-export async function getFeaturedProducts(
-  limit = 8,
+/**
+ * Featured (or newest-as-fallback) products for the homepage "Bestsellers"
+ * rail. The homepage is the highest-traffic, most cache-worthy surface, and
+ * this result only changes when the catalog or its reviews do — so it is served
+ * from the Data Cache and invalidated by tag from admin mutations.
+ */
+export function getFeaturedProducts(limit = 8): Promise<ProductListItem[]> {
+  if (!isDbConfigured()) return Promise.resolve([]);
+  return getFeaturedProductsCached(limit);
+}
+
+const getFeaturedProductsCached = unstable_cache(
+  computeFeaturedProducts,
+  ["featured-products"],
+  { tags: [CACHE_TAGS.products, CACHE_TAGS.reviews], revalidate: 3600 },
+);
+
+async function computeFeaturedProducts(
+  limit: number,
 ): Promise<ProductListItem[]> {
-  if (!isDbConfigured()) return [];
   const rows = await db.query.products.findMany({
     where: and(eq(products.status, "active"), eq(products.featured, true)),
     orderBy: desc(products.createdAt),
@@ -185,6 +203,60 @@ export async function getFeaturedProducts(
     },
   });
   return withRatings(fallback.map(toListItem));
+}
+
+/**
+ * Products for a homepage collection rail (e.g. Sanrio, Hello Kitty).
+ *
+ * A purpose-built, cached read for the homepage's editorial rails. Unlike
+ * {@link getProducts} it skips the `count(*)` total (rails never paginate) and
+ * the collection-filter round-trip is folded into a single query, so each rail
+ * costs one product query + one ratings query instead of four. Tagged so admin
+ * catalog/membership edits invalidate it on demand.
+ */
+export function getCollectionRail(
+  slug: string,
+  limit = 24,
+): Promise<ProductListItem[]> {
+  if (!isDbConfigured()) return Promise.resolve([]);
+  return getCollectionRailCached(slug, limit);
+}
+
+const getCollectionRailCached = unstable_cache(
+  computeCollectionRail,
+  ["collection-rail"],
+  {
+    tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
+    revalidate: 3600,
+  },
+);
+
+async function computeCollectionRail(
+  slug: string,
+  limit: number,
+): Promise<ProductListItem[]> {
+  const collectionIds = await resolveCollectionFilterIds(slug);
+  if (collectionIds.length === 0) return [];
+
+  const rows = await db.query.products.findMany({
+    where: and(
+      eq(products.status, "active"),
+      inArray(
+        products.id,
+        db
+          .select({ id: productCollections.productId })
+          .from(productCollections)
+          .where(inArray(productCollections.collectionId, collectionIds)),
+      ),
+    ),
+    orderBy: desc(products.createdAt),
+    limit,
+    with: {
+      images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 },
+    },
+  });
+
+  return withRatings(rows.map(toListItem));
 }
 
 /**

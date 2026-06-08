@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { revalidateStorefrontCatalog } from "@/lib/cache";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -45,6 +46,9 @@ function revalidateCatalog(productId?: number) {
   revalidatePath("/collections");
   revalidatePath("/collections/[slug]", "page");
   revalidatePath("/");
+  // Drop the tagged Data Cache entries (featured rail, mega-menu taxonomy,
+  // category image pools) so the menu/homepage reflect the change immediately.
+  revalidateStorefrontCatalog();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -82,11 +82,21 @@ const INTERVAL = 6000;
 export function HeroCarousel() {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  // Only the first slide's image is part of the LCP. The remaining slides are
+  // off-screen (opacity-0) yet still in the initial viewport, so the browser
+  // would eagerly fetch all of them and compete for bandwidth with the hero.
+  // We defer mounting their <Image> until after hydration, so the first paint
+  // downloads a single hero image; the rest load a tick later, well before the
+  // 6s auto-advance needs them.
+  const [hydrated, setHydrated] = useState(false);
   const touchStartX = useRef<number | null>(null);
 
   const go = useCallback((next: number) => {
     setIndex((next + SLIDES.length) % SLIDES.length);
   }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setHydrated(true), []);
 
   // Auto-advance.
   useEffect(() => {
@@ -132,17 +142,21 @@ export function HeroCarousel() {
               active ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
           >
-            {/* Background art with slow zoom while active */}
-            <Image
-              src={slide.image}
-              alt=""
-              fill
-              priority={i === 0}
-              sizes="100vw"
-              className={`object-cover transition-transform duration-[7000ms] ease-out ${
-                active ? "scale-110" : "scale-100"
-              }`}
-            />
+            {/* Background art with slow zoom while active. The first slide is
+                the LCP (priority); the rest mount after hydration. */}
+            {(i === 0 || hydrated) && (
+              <Image
+                src={slide.image}
+                alt=""
+                fill
+                priority={i === 0}
+                fetchPriority={i === 0 ? "high" : "low"}
+                sizes="100vw"
+                className={`object-cover transition-transform duration-[7000ms] ease-out ${
+                  active ? "scale-110" : "scale-100"
+                }`}
+              />
+            )}
 
             {/* Legibility scrim — directional to match the copy side */}
             <div

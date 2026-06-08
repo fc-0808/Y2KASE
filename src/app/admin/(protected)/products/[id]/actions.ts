@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/auth";
+import { revalidateStorefrontCatalog } from "@/lib/cache";
 import {
   saveProductVariations,
   type SaveVariationsResult,
@@ -45,6 +46,7 @@ export async function saveProduct(
   // dynamic route, edited media order / style tags stay stale for up to an hour.
   revalidatePath("/products/[slug]", "page");
   revalidatePath("/");
+  revalidateStorefrontCatalog();
 
   return result;
 }

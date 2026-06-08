@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
+  // Drop the `X-Powered-By: Next.js` header — a few bytes off every response
+  // and one less framework-fingerprint exposed.
+  poweredByHeader: false,
+
   async redirects() {
     return [
       // Stale Google-indexed URLs for products that were renamed or removed.

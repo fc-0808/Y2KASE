@@ -17,11 +17,13 @@ import { UtmCapture } from "@/components/analytics/UtmCapture";
 import { CookieConsent } from "@/components/analytics/CookieConsent";
 import { organizationJsonLd, websiteJsonLd } from "@/lib/seo";
 
-// Body — rounded, friendly, highly legible.
+// Body — rounded, friendly, highly legible. `swap` keeps text paintable while
+// the webfont loads (no invisible-text flash blocking FCP/LCP).
 const nunito = Nunito({
   variable: "--font-nunito",
   subsets: ["latin"],
   weight: ["400", "600", "700", "800", "900"],
+  display: "swap",
 });
 
 // Headings — chunky rounded display for kawaii character.
@@ -29,6 +31,7 @@ const baloo = Baloo_2({
   variable: "--font-baloo",
   subsets: ["latin"],
   weight: ["500", "600", "700", "800"],
+  display: "swap",
 });
 
 // Wordmark + pixel accents — the Y2K arcade face.
@@ -36,15 +39,33 @@ const pixel = Press_Start_2P({
   variable: "--font-pixel",
   subsets: ["latin"],
   weight: "400",
+  display: "swap",
 });
 
+// Monospace — only used inside the admin console (order IDs, IPs, env keys),
+// never on a storefront page. Keep it available via the CSS variable but do NOT
+// preload it, so shoppers don't pay for a font file they'll never render.
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
+  preload: false,
 });
 
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+
+// Product imagery is served cross-origin from the Cloudflare R2 CDN. Opening
+// that connection (DNS + TCP + TLS) early — before the HTML parser discovers
+// the first <img> — shaves a full round-trip off the largest contentful paint.
+const IMAGE_CDN_ORIGIN = (() => {
+  try {
+    const base = process.env.R2_PUBLIC_URL;
+    return base ? new URL(base).origin : null;
+  } catch {
+    return null;
+  }
+})();
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -98,6 +119,14 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className={`${nunito.variable} ${baloo.variable} ${pixel.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {IMAGE_CDN_ORIGIN && (
+          <>
+            <link rel="preconnect" href={IMAGE_CDN_ORIGIN} crossOrigin="" />
+            <link rel="dns-prefetch" href={IMAGE_CDN_ORIGIN} />
+          </>
+        )}
+      </head>
       <body className="flex min-h-dvh flex-col">
         <ConsentMode />
         <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />

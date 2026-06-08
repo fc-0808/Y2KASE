@@ -1,5 +1,8 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
+import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
+import { CACHE_TAGS } from "@/lib/cache";
 import {
   collections,
   productCollections,
@@ -51,8 +54,29 @@ async function activeMembership(): Promise<Map<number, Set<number>>> {
  * Build the full active collection tree (top-level → children), each node
  * carrying direct and subtree-distinct product counts. Used by the mega-menu,
  * the /collections index and collection landing pages.
+ *
+ * This runs in the shared `SiteHeader` (root layout) on *every* page, so its
+ * cost is paid site-wide. It is therefore wrapped in two cache layers:
+ *  - `unstable_cache` — a cross-request Data Cache entry, tagged so admin edits
+ *    invalidate it on demand (otherwise it refreshes hourly), turning a full
+ *    `product_collections ⨝ products` scan into a single cached read.
+ *  - React `cache` — request-level memoization so the layout and the page that
+ *    both call this within one render share a single computation.
  */
-export async function getCollectionTree(): Promise<CollectionNode[]> {
+const getCollectionTreeCached = unstable_cache(
+  computeCollectionTree,
+  ["collection-tree"],
+  { tags: [CACHE_TAGS.collections, CACHE_TAGS.products], revalidate: 3600 },
+);
+
+export const getCollectionTree = reactCache(
+  async (): Promise<CollectionNode[]> => {
+    if (!isDbConfigured()) return [];
+    return getCollectionTreeCached();
+  },
+);
+
+async function computeCollectionTree(): Promise<CollectionNode[]> {
   if (!isDbConfigured()) return [];
 
   const [rows, membership] = await Promise.all([
@@ -286,7 +310,20 @@ export async function getCollectionImagePools(): Promise<
   Map<number, string[]>
 > {
   if (!isDbConfigured()) return new Map();
+  // The Data Cache serializes via JSON, which does not preserve Map instances —
+  // so we cache a plain entries array and rebuild the Map per request.
+  return new Map(await getCollectionImagePoolEntries());
+}
 
+const getCollectionImagePoolEntries = unstable_cache(
+  computeCollectionImagePoolEntries,
+  ["collection-image-pools"],
+  { tags: [CACHE_TAGS.collections, CACHE_TAGS.products], revalidate: 3600 },
+);
+
+async function computeCollectionImagePoolEntries(): Promise<
+  [number, string[]][]
+> {
   const [imgRows, cols] = await Promise.all([
     db
       .select({
@@ -353,8 +390,8 @@ export async function getCollectionImagePools(): Promise<
     return out;
   }
 
-  const result = new Map<number, string[]>();
-  for (const c of cols) result.set(c.id, pool(c.id));
+  const result: [number, string[]][] = [];
+  for (const c of cols) result.push([c.id, pool(c.id)]);
   return result;
 }
 

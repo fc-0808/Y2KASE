@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { ArrowRight, Truck, ShieldCheck, Heart, Gift } from "lucide-react";
 import {
   getFeaturedProducts,
-  getProducts,
+  getCollectionRail,
   type ProductListItem,
 } from "@/lib/products";
 import { getCollectionTree, getCollectionImagePools } from "@/lib/collections";
@@ -20,11 +20,15 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
+// ISR: pre-render the homepage and refresh it hourly (matching the catalog,
+// collection and PDP routes). Admin catalog edits invalidate it on demand via
+// `revalidateTag`/`revalidatePath`, so the ~20 DB round-trips this page makes
+// run at most once per hour instead of on every visit.
+export const revalidate = 3600;
+
 export default async function HomePage() {
   const col = (slug: string) =>
-    getProducts({ collection: slug })
-      .then((r) => r.items)
-      .catch(() => [] as ProductListItem[]);
+    getCollectionRail(slug).catch(() => [] as ProductListItem[]);
 
   const [
     featured,
