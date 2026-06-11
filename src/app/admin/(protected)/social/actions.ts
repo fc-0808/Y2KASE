@@ -16,6 +16,9 @@ import {
   CREATIVE_STATUSES,
   type CreativeStatus,
 } from "@/lib/social/creatives";
+import { db } from "@/lib/db";
+import { socialCreatives } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { enqueueJobs, clearFinishedJobs } from "@/lib/social/jobs";
 import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
@@ -488,6 +491,229 @@ export async function schedulePublish(
   await scheduleCreative(id, when, boardId);
   revalidatePath("/admin/social");
   return { ok: true, message: "Scheduled ⏰", creativeId: id };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BULK OPERATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BulkActionResult = {
+  ok: boolean;
+  message: string;
+  succeeded: number;
+  failed: number;
+  errors: string[];
+};
+
+/**
+ * Approve, reject, or re-draft multiple creatives in one click.
+ * Used for "Select all → Approve all" in the Social Studio.
+ */
+export async function bulkModerate(
+  ids: number[],
+  status: string,
+): Promise<BulkActionResult> {
+  if (!(await guard()))
+    return { ok: false, message: "Not authorized.", succeeded: 0, failed: 0, errors: [] };
+  if (!VALID_STATUS.has(status))
+    return { ok: false, message: "Invalid status.", succeeded: 0, failed: 0, errors: [] };
+
+  const uniq = Array.from(new Set(ids.filter(Number.isFinite)));
+  if (uniq.length === 0)
+    return { ok: false, message: "No creatives selected.", succeeded: 0, failed: 0, errors: [] };
+
+  let succeeded = 0;
+  const errors: string[] = [];
+  for (const id of uniq) {
+    try {
+      await setCreativeStatus(id, status as CreativeStatus);
+      succeeded++;
+    } catch (err) {
+      errors.push(`#${id}: ${err instanceof Error ? err.message : "failed"}`);
+    }
+  }
+  revalidatePath("/admin/social");
+  return {
+    ok: errors.length === 0,
+    message: `${succeeded} creative${succeeded === 1 ? "" : "s"} set to ${status}.${errors.length ? ` ${errors.length} failed.` : ""}`,
+    succeeded,
+    failed: errors.length,
+    errors,
+  };
+}
+
+/**
+ * Publish multiple approved creatives immediately, one after the other.
+ * A 1-second pause between each post avoids Pinterest rate limits (6 req/min).
+ * Cap at 25 pins to respect Pinterest's daily write limit.
+ */
+export async function bulkPublishNow(input: {
+  ids: number[];
+  boardId: string;
+}): Promise<BulkActionResult> {
+  if (!(await guard()))
+    return { ok: false, message: "Not authorized.", succeeded: 0, failed: 0, errors: [] };
+  if (!input.boardId)
+    return { ok: false, message: "Pick a board first.", succeeded: 0, failed: 0, errors: [] };
+
+  const uniq = Array.from(new Set(input.ids.filter(Number.isFinite))).slice(0, 25);
+  if (uniq.length === 0)
+    return { ok: false, message: "No creatives selected.", succeeded: 0, failed: 0, errors: [] };
+
+  let succeeded = 0;
+  const errors: string[] = [];
+
+  for (const id of uniq) {
+    const creative = await getCreativeById(id);
+    if (!creative) {
+      errors.push(`#${id}: not found`);
+      continue;
+    }
+    const outcome = await publishCreative(creative, {
+      boardId: input.boardId,
+      revertToScheduledOnError: false,
+    });
+    if (outcome.ok) {
+      succeeded++;
+    } else {
+      errors.push(`#${id}: ${outcome.error}`);
+    }
+    // 1-second pause to avoid hitting Pinterest's 6 req/min rate limit.
+    if (uniq.indexOf(id) < uniq.length - 1) {
+      await new Promise((r) => setTimeout(r, 1100));
+    }
+  }
+
+  revalidatePath("/admin/social");
+  return {
+    ok: errors.length === 0,
+    message: `Published ${succeeded}/${uniq.length} pin${succeeded === 1 ? "" : "s"} to Pinterest 📌${errors.length ? ` — ${errors.length} failed.` : ""}`,
+    succeeded,
+    failed: errors.length,
+    errors,
+  };
+}
+
+/**
+ * Schedule multiple creatives with automatic staggering — the approach used by
+ * top DTC brands like Casetify. Pinterest recommends 2-5 pins per day spread
+ * across different time slots for best reach.
+ *
+ * Schedule: startDate (default = tomorrow), then spread pinsPerDay pins across
+ * three daily slots (morning 14:00, afternoon 18:00, evening 21:00 UTC).
+ * This maps to 9am / 1pm / 4pm Pacific or 10am / 2pm / 5pm Eastern.
+ */
+export async function bulkStaggeredSchedule(input: {
+  ids: number[];
+  boardId: string;
+  /** ISO date string for the first day, e.g. "2026-06-12". Defaults to tomorrow. */
+  startDate?: string;
+  /** Pins per day (1-5). Default 3. */
+  pinsPerDay?: number;
+}): Promise<BulkActionResult> {
+  if (!(await guard()))
+    return { ok: false, message: "Not authorized.", succeeded: 0, failed: 0, errors: [] };
+  if (!input.boardId)
+    return { ok: false, message: "Pick a board first.", succeeded: 0, failed: 0, errors: [] };
+
+  const uniq = Array.from(new Set(input.ids.filter(Number.isFinite)));
+  if (uniq.length === 0)
+    return { ok: false, message: "No creatives selected.", succeeded: 0, failed: 0, errors: [] };
+
+  const pinsPerDay = Math.min(5, Math.max(1, input.pinsPerDay ?? 3));
+
+  // Daily UTC hours for each slot (chosen for maximum US + EU engagement).
+  const SLOT_HOURS: Record<number, number[]> = {
+    1: [20],
+    2: [15, 21],
+    3: [14, 18, 21],
+    4: [13, 16, 19, 22],
+    5: [12, 14, 17, 19, 22],
+  };
+  const slots = SLOT_HOURS[pinsPerDay] ?? SLOT_HOURS[3];
+
+  // Start date: tomorrow at midnight UTC if not specified.
+  let start: Date;
+  if (input.startDate) {
+    start = new Date(`${input.startDate}T00:00:00Z`);
+  } else {
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+    start = tomorrow;
+  }
+  if (Number.isNaN(start.getTime())) {
+    return { ok: false, message: "Invalid start date.", succeeded: 0, failed: 0, errors: [] };
+  }
+
+  let succeeded = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < uniq.length; i++) {
+    const id = uniq[i];
+    const dayOffset = Math.floor(i / pinsPerDay);
+    const slotIndex = i % pinsPerDay;
+    const hourUtc = slots[slotIndex];
+
+    const when = new Date(start);
+    when.setUTCDate(when.getUTCDate() + dayOffset);
+    when.setUTCHours(hourUtc, 0, 0, 0);
+
+    try {
+      await scheduleCreative(id, when, input.boardId);
+      succeeded++;
+    } catch (err) {
+      errors.push(`#${id}: ${err instanceof Error ? err.message : "failed"}`);
+    }
+  }
+
+  const days = Math.ceil(uniq.length / pinsPerDay);
+  revalidatePath("/admin/social");
+  return {
+    ok: errors.length === 0,
+    message: `Scheduled ${succeeded} pin${succeeded === 1 ? "" : "s"} across ${days} day${days === 1 ? "" : "s"} (${pinsPerDay}/day) ⏰`,
+    succeeded,
+    failed: errors.length,
+    errors,
+  };
+}
+
+/**
+ * Clear the lastError on selected creatives and reset to "approved"
+ * so they can be retried. Useful for pins that failed due to trial-period
+ * 403 errors — now that Standard access is active, simply retry them.
+ */
+export async function retryFailed(ids: number[]): Promise<BulkActionResult> {
+  if (!(await guard()))
+    return { ok: false, message: "Not authorized.", succeeded: 0, failed: 0, errors: [] };
+
+  const uniq = Array.from(new Set(ids.filter(Number.isFinite)));
+  if (uniq.length === 0)
+    return { ok: false, message: "No creatives selected.", succeeded: 0, failed: 0, errors: [] };
+
+  let succeeded = 0;
+  const errors: string[] = [];
+  for (const id of uniq) {
+    try {
+      await setCreativeStatus(id, "approved");
+      // Clear the last error message.
+      await db
+        .update(socialCreatives)
+        .set({ lastError: null, updatedAt: new Date() })
+        .where(eq(socialCreatives.id, id));
+      succeeded++;
+    } catch (err) {
+      errors.push(`#${id}: ${err instanceof Error ? err.message : "failed"}`);
+    }
+  }
+  revalidatePath("/admin/social");
+  return {
+    ok: errors.length === 0,
+    message: `${succeeded} creative${succeeded === 1 ? "" : "s"} reset for retry.`,
+    succeeded,
+    failed: errors.length,
+    errors,
+  };
 }
 
 /** Delete a creative and clean up its R2 object. */

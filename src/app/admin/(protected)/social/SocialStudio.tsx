@@ -38,8 +38,13 @@ import {
   importPhotos,
   checkTikTokConnection,
   getTikTokConnectUrl,
+  bulkModerate,
+  bulkPublishNow,
+  bulkStaggeredSchedule,
+  retryFailed,
   type ConnectionResult,
   type TikTokConnectionResult,
+  type BulkActionResult,
 } from "./actions";
 import type { ProductGallery } from "@/lib/social/product-photos";
 import {
@@ -205,6 +210,96 @@ export function SocialStudio({
   // TikTok connection status.
   const [tiktokConn, setTiktokConn] = useState<TikTokConnectionResult | null>(null);
   const [tiktokConnecting, setTiktokConnecting] = useState(false);
+
+  // Bulk selection state.
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [staggerDays, setStaggerDays] = useState("3"); // pinsPerDay for stagger
+
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll(ids: number[]) {
+    setSelectedIds(new Set(ids));
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function handleBulkResult(res: BulkActionResult) {
+    setBulkBusy(false);
+    setNotice(res.message);
+    if (res.errors.length > 0) setError(res.errors[0]);
+    clearSelection();
+    router.refresh();
+  }
+
+  function handleBulkApprove() {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const res = await bulkModerate(Array.from(selectedIds), "approved");
+      handleBulkResult(res);
+    });
+  }
+
+  function handleBulkReject() {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const res = await bulkModerate(Array.from(selectedIds), "rejected");
+      handleBulkResult(res);
+    });
+  }
+
+  function handleBulkPublish() {
+    if (selectedIds.size === 0 || !boardId) return;
+    setBulkBusy(true);
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const res = await bulkPublishNow({ ids: Array.from(selectedIds), boardId });
+      handleBulkResult(res);
+    });
+  }
+
+  function handleBulkSchedule() {
+    if (selectedIds.size === 0 || !boardId) return;
+    setBulkBusy(true);
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const res = await bulkStaggeredSchedule({
+        ids: Array.from(selectedIds),
+        boardId,
+        pinsPerDay: Number(staggerDays) || 3,
+      });
+      handleBulkResult(res);
+    });
+  }
+
+  function handleRetryFailed() {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      const res = await retryFailed(Array.from(selectedIds));
+      handleBulkResult(res);
+    });
+  }
 
   function handleReconnectPinterest() {
     setReconnecting(true);
@@ -844,20 +939,180 @@ export function SocialStudio({
         onConnect={handleConnectTikTok}
       />
 
+      {/* ── Status filter tabs + bulk toolbar ───────────────────────── */}
+      {creatives.length > 0 && (() => {
+        const STATUS_TABS = [
+          { key: "all", label: "All", count: creatives.length },
+          { key: "draft", label: "Draft", count: creatives.filter((c) => c.status === "draft").length },
+          { key: "approved", label: "Approved", count: creatives.filter((c) => c.status === "approved").length },
+          { key: "scheduled", label: "Scheduled", count: creatives.filter((c) => c.status === "scheduled").length },
+          { key: "published", label: "Published", count: creatives.filter((c) => c.status === "published").length },
+          { key: "rejected", label: "Rejected", count: creatives.filter((c) => c.status === "rejected").length },
+        ].filter((t) => t.key === "all" || t.count > 0);
+        const visibleCreatives = filterStatus === "all" ? creatives : creatives.filter((c) => c.status === filterStatus);
+        const visibleIds = visibleCreatives.map((c) => c.id);
+        const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+        return (
+          <div className="space-y-3">
+            {/* Filter tabs */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {STATUS_TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => { setFilterStatus(t.key); clearSelection(); }}
+                  className={
+                    "inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-xs font-bold transition " +
+                    (filterStatus === t.key
+                      ? "bg-[var(--primary)] text-white"
+                      : "bg-[var(--muted)] text-[var(--foreground)]/70 hover:bg-[var(--border)]")
+                  }
+                >
+                  {t.label}
+                  <span className={
+                    "rounded-full px-1.5 py-px text-[10px] font-bold " +
+                    (filterStatus === t.key ? "bg-white/25 text-white" : "bg-[var(--border)] text-[var(--foreground)]/60")
+                  }>
+                    {t.count}
+                  </span>
+                </button>
+              ))}
+              {/* Select-all toggle */}
+              <button
+                type="button"
+                onClick={() => allSelected ? clearSelection() : selectAll(visibleIds)}
+                className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border)] px-3 text-xs font-semibold text-[var(--foreground)]/70 transition hover:bg-[var(--muted)]"
+              >
+                {allSelected ? <><X className="h-3 w-3" /> Deselect all</> : <><Check className="h-3 w-3" /> Select all</>}
+              </button>
+            </div>
+
+            {/* Bulk action toolbar — only visible when ≥1 selected */}
+            {selectedIds.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--primary)]/30 bg-[var(--primary)]/5 px-4 py-3">
+                <span className="text-sm font-bold text-[var(--primary)]">
+                  {selectedIds.size} selected
+                </span>
+                <div className="h-4 w-px bg-[var(--border)]" />
+                {/* Approve */}
+                <button
+                  type="button"
+                  onClick={handleBulkApprove}
+                  disabled={bulkBusy}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-emerald-600 px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  Approve
+                </button>
+                {/* Publish now */}
+                <button
+                  type="button"
+                  onClick={handleBulkPublish}
+                  disabled={bulkBusy || !boardId}
+                  title={!boardId ? "Select a Pinterest board first" : ""}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#E60023] px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Publish now
+                </button>
+                {/* Staggered schedule */}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={handleBulkSchedule}
+                    disabled={bulkBusy || !boardId}
+                    title={!boardId ? "Select a Pinterest board first" : ""}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-violet-600 px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
+                    Schedule staggered
+                  </button>
+                  <select
+                    value={staggerDays}
+                    onChange={(e) => setStaggerDays(e.target.value)}
+                    className="h-8 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs outline-none focus:border-violet-500"
+                  >
+                    <option value="1">1/day</option>
+                    <option value="2">2/day</option>
+                    <option value="3">3/day</option>
+                    <option value="4">4/day</option>
+                    <option value="5">5/day</option>
+                  </select>
+                </div>
+                {/* Retry failed */}
+                <button
+                  type="button"
+                  onClick={handleRetryFailed}
+                  disabled={bulkBusy}
+                  title="Clear errors and reset to Approved for retry"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-400 px-3 text-xs font-bold text-amber-700 transition hover:bg-amber-50 disabled:opacity-50"
+                >
+                  {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                  Retry errors
+                </button>
+                {/* Reject */}
+                <button
+                  type="button"
+                  onClick={handleBulkReject}
+                  disabled={bulkBusy}
+                  className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-rose-300 px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+                >
+                  <X className="h-3.5 w-3.5" /> Reject
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="inline-flex h-7 items-center rounded-full px-2 text-xs text-[var(--foreground)]/50 hover:text-[var(--foreground)]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── Creatives grid ───────────────────────────────────────────── */}
       {creatives.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] p-12 text-center text-[var(--foreground)]/60">
           No creatives yet. Generate your first one above ✨
         </div>
-      ) : (
+      ) : (() => {
+        const visibleCreatives = filterStatus === "all" ? creatives : creatives.filter((c) => c.status === filterStatus);
+        if (visibleCreatives.length === 0) return (
+          <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--foreground)]/60">
+            No {filterStatus} creatives.
+          </div>
+        );
+        return (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {creatives.map((c) => {
+          {visibleCreatives.map((c) => {
             const busy = pending && busyId === c.id;
             return (
               <div
                 key={c.id}
-                className="flex flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]"
+                className={
+                  "relative flex flex-col overflow-hidden rounded-2xl border bg-[var(--card)] transition " +
+                  (selectedIds.has(c.id)
+                    ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/25"
+                    : "border-[var(--border)]")
+                }
               >
+                {/* Selection checkbox — top-left corner overlay */}
+                <button
+                  type="button"
+                  onClick={() => toggleSelect(c.id)}
+                  aria-label={selectedIds.has(c.id) ? "Deselect" : "Select"}
+                  className={
+                    "absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-md border-2 shadow-sm transition " +
+                    (selectedIds.has(c.id)
+                      ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                      : "border-white/70 bg-black/30 text-transparent hover:border-white hover:bg-black/50")
+                  }
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+
                 {c.platform === "tiktok" ? (
                   <video
                     src={c.imageUrl}
@@ -1043,7 +1298,8 @@ export function SocialStudio({
             );
           })}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
