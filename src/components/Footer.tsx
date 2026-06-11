@@ -33,7 +33,7 @@ export function Footer() {
           </p>
           <div className="mt-4 flex gap-2">
             <Social
-              href="https://instagram.com/y2kase_official"
+              href="https://instagram.com/y2kase._.official"
               label="Instagram"
             >
               <InstagramIcon />
@@ -82,8 +82,8 @@ export function Footer() {
             { href: "/policies/privacy-policy", label: "Privacy Policy" },
             { href: "/policies/terms-of-service", label: "Terms of Service" },
             {
-              href: "https://instagram.com/y2kase_official",
-              label: "@y2kase_official",
+              href: "https://instagram.com/y2kase._.official",
+              label: "@y2kase._.official",
             },
           ]}
         />
