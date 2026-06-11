@@ -54,6 +54,42 @@ function tiktokVideoUrl(productId: number): string {
 // Pinterest
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Pinterest is a visual SEARCH engine — pins rank for the keywords in their
+ * title, description and board. We therefore:
+ *   - title:       keyword-rich, ≤100 chars, brand suffix for recognition.
+ *   - description: front-loads the caption (the part Pinterest indexes most
+ *                  heavily), then a soft CTA, then hashtags as discovery aids.
+ *   - alt_text:    a literal, accessible description that also feeds Pinterest
+ *                  visual search and improves ranking.
+ */
+function buildPinTitle(creative: SocialCreative): string | undefined {
+  const base = creative.productTitle?.trim();
+  if (!base) return undefined;
+  // Append brand for recognition if there's room and it isn't already present.
+  const withBrand = /y2kase/i.test(base) ? base : `${base} | Y2KASE`;
+  return withBrand.slice(0, 100);
+}
+
+function buildPinDescription(creative: SocialCreative): string | undefined {
+  const caption = creative.caption?.trim();
+  const hashtags = creative.hashtags.map((t) => `#${t}`).join(" ");
+  const cta = "Shop now at y2kase.com ✨";
+  const parts = [caption, cta, hashtags].filter(Boolean);
+  const description = parts.join("\n\n");
+  return description ? description.slice(0, 800) : undefined;
+}
+
+function buildPinAltText(creative: SocialCreative): string | undefined {
+  const title = creative.productTitle?.trim();
+  if (!title) return undefined;
+  const cues = creative.hashtags.slice(0, 4).join(", ");
+  const alt = cues
+    ? `${title} — kawaii Y2K phone accessory. Style: ${cues}.`
+    : `${title} — kawaii Y2K phone accessory by Y2KASE.`;
+  return alt.slice(0, 500);
+}
+
 async function publishToPinterest(
   creative: SocialCreative,
   boardId: string,
@@ -65,18 +101,12 @@ async function publishToPinterest(
     throw new Error("No Pinterest board selected for this creative.");
   }
 
-  const description = [
-    creative.caption,
-    creative.hashtags.map((t) => `#${t}`).join(" "),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
   const pin = await createPin({
     boardId,
     imageUrl: creative.imageUrl,
-    title: creative.productTitle ?? undefined,
-    description: description || undefined,
+    title: buildPinTitle(creative),
+    description: buildPinDescription(creative),
+    altText: buildPinAltText(creative),
     link: productLink(creative, "pinterest"),
   });
 

@@ -376,6 +376,59 @@ export async function getProductsByStatus(
 }
 
 /**
+ * A richer product view purpose-built for the product catalog feed
+ * (Pinterest Catalogs / Google Merchant Center). Includes the full
+ * description, product type and up to 10 ordered gallery images so the
+ * feed can emit SEO-grade descriptions and additional_image_link entries.
+ *
+ * Prices are kept as the raw numeric strings from the DB (already in the
+ * store's display currency, e.g. "19.99") — the feed formats them.
+ */
+export type CatalogFeedItem = {
+  id: number;
+  slug: string;
+  title: string;
+  description: string | null;
+  productType: string;
+  productTypeLabel: string;
+  price: string;
+  compareAtPrice: string | null;
+  currency: string;
+  tags: string[];
+  /** Ordered gallery image URLs (first = primary). */
+  images: string[];
+};
+
+export async function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
+  if (!isDbConfigured()) return [];
+  const rows = await db.query.products.findMany({
+    where: eq(products.status, "active"),
+    orderBy: desc(products.createdAt),
+    limit: 1000,
+    with: {
+      images: {
+        columns: { url: true, position: true },
+        orderBy: (img, { asc }) => asc(img.position),
+        limit: 10,
+      },
+    },
+  });
+  return rows.map((p) => ({
+    id: p.id,
+    slug: p.slug,
+    title: p.title,
+    description: p.description,
+    productType: p.productType,
+    productTypeLabel: productTypeLabel(p.productType),
+    price: p.price,
+    compareAtPrice: p.compareAtPrice,
+    currency: p.currency,
+    tags: p.tags ?? [],
+    images: p.images.map((i) => i.url).filter((u): u is string => Boolean(u)),
+  }));
+}
+
+/**
  * A flattened, dashboard-ready view of every product for the admin console.
  * Surfaces the current media count, offered styles and offered iPhone models
  * so the operator can see — and bulk-edit — the catalog's variation state at a

@@ -30,22 +30,44 @@ export async function generateMetadata({
     product.description?.trim().slice(0, 160) || BRAND.description;
   const canonical = `/products/${product.slug}`;
 
-  // og:image comes from the colocated opengraph-image.tsx (branded card);
-  // Twitter falls back to it automatically.
+  // Use the real product hero image for og:image — this is what Pinterest,
+  // Facebook and iMessage show when the page is saved/shared, and a true
+  // product photo dramatically out-converts a generic branded card.
+  const heroImage = product.images[0]?.url;
+
+  // Pinterest Rich Pins + Facebook product cards read these OpenGraph product
+  // tags to render live price + availability directly on the saved pin.
+  const price = Number(product.price);
+  const currency = (product.currency || "USD").toUpperCase();
+  const availability =
+    product.status === "active" ? "in stock" : "out of stock";
+
   return {
     title: product.title,
     description,
     alternates: { canonical },
     openGraph: {
-      type: "website",
+      // og:type is set to "product" via `other` below (Pinterest/Facebook
+      // product Rich Pins) — omitting it here avoids a duplicate og:type tag.
       title: product.title,
       description,
       url: canonical,
+      ...(heroImage
+        ? { images: [{ url: heroImage, alt: product.title }] }
+        : {}),
     },
     twitter: {
       card: "summary_large_image",
       title: product.title,
       description,
+      ...(heroImage ? { images: [heroImage] } : {}),
+    },
+    other: {
+      "og:type": "product",
+      "product:price:amount": (Number.isFinite(price) ? price : 0).toFixed(2),
+      "product:price:currency": currency,
+      "product:availability": availability,
+      "product:brand": BRAND.name,
     },
   };
 }

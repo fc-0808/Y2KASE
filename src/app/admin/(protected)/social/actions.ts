@@ -595,13 +595,18 @@ export async function bulkPublishNow(input: {
 }
 
 /**
- * Schedule multiple creatives with automatic staggering — the approach used by
- * top DTC brands like Casetify. Pinterest recommends 2-5 pins per day spread
- * across different time slots for best reach.
+ * Schedule multiple creatives as an automatic daily DRIP — the consistency-
+ * first approach used by top DTC brands. Pinterest's algorithm rewards
+ * steady, daily fresh-pin activity far more than dumping everything at once.
  *
- * Schedule: startDate (default = tomorrow), then spread pinsPerDay pins across
- * three daily slots (morning 14:00, afternoon 18:00, evening 21:00 UTC).
- * This maps to 9am / 1pm / 4pm Pacific or 10am / 2pm / 5pm Eastern.
+ * Because the publish cron runs once per day (see vercel.json →
+ * /api/cron/social-publish at 17:00 UTC = ~1pm ET / 10am PT, a Pinterest peak
+ * window), we schedule each day's batch at 06:00 UTC — comfortably before the
+ * cron — so that day's pins are "due" and go live in that day's run. Pins are
+ * spread across consecutive days: `pinsPerDay` each day.
+ *
+ * Example: 30 pins at 3/day → published 3 per day over the next 10 days,
+ * each day's batch going live in the daily 17:00 UTC publish run.
  */
 export async function bulkStaggeredSchedule(input: {
   ids: number[];
@@ -622,15 +627,10 @@ export async function bulkStaggeredSchedule(input: {
 
   const pinsPerDay = Math.min(5, Math.max(1, input.pinsPerDay ?? 3));
 
-  // Daily UTC hours for each slot (chosen for maximum US + EU engagement).
-  const SLOT_HOURS: Record<number, number[]> = {
-    1: [20],
-    2: [15, 21],
-    3: [14, 18, 21],
-    4: [13, 16, 19, 22],
-    5: [12, 14, 17, 19, 22],
-  };
-  const slots = SLOT_HOURS[pinsPerDay] ?? SLOT_HOURS[3];
+  // Each day's pins are scheduled at 06:00 UTC + minute offsets (purely to
+  // preserve a stable publish order). They become "due" well before the daily
+  // 17:00 UTC publish cron, so the whole day's batch goes live in that run.
+  const DRIP_HOUR_UTC = 6;
 
   // Start date: tomorrow at midnight UTC if not specified.
   let start: Date;
@@ -653,11 +653,10 @@ export async function bulkStaggeredSchedule(input: {
     const id = uniq[i];
     const dayOffset = Math.floor(i / pinsPerDay);
     const slotIndex = i % pinsPerDay;
-    const hourUtc = slots[slotIndex];
 
     const when = new Date(start);
     when.setUTCDate(when.getUTCDate() + dayOffset);
-    when.setUTCHours(hourUtc, 0, 0, 0);
+    when.setUTCHours(DRIP_HOUR_UTC, slotIndex, 0, 0);
 
     try {
       await scheduleCreative(id, when, input.boardId);
@@ -671,7 +670,7 @@ export async function bulkStaggeredSchedule(input: {
   revalidatePath("/admin/social");
   return {
     ok: errors.length === 0,
-    message: `Scheduled ${succeeded} pin${succeeded === 1 ? "" : "s"} across ${days} day${days === 1 ? "" : "s"} (${pinsPerDay}/day) ⏰`,
+    message: `Scheduled ${succeeded} pin${succeeded === 1 ? "" : "s"} as a daily drip across ${days} day${days === 1 ? "" : "s"} (${pinsPerDay}/day) ⏰`,
     succeeded,
     failed: errors.length,
     errors,

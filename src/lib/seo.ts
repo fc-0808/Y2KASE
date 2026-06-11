@@ -38,6 +38,8 @@ export const BRAND = {
   sameAs: [
     "https://instagram.com/y2kase_official",
     "https://facebook.com/y2kase",
+    "https://www.pinterest.com/y2kase",
+    "https://www.tiktok.com/@y2kase",
   ],
 } as const;
 
