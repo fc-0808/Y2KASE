@@ -22,12 +22,12 @@ import {
 export const metadata: Metadata = {
   title: "Your Welcome Gift",
   description:
-    "Join the Y2KASE Club and unlock 10% off your first order, free shipping over $35, and member-only drops.",
+    "Join the Y2KASE Club and unlock 15% off your first order, free shipping over $35, and member-only drops.",
   alternates: { canonical: "/pages/welcome-gift" },
   openGraph: {
     title: "Your Welcome Gift · Y2KASE",
     description:
-      "Join the Y2KASE Club and unlock 10% off your first order, free shipping over $35, and member-only drops. ✨",
+      "Join the Y2KASE Club and unlock 15% off your first order, free shipping over $35, and member-only drops. ✨",
     url: "/pages/welcome-gift",
   },
 };
@@ -106,7 +106,7 @@ export default function WelcomeGiftPage() {
               </h1>
               <p className="mx-auto mt-2 max-w-md text-[13px] leading-snug text-[var(--foreground)]/75 sm:mt-4 sm:text-[15px] sm:leading-relaxed lg:mx-0">
                 Here&apos;s{" "}
-                <strong className="text-[var(--primary)]">10% off</strong> your
+                <strong className="text-[var(--primary)]">15% off</strong> your
                 first order — plus free shipping, member-only drops and perks
                 made for besties like you. 🌸
               </p>

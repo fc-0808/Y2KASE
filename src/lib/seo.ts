@@ -36,7 +36,7 @@ export const BRAND = {
   email: SUPPORT_EMAIL,
   /** Sameas profiles strengthen the brand's knowledge-graph entity. */
   sameAs: [
-    "https://instagram.com/y2kase._.official",
+    "https://instagram.com/y2kase.co",
     "https://facebook.com/y2kase",
     "https://www.pinterest.com/y2kase",
     "https://www.tiktok.com/@y2kase",

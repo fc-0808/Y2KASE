@@ -27,7 +27,7 @@ export function WelcomeGiftForm() {
   const [name, setName] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
-  const [code, setCode] = useState("WELCOME10");
+  const [code, setCode] = useState("WELCOME15");
   const [alreadyMember, setAlreadyMember] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -59,7 +59,7 @@ export function WelcomeGiftForm() {
         return;
       }
 
-      setCode(data.code ?? "WELCOME10");
+      setCode(data.code ?? "WELCOME15");
       setAlreadyMember(Boolean(data.alreadySubscribed));
       setStatus("success");
     } catch {
@@ -118,7 +118,7 @@ export function WelcomeGiftForm() {
             )}
           </button>
           <p className="mt-3 text-xs text-[var(--foreground)]/50">
-            10% off · Enter at checkout · One-time use
+            15% off · Enter at checkout · One-time use
           </p>
         </div>
 
@@ -141,7 +141,7 @@ export function WelcomeGiftForm() {
           <Gift className="h-6 w-6 text-[var(--primary)] sm:h-7 sm:w-7" />
         </div>
         <h2 className="font-display text-xl font-black leading-tight text-[var(--foreground)] sm:text-2xl">
-          Claim your 10% off ✨
+          Claim your 15% off ✨
         </h2>
         <p className="mx-auto mt-2 hidden max-w-xs text-sm text-[var(--foreground)]/65 sm:block sm:max-w-none">
           Drop your email and we&apos;ll send your code straight to your inbox —
@@ -199,7 +199,7 @@ export function WelcomeGiftForm() {
           disabled={status === "loading" || !email}
           className="btn-candy w-full py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {status === "loading" ? "Sending…" : "Claim my 10% off ✨"}
+          {status === "loading" ? "Sending…" : "Claim my 15% off ✨"}
         </button>
 
         <p className="text-center text-[11px] text-[var(--foreground)]/40">

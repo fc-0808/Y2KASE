@@ -3,7 +3,7 @@
  *
  * Accepts an email (and optional name) from the welcome pop-up or footer form.
  * - Upserts the subscriber in the DB (idempotent on email).
- * - Issues the WELCOME10 promo code.
+ * - Issues the WELCOME15 promo code.
  * - Sends a branded welcome email with the discount code.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -18,7 +18,7 @@ import { listUnsubscribeHeaders, unsubscribeUrl } from "@/lib/unsubscribe";
 
 export const runtime = "nodejs";
 
-const PROMO_CODE = "WELCOME10";
+const PROMO_CODE = "WELCOME15";
 
 // Lazily construct the client so a missing key can't crash the module at import
 // time (which would 500 the whole route instead of degrading gracefully).
@@ -79,12 +79,12 @@ export async function POST(request: NextRequest) {
         const html = await render(
           WelcomeEmail({ name: name ?? undefined, code: PROMO_CODE, unsubscribeUrl: unsubUrl }),
         );
-        const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\nHere is your 10% off code for your first order:\n\n${PROMO_CODE}\n\nEnter it at checkout at https://y2kase.com\n\nShop now: https://y2kase.com/products\n\nUnsubscribe: ${unsubUrl}`;
+        const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\nHere is your 15% off code for your first order:\n\n${PROMO_CODE}\n\nEnter it at checkout at https://y2kase.com\n\nShop now: https://y2kase.com/products\n\nUnsubscribe: ${unsubUrl}`;
 
         await resend.emails.send({
           from: process.env.EMAIL_FROM ?? "Y2KASE <onboarding@resend.dev>",
           to: email,
-          subject: "✨ Your 10% off code is here, bestie!",
+          subject: "✨ Your 15% off code is here, bestie!",
           html,
           text,
           // One-click unsubscribe (RFC 8058) — required for bulk senders and

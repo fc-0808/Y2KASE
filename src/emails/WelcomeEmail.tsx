@@ -24,7 +24,7 @@ export function WelcomeEmail({ name, code, unsubscribeUrl }: WelcomeEmailProps) 
   return (
     <Html lang="en">
       <Head />
-      <Preview>Your 10% off code is ready — shop Y2KASE now ✨</Preview>
+      <Preview>Your 15% off code is ready — shop Y2KASE now ✨</Preview>
       <Body style={bodyStyle}>
         <Container style={containerStyle}>
           {/* Header */}
@@ -43,7 +43,7 @@ export function WelcomeEmail({ name, code, unsubscribeUrl }: WelcomeEmailProps) 
             </Text>
             <Text style={paraStyle}>
               As a thank-you for joining, here&apos;s your exclusive{" "}
-              <strong>10% off your first order</strong>:
+              <strong>15% off your first order</strong>:
             </Text>
 
             {/* Promo code block */}

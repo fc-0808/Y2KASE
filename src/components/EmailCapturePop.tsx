@@ -31,7 +31,7 @@ export function EmailCapturePop() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [code, setCode] = useState("WELCOME10");
+  const [code, setCode] = useState("WELCOME15");
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -108,7 +108,7 @@ export function EmailCapturePop() {
         return;
       }
 
-      setCode(data.code ?? "WELCOME10");
+      setCode(data.code ?? "WELCOME15");
       setState("success");
       localStorage.setItem(LS_KEY_SUBSCRIBED, "1");
     } catch {
@@ -168,7 +168,7 @@ export function EmailCapturePop() {
                   </h2>
                   <p className="mt-2 text-sm text-[var(--foreground)]/65 leading-relaxed">
                     Join Y2KASE besties and get{" "}
-                    <strong className="text-[var(--primary)]">10% off</strong> your
+                    <strong className="text-[var(--primary)]">15% off</strong> your
                     first order — plus early access to new drops. 🌸
                   </p>
                 </div>
@@ -221,7 +221,7 @@ export function EmailCapturePop() {
                     disabled={loading || !email}
                     className="btn-candy w-full py-3 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {loading ? "Sending…" : "Claim My 10% Off ✨"}
+                    {loading ? "Sending…" : "Claim My 15% Off ✨"}
                   </button>
 
                   <p className="text-center text-xs text-[var(--foreground)]/40">
@@ -259,7 +259,7 @@ export function EmailCapturePop() {
                     {code}
                   </p>
                   <p className="text-xs text-[var(--foreground)]/50 mt-1">
-                    10% off · Enter at checkout · One-time use
+                    15% off · Enter at checkout · One-time use
                   </p>
                 </div>
 
