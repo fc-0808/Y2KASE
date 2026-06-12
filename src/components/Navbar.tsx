@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ShoppingBag, Search, ChevronDown, Menu, X } from "lucide-react";
@@ -25,8 +26,50 @@ export type MenuCollection = {
   icon: string | null;
   accentColor: string | null;
   count: number;
+  /** Representative product photo (preferred over the kawaii icon). */
+  thumb?: string | null;
   children: MenuCollection[];
 };
+
+/**
+ * CollectionThumb — a real product photo for a collection (premium look-book
+ * style), falling back to the brand's kawaii icon when no photo exists.
+ */
+function CollectionThumb({
+  item,
+  className,
+}: {
+  item: MenuCollection;
+  className?: string;
+}) {
+  if (item.thumb) {
+    return (
+      <span
+        className={`relative shrink-0 overflow-hidden rounded-xl border border-white shadow-sm ${className ?? ""}`}
+      >
+        <Image
+          src={item.thumb}
+          alt={item.name}
+          fill
+          sizes="48px"
+          className="object-cover"
+        />
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`grid shrink-0 place-items-center rounded-xl bg-[var(--muted)] ${className ?? ""}`}
+    >
+      <CategoryIcon
+        slug={item.slug}
+        color={item.accentColor}
+        kind={item.kind}
+        className="h-3/5 w-3/5"
+      />
+    </span>
+  );
+}
 
 type Panel = "devices" | "collections" | null;
 
@@ -229,8 +272,8 @@ function DevicesPanel({ onNavigate }: { onNavigate: () => void }) {
                     onClick={onNavigate}
                     className="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm font-semibold hover:bg-[var(--muted)]"
                   >
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[var(--muted)] text-[var(--primary)] transition group-hover:bg-[var(--primary-soft)]">
-                      <DeviceIcon id={device.id} className="h-4 w-4" />
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white shadow-sm ring-1 ring-[var(--border)] transition group-hover:ring-[var(--primary)]/40">
+                      <DeviceIcon id={device.id} className="h-7 w-7" />
                     </span>
                     <span className="group-hover:text-[var(--primary)]">
                       {device.label}
@@ -279,25 +322,21 @@ function CollectionsPanel({
                   <Link
                     href={`/collections/${brand.slug}`}
                     onClick={onNavigate}
-                    className="flex items-center gap-2 font-bold hover:text-[var(--primary)]"
+                    className="flex items-center gap-2.5 font-bold hover:text-[var(--primary)]"
                   >
-                    <CategoryIcon
-                      slug={brand.slug}
-                      color={brand.accentColor}
-                      kind={brand.kind}
-                      className="h-6 w-6 shrink-0"
-                    />
+                    <CollectionThumb item={brand} className="h-9 w-9" />
                     {brand.name}
                   </Link>
                   {brand.children.length > 0 && (
-                    <ul className="mt-1.5 space-y-1">
+                    <ul className="mt-2 space-y-1.5">
                       {brand.children.slice(0, 6).map((child) => (
                         <li key={child.slug}>
                           <Link
                             href={`/collections/${child.slug}`}
                             onClick={onNavigate}
-                            className="text-sm text-[var(--foreground)]/65 hover:text-[var(--primary)]"
+                            className="flex items-center gap-2 text-sm text-[var(--foreground)]/70 transition hover:text-[var(--primary)]"
                           >
+                            <CollectionThumb item={child} className="h-7 w-7" />
                             {child.name}
                           </Link>
                         </li>
@@ -319,14 +358,9 @@ function CollectionsPanel({
                   key={genre.slug}
                   href={`/collections/${genre.slug}`}
                   onClick={onNavigate}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] py-1 pl-1 pr-4 text-sm font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
-                  <CategoryIcon
-                    slug={genre.slug}
-                    color={genre.accentColor}
-                    kind={genre.kind}
-                    className="h-4 w-4"
-                  />
+                  <CollectionThumb item={genre} className="h-7 w-7 !rounded-full" />
                   {genre.name}
                 </Link>
               ))}
@@ -362,7 +396,7 @@ function MobileMenu({
               href={`/products?device=${d.id}`}
               className="flex items-center gap-2 rounded-xl bg-[var(--card)] px-3 py-2 text-sm font-semibold"
             >
-              <DeviceIcon id={d.id} className="h-4 w-4 text-[var(--primary)]" />
+              <DeviceIcon id={d.id} className="h-7 w-7 shrink-0" />
               {d.label}
             </Link>
           ))}
@@ -376,14 +410,9 @@ function MobileMenu({
               <Link
                 key={b.slug}
                 href={`/collections/${b.slug}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] py-1 pl-1 pr-3.5 text-sm font-semibold"
               >
-                <CategoryIcon
-                  slug={b.slug}
-                  color={b.accentColor}
-                  kind={b.kind}
-                  className="h-4 w-4"
-                />
+                <CollectionThumb item={b} className="h-7 w-7 !rounded-full" />
                 {b.name}
               </Link>
             ))}
@@ -398,14 +427,9 @@ function MobileMenu({
               <Link
                 key={g.slug}
                 href={`/collections/${g.slug}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] py-1 pl-1 pr-3.5 text-sm font-semibold"
               >
-                <CategoryIcon
-                  slug={g.slug}
-                  color={g.accentColor}
-                  kind={g.kind}
-                  className="h-4 w-4"
-                />
+                <CollectionThumb item={g} className="h-7 w-7 !rounded-full" />
                 {g.name}
               </Link>
             ))}

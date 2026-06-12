@@ -193,8 +193,8 @@ export default async function HomePage() {
               href={d.comingSoon ? `/products?device=${d.id}` : `/devices/${d.id}`}
               className="card-cute group flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-1 hover:border-[var(--primary)]"
             >
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-holo text-[var(--primary)] transition group-hover:scale-110">
-                <DeviceIcon id={d.id} className="h-6 w-6" />
+              <span className="grid h-16 w-16 place-items-center rounded-2xl bg-white shadow-sm ring-1 ring-[var(--border)] transition group-hover:scale-110">
+                <DeviceIcon id={d.id} className="h-11 w-11" />
               </span>
               <span className="text-sm font-bold">{d.label}</span>
             </Link>
