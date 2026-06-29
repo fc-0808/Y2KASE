@@ -24,6 +24,7 @@ import type { SocialPlatform } from "@/lib/social/presets";
 export const PRODUCT_PHOTO_PRESET = "product_photo";
 
 export type ProductPhoto = {
+  id: number;
   url: string;
   altText: string | null;
   position: number;
@@ -65,6 +66,7 @@ export async function getProductGallery(
     tags: product.tags ?? [],
     videoUrl: product.videoUrl,
     photos: (product.images ?? []).map((img) => ({
+      id: img.id,
       url: img.url,
       altText: img.altText,
       position: img.position,
@@ -109,9 +111,11 @@ export async function importProductPhotos(
   const gallery = await getProductGallery(input.productId);
   if (!gallery) return { ok: false, error: "Product not found." };
 
-  // Only allow URLs that actually belong to this product (defence in depth).
-  const allowed = new Set(gallery.photos.map((p) => p.url));
-  const valid = urls.filter((u) => allowed.has(u));
+  // Only allow URLs that actually belong to this product (defence in depth),
+  // and resolve each to its catalog image id so the creative is linked to its
+  // source photo (the dedup key the auto-pin drip relies on).
+  const urlToImageId = new Map(gallery.photos.map((p) => [p.url, p.id]));
+  const valid = urls.filter((u) => urlToImageId.has(u));
   if (valid.length === 0) {
     return { ok: false, error: "None of the selected photos belong to this product." };
   }
@@ -145,6 +149,7 @@ export async function importProductPhotos(
         productId: gallery.id,
         productTitle: gallery.title,
         productSlug: gallery.slug,
+        sourceImageId: urlToImageId.get(url) ?? null,
         preset: PRODUCT_PHOTO_PRESET,
         platform,
         imageUrl: url,

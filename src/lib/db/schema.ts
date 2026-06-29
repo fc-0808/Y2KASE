@@ -470,6 +470,16 @@ export const socialCreatives = pgTable(
     productTitle: text("product_title"),
     /** Snapshot of the product slug — lets published pins deep-link to the PDP. */
     productSlug: text("product_slug"),
+    /**
+     * Source catalog image this creative was built from (real product photos
+     * only). This is the dedup key for the autonomous Pinterest auto-pin drip:
+     * an image with a published/in-flight pinterest creative is never re-pinned.
+     * Null for AI-generated creatives (they have no catalog source image).
+     */
+    sourceImageId: integer("source_image_id").references(
+      () => productImages.id,
+      { onDelete: "set null" },
+    ),
     /** Preset key used to build the image prompt (see lib/social/presets). */
     preset: text("preset").notNull(),
     /** Target platform: pinterest | tiktok | instagram | generic. */
@@ -516,6 +526,7 @@ export const socialCreatives = pgTable(
     index("social_creatives_status_idx").on(t.status),
     index("social_creatives_product_idx").on(t.productId),
     index("social_creatives_scheduled_idx").on(t.scheduledAt),
+    index("social_creatives_source_image_idx").on(t.sourceImageId),
   ],
 );
 

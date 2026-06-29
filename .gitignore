@@ -49,6 +49,9 @@ next-env.d.ts
 /bestListings/
 # Raw brand reference drop — the app uses the copies in public/brand/ instead.
 /images/
+# Local product image library (multi-GB source photos used only for catalog
+# ingest). The deployed app serves images from R2, never from this folder.
+/Products/
 
 # Cursor MCP — .cursor/mcp.json is safe to commit: it holds remote OAuth URLs
 # (stripe, vercel) and the local `resend` stdio server, whose API key is loaded
@@ -56,7 +59,3 @@ next-env.d.ts
 # NEVER hardcode live keys (sk_live_ / rk_live_ / re_...) in .cursor/mcp.json.
 # If you need a local key override, put it in .cursor/mcp.local.json (gitignored below)
 .cursor/mcp.local.json
-
-.vercel
-
-.vercel

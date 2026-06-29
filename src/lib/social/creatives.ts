@@ -24,6 +24,7 @@ export type SocialCreative = {
   productId: number | null;
   productTitle: string | null;
   productSlug: string | null;
+  sourceImageId: number | null;
   preset: string;
   platform: string;
   imageUrl: string;
@@ -52,6 +53,7 @@ export type NewCreative = {
   productId: number | null;
   productTitle: string | null;
   productSlug?: string | null;
+  sourceImageId?: number | null;
   preset: string;
   platform: string;
   imageUrl: string;
@@ -69,6 +71,7 @@ export async function insertCreative(input: NewCreative): Promise<number> {
       productId: input.productId,
       productTitle: input.productTitle,
       productSlug: input.productSlug ?? null,
+      sourceImageId: input.sourceImageId ?? null,
       preset: input.preset,
       platform: input.platform,
       imageUrl: input.imageUrl,

@@ -49,6 +49,11 @@ async function main() {
 
   // Product deep-link slug + cached Pinterest analytics (P3 polish).
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "product_slug" text`;
+
+  // Source catalog image link — dedup key for the autonomous auto-pin drip.
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "source_image_id" integer REFERENCES "product_images"("id") ON DELETE SET NULL`;
+  await sql`CREATE INDEX IF NOT EXISTS "social_creatives_source_image_idx" ON "social_creatives" ("source_image_id")`;
+
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_impressions" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_saves" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_pin_clicks" integer`;
@@ -94,6 +99,10 @@ async function main() {
   const accessToken = process.env.PINTEREST_ACCESS_TOKEN;
   const appSecret = process.env.PINTEREST_APP_SECRET;
   if (accessToken) {
+    // Bootstrap ONLY when no token row exists yet. We must never clobber an
+    // existing row: the OAuth callback + refresh cron keep a fresher,
+    // auto-rotated access token there, and overwriting it with a possibly-stale
+    // env var would silently break publishing.
     await sql`
       INSERT INTO "social_tokens" ("platform", "access_token", "expires_at", "updated_at")
       VALUES (
@@ -102,12 +111,9 @@ async function main() {
         now() + interval '30 days',
         now()
       )
-      ON CONFLICT ("platform") DO UPDATE SET
-        "access_token" = EXCLUDED."access_token",
-        "expires_at"   = COALESCE("social_tokens"."expires_at", now() + interval '30 days'),
-        "updated_at"   = now()
+      ON CONFLICT ("platform") DO NOTHING
     `;
-    console.log("✓ PINTEREST_ACCESS_TOKEN seeded into social_tokens.");
+    console.log("✓ PINTEREST_ACCESS_TOKEN bootstrapped into social_tokens (existing token preserved).");
     if (!appSecret) {
       console.warn("⚠ PINTEREST_APP_SECRET not set — auto-refresh won't work until you set it.");
     }

@@ -23,6 +23,7 @@ import { enqueueJobs, clearFinishedJobs } from "@/lib/social/jobs";
 import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
 import { refreshAllPinMetrics } from "@/lib/social/analytics";
+import { runAutoPin, AUTO_PIN_PER_RUN } from "@/lib/social/auto-pin";
 import {
   getProductGallery,
   importProductPhotos,
@@ -491,6 +492,48 @@ export async function schedulePublish(
   await scheduleCreative(id, when, boardId);
   revalidatePath("/admin/social");
   return { ok: true, message: "Scheduled ⏰", creativeId: id };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO-PIN (autonomous daily drip)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Manually trigger the auto-pin drip — pins the next un-pinned product photo(s)
+ * right now. Mirrors exactly what the daily cron does, for instant feedback and
+ * to seed the pipeline without waiting for the schedule. `boardId` is optional;
+ * when omitted, PINTEREST_AUTOPIN_BOARD_ID (or the first board) is used.
+ */
+export async function runAutoPinNow(input?: {
+  boardId?: string;
+  max?: number;
+}): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  const max = Math.min(10, Math.max(1, input?.max ?? AUTO_PIN_PER_RUN));
+  const res = await runAutoPin({ max, boardId: input?.boardId });
+  revalidatePath("/admin/social");
+
+  if (res.reason === "no-pinterest-token") {
+    return { ok: false, message: "Connect Pinterest first." };
+  }
+  if (res.reason === "no-board") {
+    return {
+      ok: false,
+      message: res.errors[0] ?? "No Pinterest board available.",
+    };
+  }
+  if (res.reason === "all-pinned") {
+    return { ok: true, message: "Every catalog image is already pinned 🎉" };
+  }
+  if (res.pinned === 0 && res.failed === 0) {
+    return { ok: true, message: "Nothing new to pin right now." };
+  }
+  const tail = res.failed ? ` · ${res.failed} failed` : "";
+  return {
+    ok: res.failed === 0,
+    message: `Pinned ${res.pinned} photo${res.pinned === 1 ? "" : "s"} to Pinterest 📌${tail}`,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

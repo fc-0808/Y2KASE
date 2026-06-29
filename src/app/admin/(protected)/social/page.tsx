@@ -12,7 +12,9 @@ import {
 import { isImageGenConfigured } from "@/lib/social/image-gen";
 import { isPinterestConfigured } from "@/lib/social/pinterest";
 import { getJobCounts } from "@/lib/social/jobs";
+import { getAutoPinCoverage } from "@/lib/social/auto-pin";
 import { SocialStudio } from "./SocialStudio";
+import { AutoPinPanel } from "./AutoPinPanel";
 
 export const metadata: Metadata = { title: "Admin · Social Studio" };
 export const dynamic = "force-dynamic";
@@ -36,13 +38,15 @@ export default async function AdminSocialPage({
       ? sp.status
       : undefined;
 
-  const [creatives, counts, products, jobCounts, metrics] = await Promise.all([
-    getCreatives(activeStatus),
-    getCreativeStatusCounts(),
-    getProductsByStatus("active"),
-    getJobCounts(),
-    getMetricsTotals(),
-  ]);
+  const [creatives, counts, products, jobCounts, metrics, autoPinCoverage] =
+    await Promise.all([
+      getCreatives(activeStatus),
+      getCreativeStatusCounts(),
+      getProductsByStatus("active"),
+      getJobCounts(),
+      getMetricsTotals(),
+      getAutoPinCoverage(),
+    ]);
 
   const total =
     counts.draft +
@@ -81,6 +85,8 @@ export default async function AdminSocialPage({
           your environment to enable image generation.
         </div>
       )}
+
+      <AutoPinPanel coverage={autoPinCoverage} pinterestReady={pinterestReady} />
 
       <div className="mb-5 flex flex-wrap gap-2">
         {tabs.map((t) => {

@@ -14,6 +14,10 @@
       "schedule": "0 17 * * *"
     },
     {
+      "path": "/api/cron/pinterest-autopin",
+      "schedule": "0 15 * * *"
+    },
+    {
       "path": "/api/cron/social-generate",
       "schedule": "30 8 * * *"
     },
