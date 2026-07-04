@@ -1122,6 +1122,16 @@ export function SocialStudio({
                     preload="metadata"
                     controls
                   />
+                ) : c.mediaType === "video" ? (
+                  <video
+                    src={c.videoUrl ?? c.imageUrl}
+                    poster={c.imageUrl}
+                    className="aspect-square w-full bg-black object-cover"
+                    muted
+                    playsInline
+                    preload="metadata"
+                    controls
+                  />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img

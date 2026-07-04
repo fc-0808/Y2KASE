@@ -224,3 +224,152 @@ export async function createPin(input: CreatePinInput): Promise<CreatedPin> {
     url: `https://www.pinterest.com/pin/${data.id}/`,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Video Pins (Pinterest API v5 media upload flow)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Unlike image pins (which accept a URL directly), video pins are a 4-step flow:
+//   1. Register the upload: POST /media { media_type: "video" } → media_id +
+//      a pre-signed S3 upload_url + ordered upload_parameters.
+//   2. Upload the video bytes to that S3 bucket as multipart/form-data (the
+//      upload_parameters first, in order, then the `file` field). No auth here.
+//   3. Poll GET /media/{media_id} until status === "succeeded".
+//   4. Create the pin: POST /pins with media_source.source_type = "video_id".
+//      NOTE: cover_image_url is *mandatory* for video pins — omitting it makes
+//      the API return a misleading 401 (a documented Pinterest quirk).
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+type RegisteredMedia = {
+  mediaId: string;
+  uploadUrl: string;
+  uploadParameters: Record<string, string>;
+};
+
+async function registerVideoMedia(): Promise<RegisteredMedia> {
+  const data = await pinterestFetch<{
+    media_id: string;
+    upload_url: string;
+    upload_parameters: Record<string, string>;
+  }>("/media", {
+    method: "POST",
+    body: JSON.stringify({ media_type: "video" }),
+  });
+  return {
+    mediaId: data.media_id,
+    uploadUrl: data.upload_url,
+    uploadParameters: data.upload_parameters ?? {},
+  };
+}
+
+/**
+ * Stream the R2-hosted video into Pinterest's S3 bucket. The upload_parameters
+ * must be appended first, in the exact order Pinterest returned them, followed
+ * by the `file` field — S3's POST policy is order-sensitive.
+ */
+async function uploadVideoToBucket(
+  reg: RegisteredMedia,
+  videoUrl: string,
+): Promise<void> {
+  const videoRes = await fetch(videoUrl);
+  if (!videoRes.ok) {
+    throw new PinterestError(
+      `Could not fetch source video (${videoRes.status}) from ${videoUrl}`,
+      videoRes.status,
+    );
+  }
+  const blob = await videoRes.blob();
+
+  const form = new FormData();
+  for (const [key, value] of Object.entries(reg.uploadParameters)) {
+    form.append(key, value);
+  }
+  form.append("file", blob, "video.mp4");
+
+  const up = await fetch(reg.uploadUrl, { method: "POST", body: form });
+  // S3 returns 204 No Content on success.
+  if (!up.ok && up.status !== 204) {
+    const text = await up.text().catch(() => "");
+    throw new PinterestError(
+      `Video upload to Pinterest storage failed (${up.status}): ${text.slice(0, 300)}`,
+      up.status,
+    );
+  }
+}
+
+async function waitForMediaProcessing(
+  mediaId: string,
+  opts: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 150_000;
+  const intervalMs = opts.intervalMs ?? 4_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const data = await pinterestFetch<{ status: string }>(`/media/${mediaId}`);
+    const status = data.status?.toLowerCase();
+    if (status === "succeeded") return;
+    if (status === "failed") {
+      throw new PinterestError("Pinterest failed to process the video.", 502);
+    }
+    await sleep(intervalMs);
+  }
+  throw new PinterestError(
+    "Timed out waiting for Pinterest to process the video.",
+    504,
+  );
+}
+
+export type CreateVideoPinInput = {
+  boardId: string;
+  /** Public HTTPS URL of the source video (R2). */
+  videoUrl: string;
+  /** Public HTTPS URL of the cover image — REQUIRED by Pinterest for video pins. */
+  coverImageUrl: string;
+  title?: string;
+  description?: string;
+  link?: string;
+  altText?: string;
+};
+
+/** Create a video Pin: register → upload → wait → create. */
+export async function createVideoPin(
+  input: CreateVideoPinInput,
+): Promise<CreatedPin> {
+  if (!input.coverImageUrl) {
+    throw new PinterestError(
+      "A cover image is required to publish a video pin.",
+      400,
+    );
+  }
+
+  const reg = await registerVideoMedia();
+  await uploadVideoToBucket(reg, input.videoUrl);
+  await waitForMediaProcessing(reg.mediaId);
+
+  const body = {
+    board_id: input.boardId,
+    ...(input.title ? { title: input.title.slice(0, 100) } : {}),
+    ...(input.description
+      ? { description: input.description.slice(0, 800) }
+      : {}),
+    ...(input.link ? { link: input.link } : {}),
+    ...(input.altText ? { alt_text: input.altText.slice(0, 500) } : {}),
+    media_source: {
+      source_type: "video_id",
+      media_id: reg.mediaId,
+      cover_image_url: input.coverImageUrl,
+    },
+  };
+
+  const data = await pinterestFetch<{ id: string }>("/pins", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  return {
+    id: data.id,
+    url: `https://www.pinterest.com/pin/${data.id}/`,
+  };
+}

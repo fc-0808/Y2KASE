@@ -54,6 +54,17 @@ async function main() {
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "source_image_id" integer REFERENCES "product_images"("id") ON DELETE SET NULL`;
   await sql`CREATE INDEX IF NOT EXISTS "social_creatives_source_image_idx" ON "social_creatives" ("source_image_id")`;
 
+  // Media type + source video — enables video pins and per-listing auto-pinning
+  // (a listing's photos AND its video are all posted together).
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "media_type" text NOT NULL DEFAULT 'image'`;
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "video_url" text`;
+  // Fast lookups for "is this product's video already pinned?" dedup + history.
+  await sql`CREATE INDEX IF NOT EXISTS "social_creatives_media_type_idx" ON "social_creatives" ("media_type")`;
+
+  // Retry counter — the auto-pin poison-pill guard gives up on an asset after
+  // a capped number of failed attempts so it can't block the daily queue.
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "attempts" integer NOT NULL DEFAULT 0`;
+
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_impressions" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_saves" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_pin_clicks" integer`;

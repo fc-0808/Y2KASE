@@ -27,6 +27,8 @@ export type SocialCreative = {
   sourceImageId: number | null;
   preset: string;
   platform: string;
+  mediaType: string;
+  videoUrl: string | null;
   imageUrl: string;
   prompt: string;
   caption: string | null;
@@ -39,6 +41,7 @@ export type SocialCreative = {
   externalId: string | null;
   externalUrl: string | null;
   lastError: string | null;
+  attempts: number;
   metricImpressions: number | null;
   metricSaves: number | null;
   metricPinClicks: number | null;
@@ -56,6 +59,8 @@ export type NewCreative = {
   sourceImageId?: number | null;
   preset: string;
   platform: string;
+  mediaType?: string;
+  videoUrl?: string | null;
   imageUrl: string;
   prompt: string;
   caption?: string | null;
@@ -74,6 +79,8 @@ export async function insertCreative(input: NewCreative): Promise<number> {
       sourceImageId: input.sourceImageId ?? null,
       preset: input.preset,
       platform: input.platform,
+      mediaType: input.mediaType ?? "image",
+      videoUrl: input.videoUrl ?? null,
       imageUrl: input.imageUrl,
       prompt: input.prompt,
       caption: input.caption ?? null,

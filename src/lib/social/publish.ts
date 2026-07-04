@@ -9,7 +9,11 @@
  *   tiktok     — video posts via TikTok Content Posting API v2 (PULL_FROM_URL)
  */
 
-import { createPin, isPinterestConfigured } from "@/lib/social/pinterest";
+import {
+  createPin,
+  createVideoPin,
+  isPinterestConfigured,
+} from "@/lib/social/pinterest";
 import {
   postVideo,
   getCreatorInfo,
@@ -101,13 +105,31 @@ async function publishToPinterest(
     throw new Error("No Pinterest board selected for this creative.");
   }
 
-  const pin = await createPin({
+  const common = {
     boardId,
-    imageUrl: creative.imageUrl,
     title: buildPinTitle(creative),
     description: buildPinDescription(creative),
     altText: buildPinAltText(creative),
     link: productLink(creative, "pinterest"),
+  };
+
+  // Video pins upload the source clip and require a cover image; photo pins post
+  // the image URL directly.
+  if (creative.mediaType === "video") {
+    if (!creative.videoUrl) {
+      throw new Error("Video creative is missing its source video URL.");
+    }
+    const pin = await createVideoPin({
+      ...common,
+      videoUrl: creative.videoUrl,
+      coverImageUrl: creative.imageUrl,
+    });
+    return { ok: true, externalId: pin.id, externalUrl: pin.url };
+  }
+
+  const pin = await createPin({
+    ...common,
+    imageUrl: creative.imageUrl,
   });
 
   return { ok: true, externalId: pin.id, externalUrl: pin.url };

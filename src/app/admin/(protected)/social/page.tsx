@@ -12,9 +12,14 @@ import {
 import { isImageGenConfigured } from "@/lib/social/image-gen";
 import { isPinterestConfigured } from "@/lib/social/pinterest";
 import { getJobCounts } from "@/lib/social/jobs";
-import { getAutoPinCoverage } from "@/lib/social/auto-pin";
+import {
+  getAutoPinCoverage,
+  getRecentPostedListings,
+  getNextListingPreview,
+} from "@/lib/social/auto-pin";
 import { SocialStudio } from "./SocialStudio";
 import { AutoPinPanel } from "./AutoPinPanel";
+import { PostingHistory } from "./PostingHistory";
 
 export const metadata: Metadata = { title: "Admin · Social Studio" };
 export const dynamic = "force-dynamic";
@@ -38,15 +43,25 @@ export default async function AdminSocialPage({
       ? sp.status
       : undefined;
 
-  const [creatives, counts, products, jobCounts, metrics, autoPinCoverage] =
-    await Promise.all([
-      getCreatives(activeStatus),
-      getCreativeStatusCounts(),
-      getProductsByStatus("active"),
-      getJobCounts(),
-      getMetricsTotals(),
-      getAutoPinCoverage(),
-    ]);
+  const [
+    creatives,
+    counts,
+    products,
+    jobCounts,
+    metrics,
+    autoPinCoverage,
+    postingHistory,
+    nextListing,
+  ] = await Promise.all([
+    getCreatives(activeStatus),
+    getCreativeStatusCounts(),
+    getProductsByStatus("active"),
+    getJobCounts(),
+    getMetricsTotals(),
+    getAutoPinCoverage(),
+    getRecentPostedListings(20),
+    getNextListingPreview(),
+  ]);
 
   const total =
     counts.draft +
@@ -86,7 +101,13 @@ export default async function AdminSocialPage({
         </div>
       )}
 
-      <AutoPinPanel coverage={autoPinCoverage} pinterestReady={pinterestReady} />
+      <AutoPinPanel
+        coverage={autoPinCoverage}
+        nextListing={nextListing}
+        pinterestReady={pinterestReady}
+      />
+
+      <PostingHistory history={postingHistory} />
 
       <div className="mb-5 flex flex-wrap gap-2">
         {tabs.map((t) => {

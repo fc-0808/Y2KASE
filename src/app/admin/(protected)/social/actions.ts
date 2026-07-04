@@ -499,10 +499,11 @@ export async function schedulePublish(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Manually trigger the auto-pin drip — pins the next un-pinned product photo(s)
- * right now. Mirrors exactly what the daily cron does, for instant feedback and
- * to seed the pipeline without waiting for the schedule. `boardId` is optional;
- * when omitted, PINTEREST_AUTOPIN_BOARD_ID (or the first board) is used.
+ * Manually trigger the auto-pin drip — posts the next un-pinned listing(s) right
+ * now (every photo + the video), mirroring exactly what the daily cron does, for
+ * instant feedback and to seed the pipeline without waiting for the schedule.
+ * `boardId` is optional; when omitted, PINTEREST_AUTOPIN_BOARD_ID (or the first
+ * board) is used.
  */
 export async function runAutoPinNow(input?: {
   boardId?: string;
@@ -510,7 +511,7 @@ export async function runAutoPinNow(input?: {
 }): Promise<SocialActionResult> {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
 
-  const max = Math.min(10, Math.max(1, input?.max ?? AUTO_PIN_PER_RUN));
+  const max = Math.min(5, Math.max(1, input?.max ?? AUTO_PIN_PER_RUN));
   const res = await runAutoPin({ max, boardId: input?.boardId });
   revalidatePath("/admin/social");
 
@@ -524,15 +525,16 @@ export async function runAutoPinNow(input?: {
     };
   }
   if (res.reason === "all-pinned") {
-    return { ok: true, message: "Every catalog image is already pinned 🎉" };
+    return { ok: true, message: "Every listing is already pinned 🎉" };
   }
-  if (res.pinned === 0 && res.failed === 0) {
-    return { ok: true, message: "Nothing new to pin right now." };
+  if (res.mediaPinned === 0 && res.failed === 0) {
+    return { ok: true, message: "Nothing new to post right now." };
   }
+  const listings = res.listingsProcessed;
   const tail = res.failed ? ` · ${res.failed} failed` : "";
   return {
     ok: res.failed === 0,
-    message: `Pinned ${res.pinned} photo${res.pinned === 1 ? "" : "s"} to Pinterest 📌${tail}`,
+    message: `Posted ${res.mediaPinned} pin${res.mediaPinned === 1 ? "" : "s"} across ${listings} listing${listings === 1 ? "" : "s"} to Pinterest 📌${tail}`,
   };
 }
 

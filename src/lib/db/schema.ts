@@ -484,7 +484,19 @@ export const socialCreatives = pgTable(
     preset: text("preset").notNull(),
     /** Target platform: pinterest | tiktok | instagram | generic. */
     platform: text("platform").notNull().default("generic"),
-    /** Public R2 URL of the generated image. */
+    /**
+     * What kind of asset this creative is: "image" (a photo pin) or "video"
+     * (a video pin). Video creatives set {@link videoUrl} to the source clip and
+     * reuse {@link imageUrl} as the cover thumbnail. Drives the publish path and
+     * the per-listing dedup for the auto-pin drip (one video pin per product).
+     */
+    mediaType: text("media_type").notNull().default("image"),
+    /**
+     * For video creatives: the public R2 URL of the source video that gets
+     * uploaded to Pinterest. Null for image creatives.
+     */
+    videoUrl: text("video_url"),
+    /** Public R2 URL of the image (the cover thumbnail for video creatives). */
     imageUrl: text("image_url").notNull(),
     /** The full prompt sent to the image model (audit + regenerate). */
     prompt: text("prompt").notNull(),
@@ -508,6 +520,12 @@ export const socialCreatives = pgTable(
     externalUrl: text("external_url"),
     /** Last publish error message, if a publish attempt failed. */
     lastError: text("last_error"),
+    /**
+     * Number of failed publish attempts. The auto-pin drip retries a failed
+     * asset on subsequent runs until this hits the cap, then gives up so one
+     * bad asset can never block the daily queue (poison-pill guard).
+     */
+    attempts: integer("attempts").notNull().default(0),
     /** Cached Pinterest analytics (refreshed from the API). */
     metricImpressions: integer("metric_impressions"),
     metricSaves: integer("metric_saves"),
