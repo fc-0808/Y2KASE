@@ -234,6 +234,10 @@ export type AdminCollectionOption = {
   /** Indented label, e.g. "Sanrio › Hello Kitty". */
   pathLabel: string;
   kind: string;
+  /** Parent collection id, or null for a top-level brand/genre. */
+  parentId: number | null;
+  /** Emoji icon, when set on the collection. */
+  icon: string | null;
   depth: number;
   count: number;
 };
@@ -273,6 +277,8 @@ export async function getAdminCollectionOptions(): Promise<
         name: c.name,
         pathLabel,
         kind: c.kind,
+        parentId: c.parentId,
+        icon: c.icon,
         depth,
         count: counts.get(c.id) ?? 0,
       });
@@ -282,13 +288,18 @@ export async function getAdminCollectionOptions(): Promise<
   walk(null, 0, "");
   // Include any orphans whose parent is missing/inactive.
   for (const c of all) {
-    if (!out.some((o) => o.id === c.id) && (c.parentId == null || !byId.has(c.parentId))) {
+    if (
+      !out.some((o) => o.id === c.id) &&
+      (c.parentId == null || !byId.has(c.parentId))
+    ) {
       out.push({
         id: c.id,
         slug: c.slug,
         name: c.name,
         pathLabel: c.name,
         kind: c.kind,
+        parentId: c.parentId,
+        icon: c.icon,
         depth: 0,
         count: counts.get(c.id) ?? 0,
       });

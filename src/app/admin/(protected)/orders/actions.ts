@@ -41,7 +41,13 @@ export async function updateOrderStatus(
  */
 export async function markShipped(
   orderId: number,
-  input: { carrier?: string; trackingNumber?: string; trackingUrl?: string },
+  input: {
+    carrier?: string;
+    trackingNumber?: string;
+    trackingUrl?: string;
+    /** Re-send the shipment email even if one already went out (tracking edits). */
+    resend?: boolean;
+  },
 ): Promise<OrderActionResult> {
   if (!(await requireAdmin(await headers()))) {
     return { ok: false, message: "Not authorized." };
@@ -63,6 +69,9 @@ export async function markShipped(
       trackingUrl,
       shippedAt: new Date(),
       updatedAt: new Date(),
+      // On an explicit re-send, clear the exactly-once guard so the customer
+      // receives the corrected tracking info. The first ship keeps the guard.
+      ...(input.resend ? { shipmentEmailSentAt: null } : {}),
     })
     .where(eq(orders.id, orderId));
 
@@ -71,11 +80,13 @@ export async function markShipped(
 
   revalidatePath("/admin/orders");
   revalidatePath(`/admin/orders/${orderId}`);
+
+  const action = input.resend ? "Tracking updated" : "Order marked shipped";
   return {
     ok: true,
     message:
       emailResult === "sent"
-        ? "Order marked shipped — customer notified."
-        : `Order marked shipped (email: ${emailResult}).`,
+        ? `${action} — customer notified.`
+        : `${action} (email: ${emailResult}).`,
   };
 }

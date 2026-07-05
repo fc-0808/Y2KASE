@@ -1,4 +1,14 @@
-import { and, desc, eq, ilike, inArray, ne, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS } from "@/lib/cache";
@@ -174,9 +184,12 @@ const getFeaturedProductsCached = unstable_cache(
 async function computeFeaturedProducts(
   limit: number,
 ): Promise<ProductListItem[]> {
+  // Hand-curated bestsellers: featured products in their merchandised order.
+  // This is intentionally STABLE — it never changes when new products are
+  // uploaded; only an operator editing the Bestsellers admin changes it.
   const rows = await db.query.products.findMany({
     where: and(eq(products.status, "active"), eq(products.featured, true)),
-    orderBy: desc(products.createdAt),
+    orderBy: (p, { asc, desc }) => [asc(p.featuredPosition), desc(p.createdAt)],
     limit,
     with: {
       images: {
@@ -190,7 +203,9 @@ async function computeFeaturedProducts(
     return withRatings(rows.map(toListItem));
   }
 
-  // Fallback: if nothing is explicitly featured yet, show the newest products.
+  // Fallback ONLY when nothing has been curated yet (fresh store): show the
+  // newest products so the rail isn't empty. Once anything is featured, the
+  // curated set above wins and uploads no longer reshuffle the homepage.
   const fallback = await db.query.products.findMany({
     where: eq(products.status, "active"),
     orderBy: desc(products.createdAt),
@@ -297,7 +312,9 @@ export async function getRelatedProducts(opts: {
         where: and(inArray(products.id, ids), eq(products.status, "active")),
         orderBy: desc(products.featured),
         limit,
-        with: { images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 } },
+        with: {
+          images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 },
+        },
       });
       related = rows.map(toListItem);
     }
@@ -314,7 +331,9 @@ export async function getRelatedProducts(opts: {
       ),
       orderBy: desc(products.createdAt),
       limit: limit - related.length,
-      with: { images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 } },
+      with: {
+        images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 },
+      },
     });
     related = [...related, ...more.map(toListItem)];
   }
@@ -454,9 +473,17 @@ export type AdminProductOverview = {
   availableModels: string[];
   /** Collection ids this product is assigned to (for facet filtering). */
   collectionIds: number[];
+  /** True when the product is classified as MagSafe (has the `magsafe` tag). */
+  isMagsafe: boolean;
+  /** True when MagSafe was a low-confidence guess awaiting human review. */
+  needsMagsafeReview: boolean;
 };
 
-const STATUS_RANK: Record<string, number> = { draft: 0, active: 1, archived: 2 };
+const STATUS_RANK: Record<string, number> = {
+  draft: 0,
+  active: 1,
+  archived: 2,
+};
 
 export async function getAdminProductOverviews(): Promise<
   AdminProductOverview[]
@@ -495,6 +522,8 @@ export async function getAdminProductOverviews(): Promise<
       availableStyles: orderStyles(styleOpt?.values ?? []),
       availableModels: orderModels(modelOpt?.values ?? []),
       collectionIds: p.collections.map((c) => c.collectionId),
+      isMagsafe: (p.tags ?? []).includes("magsafe"),
+      needsMagsafeReview: p.needsMagsafeReview,
     };
   });
 
@@ -502,6 +531,82 @@ export async function getAdminProductOverviews(): Promise<
   return overviews.sort(
     (a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9),
   );
+}
+
+/** A product as shown in the Bestsellers curation admin. */
+export type BestsellerItem = {
+  id: number;
+  title: string;
+  slug: string;
+  status: string;
+  imageUrl: string | null;
+  featuredPosition: number | null;
+};
+
+/** The curated bestsellers, in merchandised order (any status, for editing). */
+export async function getBestsellers(): Promise<BestsellerItem[]> {
+  if (!isDbConfigured()) return [];
+  const rows = await db.query.products.findMany({
+    where: eq(products.featured, true),
+    orderBy: (p, { asc, desc }) => [asc(p.featuredPosition), desc(p.createdAt)],
+    columns: {
+      id: true,
+      title: true,
+      slug: true,
+      status: true,
+      featuredPosition: true,
+    },
+    with: {
+      images: {
+        columns: { url: true, position: true },
+        orderBy: (i, { asc }) => asc(i.position),
+        limit: 1,
+      },
+    },
+    limit: 100,
+  });
+  return rows.map((p) => ({
+    id: p.id,
+    title: p.title,
+    slug: p.slug,
+    status: p.status,
+    imageUrl: p.images[0]?.url ?? null,
+    featuredPosition: p.featuredPosition,
+  }));
+}
+
+/** Active products NOT yet featured — candidates to add to the rail. */
+export async function getFeaturableProducts(
+  limit = 500,
+): Promise<BestsellerItem[]> {
+  if (!isDbConfigured()) return [];
+  const rows = await db.query.products.findMany({
+    where: and(eq(products.status, "active"), eq(products.featured, false)),
+    orderBy: desc(products.createdAt),
+    columns: {
+      id: true,
+      title: true,
+      slug: true,
+      status: true,
+      featuredPosition: true,
+    },
+    with: {
+      images: {
+        columns: { url: true, position: true },
+        orderBy: (i, { asc }) => asc(i.position),
+        limit: 1,
+      },
+    },
+    limit,
+  });
+  return rows.map((p) => ({
+    id: p.id,
+    title: p.title,
+    slug: p.slug,
+    status: p.status,
+    imageUrl: p.images[0]?.url ?? null,
+    featuredPosition: p.featuredPosition,
+  }));
 }
 
 export async function getAllProductSlugs(): Promise<string[]> {

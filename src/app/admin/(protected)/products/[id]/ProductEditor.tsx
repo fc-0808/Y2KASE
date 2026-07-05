@@ -339,7 +339,7 @@ export function ProductEditor({
           <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
             {status}
           </p>
-          <h1 className="mt-1 line-clamp-2 text-lg font-black">{title}</h1>
+          <h1 className="mt-1 text-lg font-black break-words">{title}</h1>
           <p className="mt-1 text-sm text-[var(--foreground)]/50">
             {imageCount} image{imageCount === 1 ? "" : "s"}
             {videoUrl ? " · 1 video" : ""}

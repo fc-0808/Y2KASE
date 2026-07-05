@@ -20,11 +20,14 @@ import {
   Trash2,
   TriangleAlert,
   Loader2,
+  FolderTree,
+  CopyCheck,
+  Magnet,
 } from "lucide-react";
 import { IPHONE_GENERATIONS, summarizeModels } from "@/lib/pricing";
-import { formatPrice } from "@/lib/utils";
 import type { AdminProductOverview } from "@/lib/products";
 import type { AdminCollectionOption } from "@/lib/collections";
+import { deviceOfProductType, deviceProductTypes } from "@/lib/catalog/devices";
 import {
   bulkUpdateProducts,
   bulkDeleteProducts,
@@ -33,10 +36,19 @@ import {
   setFeatured,
   assignProductsToCollection,
   removeProductsFromCollection,
+  bulkSetMagsafe,
   type BulkUpdatePayload,
 } from "./actions";
 import { BulkEditor } from "./BulkEditor";
-import { FolderTree } from "lucide-react";
+import {
+  DeviceNavBar,
+  type DeviceSelection,
+  type DeviceCounts,
+} from "./ProductsDeviceNav";
+import {
+  CollectionNavBar,
+  type CollectionSelection,
+} from "./ProductsCollectionNav";
 
 type StatusFilter = "all" | "draft" | "active" | "archived";
 
@@ -51,15 +63,17 @@ export function ProductsConsole({
   products,
   collectionOptions,
   initialCollectionId,
+  magsafeReviewCount = 0,
 }: {
   products: AdminProductOverview[];
   collectionOptions: AdminCollectionOption[];
   initialCollectionId?: number;
+  magsafeReviewCount?: number;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [deviceFilter, setDeviceFilter] = useState<DeviceSelection>("all");
   const [collectionFilter, setCollectionFilter] = useState<number | "all">(
     initialCollectionId &&
       collectionOptions.some((c) => c.id === initialCollectionId)
@@ -87,38 +101,103 @@ export function ProductsConsole({
     return c;
   }, [products]);
 
-  // Product-type facets, in catalog order, with counts — drives classification.
-  const typeFacets = useMemo(() => {
-    const map = new Map<string, { id: string; label: string; count: number }>();
+  // Live product count per device, keyed by device id — derived from each
+  // product's `productType` via the shared device taxonomy. Powers the rail.
+  const deviceCounts = useMemo<DeviceCounts>(() => {
+    const counts: DeviceCounts = {};
     for (const p of products) {
-      const existing = map.get(p.productType);
-      if (existing) existing.count += 1;
-      else
-        map.set(p.productType, {
-          id: p.productType,
-          label: p.productTypeLabel,
-          count: 1,
-        });
+      const device = deviceOfProductType(p.productType);
+      if (device) counts[device.id] = (counts[device.id] ?? 0) + 1;
     }
-    return [...map.values()].sort((a, b) => b.count - a.count);
+    return counts;
   }, [products]);
 
-  const filtered = useMemo(() => {
+  // The set of product types the active device maps to (empty = match all).
+  const activeDeviceTypes = useMemo<Set<string>>(() => {
+    if (deviceFilter === "all") return new Set();
+    return new Set(deviceProductTypes(deviceFilter) ?? []);
+  }, [deviceFilter]);
+
+  // Collection filter is hierarchy-aware: selecting a brand (e.g. Sanrio) also
+  // matches products tagged only under its characters. We expand the selection
+  // to itself + all descendant ids using the parent links in the options.
+  const collectionMatchIds = useMemo<Set<number> | null>(() => {
+    if (collectionFilter === "all") return null;
+    const childrenOf = new Map<number, number[]>();
+    for (const o of collectionOptions) {
+      if (o.parentId == null) continue;
+      const arr = childrenOf.get(o.parentId) ?? [];
+      arr.push(o.id);
+      childrenOf.set(o.parentId, arr);
+    }
+    const ids = new Set<number>();
+    const stack = [collectionFilter];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (ids.has(id)) continue;
+      ids.add(id);
+      for (const child of childrenOf.get(id) ?? []) stack.push(child);
+    }
+    return ids;
+  }, [collectionFilter, collectionOptions]);
+
+  // Everything except the brand facet — so brand pill counts can reflect the
+  // active device / status / search scope without the brand filter masking it.
+  const baseForCollections = useMemo(() => {
     const q = query.trim().toLowerCase();
     return products.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
-      if (typeFilter !== "all" && p.productType !== typeFilter) return false;
+      if (activeDeviceTypes.size > 0 && !activeDeviceTypes.has(p.productType))
+        return false;
       if (
-        collectionFilter !== "all" &&
-        !p.collectionIds.includes(collectionFilter)
+        q &&
+        !(p.title.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q))
       )
         return false;
-      if (!q) return true;
-      return (
-        p.title.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q)
-      );
+      return true;
     });
-  }, [products, query, statusFilter, typeFilter, collectionFilter]);
+  }, [products, statusFilter, activeDeviceTypes, query]);
+
+  // Brand/character counts scoped to the current view, hierarchy-aware (a brand
+  // tallies products in it or any of its characters). Each count therefore
+  // equals the table size you'd get by selecting that pill.
+  const collectionCounts = useMemo<Map<number, number>>(() => {
+    const childrenOf = new Map<number, number[]>();
+    for (const o of collectionOptions) {
+      if (o.parentId == null) continue;
+      const arr = childrenOf.get(o.parentId) ?? [];
+      arr.push(o.id);
+      childrenOf.set(o.parentId, arr);
+    }
+    const closure = (rootId: number) => {
+      const set = new Set<number>();
+      const stack = [rootId];
+      while (stack.length) {
+        const id = stack.pop()!;
+        if (set.has(id)) continue;
+        set.add(id);
+        for (const child of childrenOf.get(id) ?? []) stack.push(child);
+      }
+      return set;
+    };
+    const counts = new Map<number, number>();
+    for (const o of collectionOptions) {
+      const set = closure(o.id);
+      let n = 0;
+      for (const p of baseForCollections) {
+        if (p.collectionIds.some((id) => set.has(id))) n += 1;
+      }
+      counts.set(o.id, n);
+    }
+    return counts;
+  }, [collectionOptions, baseForCollections]);
+
+  const filtered = useMemo(() => {
+    if (!collectionMatchIds) return baseForCollections;
+    return baseForCollections.filter((p) =>
+      p.collectionIds.some((id) => collectionMatchIds.has(id)),
+    );
+  }, [baseForCollections, collectionMatchIds]);
 
   const filteredIds = useMemo(() => filtered.map((p) => p.id), [filtered]);
   const allFilteredSelected =
@@ -185,6 +264,20 @@ export function ProductsConsole({
     });
   }
 
+  // ── Bulk MagSafe override (operator knows the spec; vision can't see it) ───
+  function runMagsafe(magsafe: boolean) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      const res = await bulkSetMagsafe(ids, magsafe);
+      flash(res);
+      if (res.ok) {
+        clearSelection();
+        router.refresh();
+      }
+    });
+  }
+
   // ── Result handler for the bulk editor modal (both modes) ──────────────────
   function handleSaved(result: { ok: boolean; message: string }) {
     flash(result);
@@ -221,6 +314,13 @@ export function ProductsConsole({
     (p) => p.productType === "iphone_case",
   ).length;
 
+  // Only label each row with its device type when it's actually ambiguous — i.e.
+  // the unfiltered list spans more than one device. Inside a single-device view
+  // (or a single-device catalog) the type is implied by the active nav pill, so
+  // the badge is noise. Keeps rows clean as the catalog grows past iPhone cases.
+  const showTypeBadge =
+    deviceFilter === "all" && Object.keys(deviceCounts).length > 1;
+
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
       {/* ── Header ──────────────────────────────────────────────────────── */}
@@ -228,11 +328,29 @@ export function ProductsConsole({
         <div>
           <h1 className="text-3xl font-black">Product Admin</h1>
           <p className="mt-1 text-sm text-[var(--foreground)]/60">
-            Review drafts, bulk-edit style variations and iPhone model
-            availability, and see every product&apos;s current state at a glance.
+            Browse the catalog by device, review drafts, and bulk-edit
+            variations &amp; availability — every product&apos;s state at a
+            glance.
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm">
+          {magsafeReviewCount > 0 && (
+            <Link
+              href="/admin/products/magsafe-review"
+              className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 font-semibold text-amber-700 hover:bg-amber-100"
+            >
+              <Magnet className="h-4 w-4" /> MagSafe review
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-500 px-1 text-[11px] text-white">
+                {magsafeReviewCount}
+              </span>
+            </Link>
+          )}
+          <Link
+            href="/admin/products/duplicates"
+            className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1 font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            <CopyCheck className="h-4 w-4" /> Find duplicates
+          </Link>
           <span className="rounded-full bg-[var(--muted)] px-3 py-1 font-semibold">
             {counts.all} products
           </span>
@@ -241,6 +359,24 @@ export function ProductsConsole({
           </span>
         </div>
       </div>
+
+      {/* ── Device navigation bar — the primary "shop by device" axis ───── */}
+      <DeviceNavBar
+        counts={deviceCounts}
+        total={counts.all}
+        active={deviceFilter}
+        onSelect={setDeviceFilter}
+      />
+
+      {/* ── Brand / character navigation — the marketing browse axis ─────── */}
+      {collectionOptions.length > 0 && (
+        <CollectionNavBar
+          options={collectionOptions}
+          counts={collectionCounts}
+          active={collectionFilter}
+          onSelect={setCollectionFilter}
+        />
+      )}
 
       {/* ── Toolbar: search + status filter ─────────────────────────────── */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -285,90 +421,17 @@ export function ProductsConsole({
         </button>
       </div>
 
-      {/* ── Product-type classification ─────────────────────────────────── */}
-      {typeFacets.length > 1 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
-            Type
-          </span>
-          <button
-            onClick={() => setTypeFilter("all")}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold transition ${
-              typeFilter === "all"
-                ? "bg-[var(--foreground)] text-[var(--background)]"
-                : "border border-[var(--border)] hover:border-[var(--primary)]"
-            }`}
-          >
-            All types <span className="opacity-60">{counts.all}</span>
-          </button>
-          {typeFacets.map((facet) => (
-            <button
-              key={facet.id}
-              onClick={() => setTypeFilter(facet.id)}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold transition ${
-                typeFilter === facet.id
-                  ? "bg-[var(--foreground)] text-[var(--background)]"
-                  : "border border-[var(--border)] hover:border-[var(--primary)]"
-              }`}
-            >
-              {facet.label} <span className="opacity-60">{facet.count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Collection facet ────────────────────────────────────────────── */}
-      {collectionOptions.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
-            <FolderTree className="h-3.5 w-3.5" /> Collection
-          </span>
-          <select
-            value={collectionFilter === "all" ? "all" : String(collectionFilter)}
-            onChange={(e) =>
-              setCollectionFilter(
-                e.target.value === "all" ? "all" : Number(e.target.value),
-              )
-            }
-            className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-sm font-semibold outline-none focus:border-[var(--primary)]"
-          >
-            <option value="all">All collections</option>
-            {collectionOptions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {"\u00A0".repeat(c.depth * 2)}
-                {c.name} ({c.count})
-              </option>
-            ))}
-          </select>
-          {collectionFilter !== "all" && (
-            <button
-              onClick={() => setCollectionFilter("all")}
-              className="text-sm font-semibold text-[var(--foreground)]/50 hover:text-[var(--primary)]"
-            >
-              Clear
-            </button>
-          )}
-          <Link
-            href="/admin/collections"
-            className="ml-auto text-sm font-semibold text-[var(--primary)] hover:underline"
-          >
-            Manage collections →
-          </Link>
-        </div>
-      )}
-
       {/* ── Table ───────────────────────────────────────────────────────── */}
       <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
         {/* Column headers (md+) */}
-        <div className="hidden grid-cols-[40px_minmax(0,2.2fr)_90px_minmax(0,2fr)_minmax(0,1.4fr)_120px] items-center gap-3 border-b border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-[var(--foreground)]/50 md:grid">
+        <div className="hidden grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] items-center gap-3 border-b border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-[var(--foreground)]/50 md:grid">
           <span />
           <span>Product</span>
-          <span>Media</span>
           <span className="flex items-center gap-1">
-            <Layers className="h-3.5 w-3.5" /> Style variations
+            <Layers className="h-3.5 w-3.5" /> Variations
           </span>
           <span className="flex items-center gap-1">
-            <Smartphone className="h-3.5 w-3.5" /> iPhone models
+            <Smartphone className="h-3.5 w-3.5" /> Device fit
           </span>
           <span className="text-right">Actions</span>
         </div>
@@ -384,6 +447,7 @@ export function ProductsConsole({
                 key={p.id}
                 product={p}
                 selected={selected.has(p.id)}
+                showTypeBadge={showTypeBadge}
                 onToggle={() => toggleOne(p.id)}
                 pending={pending}
                 onPublishToggle={() =>
@@ -414,7 +478,11 @@ export function ProductsConsole({
           }`}
         >
           <span className="flex items-center gap-1.5">
-            {toast.ok ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+            {toast.ok ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <X className="h-4 w-4" />
+            )}
             {toast.message}
           </span>
         </div>
@@ -445,6 +513,25 @@ export function ProductsConsole({
                   onApply={runCollection}
                 />
               )}
+              <div className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--background)] p-1">
+                <Magnet className="ml-1.5 h-4 w-4 text-[var(--foreground)]/40" />
+                <button
+                  onClick={() => runMagsafe(true)}
+                  disabled={pending}
+                  title="Mark selected as MagSafe"
+                  className="rounded-full bg-[var(--primary)] px-2.5 py-1 text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  MagSafe
+                </button>
+                <button
+                  onClick={() => runMagsafe(false)}
+                  disabled={pending}
+                  title="Remove MagSafe from selected"
+                  className="rounded-full px-2 py-1 text-xs font-bold text-[var(--foreground)]/60 hover:bg-[var(--muted)] disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              </div>
               <button
                 onClick={() => runBulk({ status: "active" })}
                 disabled={pending}
@@ -589,6 +676,7 @@ function ConfirmDeleteDialog({
 function ProductRow({
   product,
   selected,
+  showTypeBadge,
   onToggle,
   pending,
   onPublishToggle,
@@ -597,6 +685,8 @@ function ProductRow({
 }: {
   product: AdminProductOverview;
   selected: boolean;
+  /** Show the device-type chip only when the list spans multiple devices. */
+  showTypeBadge: boolean;
   onToggle: () => void;
   pending: boolean;
   onPublishToggle: () => void;
@@ -606,7 +696,7 @@ function ProductRow({
   const isCase = product.productType === "iphone_case";
   return (
     <li
-      className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3 transition md:grid-cols-[40px_minmax(0,2.2fr)_90px_minmax(0,2fr)_minmax(0,1.4fr)_120px] md:items-center ${
+      className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3 transition md:grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] md:items-center ${
         selected ? "bg-[var(--primary)]/5" : "hover:bg-[var(--muted)]/40"
       }`}
     >
@@ -624,54 +714,74 @@ function ProductRow({
       </button>
 
       {/* product identity */}
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)]">
+      <div className="flex min-w-0 items-start gap-3">
+        <Link
+          href={`/admin/products/${product.id}`}
+          className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)]"
+        >
           {product.imageUrl && (
             <Image
               src={product.imageUrl}
               alt={product.title}
               fill
-              sizes="56px"
+              sizes="64px"
               className="object-cover"
             />
           )}
-        </div>
+          {product.hasVideo && (
+            <span
+              title="Has product video"
+              className="absolute bottom-0.5 right-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/60 text-white"
+            >
+              <Video className="h-2.5 w-2.5" />
+            </span>
+          )}
+        </Link>
         <div className="min-w-0">
-          <p className="flex items-center gap-1.5 font-semibold leading-tight">
-            <span className="line-clamp-1">{product.title}</span>
+          <p className="flex items-start gap-1.5 font-semibold leading-snug">
+            <Link
+              href={`/admin/products/${product.id}`}
+              className="break-words hover:text-[var(--primary)] hover:underline"
+            >
+              {product.title}
+            </Link>
             {product.featured && (
-              <Star className="h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+              <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
             )}
           </p>
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--foreground)]/55">
+          <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <StatusBadge status={product.status} />
-            <span className="rounded bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/55">
-              {product.productTypeLabel}
-            </span>
-            <span className="truncate">/{product.slug}</span>
-          </p>
-          <p className="mt-0.5 text-xs font-medium text-[var(--foreground)]/70">
-            {formatPrice(product.price, product.currency)}
+            {showTypeBadge && (
+              <ClassBadge title="Product type">
+                {product.productTypeLabel}
+              </ClassBadge>
+            )}
+            {product.isMagsafe && (
+              <ClassBadge
+                tone="indigo"
+                title="MagSafe compatible"
+                icon={<Magnet className="h-3 w-3" />}
+              >
+                MagSafe
+              </ClassBadge>
+            )}
+            {product.needsMagsafeReview && (
+              <ClassBadge
+                tone="amber"
+                title="MagSafe detected with low confidence — needs review"
+                icon={<Magnet className="h-3 w-3" />}
+              >
+                Review
+              </ClassBadge>
+            )}
           </p>
         </div>
       </div>
 
-      {/* media count */}
-      <div className="col-start-2 text-xs text-[var(--foreground)]/70 md:col-start-auto md:text-sm">
-        <span className="font-semibold">{product.imageCount}</span> img
-        {product.hasVideo && (
-          <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-[var(--muted)] px-1 py-0.5 text-[10px] font-semibold">
-            <Video className="h-3 w-3" /> 1
-          </span>
-        )}
-      </div>
-
-      {/* style variations */}
+      {/* variations */}
       <div className="col-start-2 min-w-0 md:col-start-auto">
         {!isCase ? (
-          <span className="text-xs italic text-[var(--foreground)]/40">
-            n/a · {product.productType}
-          </span>
+          <span className="text-xs italic text-[var(--foreground)]/40">—</span>
         ) : product.availableStyles.length === 0 ? (
           <span className="text-xs italic text-[var(--foreground)]/40">
             not set
@@ -690,7 +800,7 @@ function ProductRow({
         )}
       </div>
 
-      {/* iPhone models */}
+      {/* device fit */}
       <div className="col-start-2 min-w-0 md:col-start-auto">
         {!isCase ? (
           <span className="text-xs italic text-[var(--foreground)]/40">—</span>
@@ -792,19 +902,71 @@ function CollectionAssignControl({
   );
 }
 
+/**
+ * A small, dot-led status pill. Uses buyer-facing wording ("Live") that matches
+ * the status tabs, with a calm ring + tint per state for instant scannability.
+ */
 function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    active: "bg-green-100 text-green-700",
-    draft: "bg-amber-100 text-amber-700",
-    archived: "bg-gray-200 text-gray-600",
+  const map: Record<string, { label: string; dot: string; cls: string }> = {
+    active: {
+      label: "Live",
+      dot: "bg-green-500",
+      cls: "bg-green-50 text-green-700 ring-green-600/20",
+    },
+    draft: {
+      label: "Draft",
+      dot: "bg-amber-500",
+      cls: "bg-amber-50 text-amber-700 ring-amber-600/20",
+    },
+    archived: {
+      label: "Archived",
+      dot: "bg-gray-400",
+      cls: "bg-gray-100 text-gray-600 ring-gray-500/20",
+    },
+  };
+  const s = map[status] ?? {
+    label: status,
+    dot: "bg-gray-400",
+    cls: "bg-[var(--muted)] text-[var(--foreground)]/60 ring-black/5",
   };
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-        styles[status] ?? "bg-[var(--muted)]"
-      }`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold capitalize ring-1 ring-inset ${s.cls}`}
     >
-      {status}
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+      {s.label}
+    </span>
+  );
+}
+
+/**
+ * A neutral classification pill (product type, MagSafe, review flags). Shares
+ * the exact shape/size of StatusBadge so the whole row reads as one tidy, legible
+ * row of tags rather than a jumble of mismatched chips.
+ */
+function ClassBadge({
+  children,
+  tone = "neutral",
+  icon,
+  title,
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "indigo" | "amber";
+  icon?: React.ReactNode;
+  title?: string;
+}) {
+  const tones: Record<string, string> = {
+    neutral: "bg-[var(--muted)] text-[var(--foreground)]/65 ring-black/5",
+    indigo: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
+    amber: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  };
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${tones[tone]}`}
+    >
+      {icon}
+      {children}
     </span>
   );
 }
@@ -813,7 +975,9 @@ function StatusBadge({ status }: { status: string }) {
 function ModelBadges({ models }: { models: string[] }) {
   if (models.length === 0) {
     return (
-      <span className="text-xs italic text-[var(--foreground)]/40">not set</span>
+      <span className="text-xs italic text-[var(--foreground)]/40">
+        not set
+      </span>
     );
   }
   const set = new Set(models);

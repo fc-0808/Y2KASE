@@ -42,11 +42,40 @@ export const DEVICE_FAMILIES: DeviceFamily[] = [
     label: "Apple",
     icon: "",
     devices: [
-      { id: "iphone", label: "iPhone", productTypes: ["iphone_case"], icon: "📱" },
-      { id: "airpods", label: "AirPods", productTypes: ["airpod_case"], icon: "🎧", comingSoon: true },
-      { id: "macbook", label: "MacBook", productTypes: ["macbook_case"], icon: "💻", comingSoon: true },
-      { id: "apple-watch", label: "Apple Watch", productTypes: ["watch_band"], icon: "⌚", comingSoon: true },
-      { id: "ipad", label: "iPad", productTypes: ["ipad_case"], icon: "📟", comingSoon: true },
+      {
+        id: "iphone",
+        label: "iPhone",
+        productTypes: ["iphone_case"],
+        icon: "📱",
+      },
+      {
+        id: "airpods",
+        label: "AirPods",
+        productTypes: ["airpod_case"],
+        icon: "🎧",
+        comingSoon: true,
+      },
+      {
+        id: "macbook",
+        label: "MacBook",
+        productTypes: ["macbook_case"],
+        icon: "💻",
+        comingSoon: true,
+      },
+      {
+        id: "apple-watch",
+        label: "Apple Watch",
+        productTypes: ["watch_band"],
+        icon: "⌚",
+        comingSoon: true,
+      },
+      {
+        id: "ipad",
+        label: "iPad",
+        productTypes: ["ipad_case"],
+        icon: "📟",
+        comingSoon: true,
+      },
       {
         id: "apple-accessories",
         label: "Apple Accessories",
@@ -61,7 +90,13 @@ export const DEVICE_FAMILIES: DeviceFamily[] = [
     label: "Samsung",
     icon: "",
     devices: [
-      { id: "galaxy", label: "Galaxy", productTypes: ["samsung_case"], icon: "📱", comingSoon: true },
+      {
+        id: "galaxy",
+        label: "Galaxy",
+        productTypes: ["samsung_case"],
+        icon: "📱",
+        comingSoon: true,
+      },
     ],
   },
   {
@@ -69,7 +104,13 @@ export const DEVICE_FAMILIES: DeviceFamily[] = [
     label: "Google",
     icon: "",
     devices: [
-      { id: "pixel", label: "Pixel", productTypes: ["pixel_case"], icon: "📱", comingSoon: true },
+      {
+        id: "pixel",
+        label: "Pixel",
+        productTypes: ["pixel_case"],
+        icon: "📱",
+        comingSoon: true,
+      },
     ],
   },
   {
@@ -77,7 +118,13 @@ export const DEVICE_FAMILIES: DeviceFamily[] = [
     label: "More devices",
     icon: "",
     devices: [
-      { id: "kindle", label: "Kindle", productTypes: ["kindle_case"], icon: "📖", comingSoon: true },
+      {
+        id: "kindle",
+        label: "Kindle",
+        productTypes: ["kindle_case"],
+        icon: "📖",
+        comingSoon: true,
+      },
     ],
   },
 ];
@@ -90,6 +137,20 @@ const FAMILY_OF_DEVICE = new Map<string, DeviceFamily>(
   DEVICE_FAMILIES.flatMap((f) => f.devices.map((d) => [d.id, f])),
 );
 
+// Reverse indexes: product type → the device / family that owns it. Built once
+// so admin grouping and any type→device breadcrumb stay O(1) and config-driven.
+const DEVICE_OF_TYPE = new Map<string, DeviceNode>(
+  DEVICE_FAMILIES.flatMap((f) =>
+    f.devices.flatMap((d) => d.productTypes.map((t) => [t, d] as const)),
+  ),
+);
+
+const FAMILY_OF_TYPE = new Map<string, DeviceFamily>(
+  DEVICE_FAMILIES.flatMap((f) =>
+    f.devices.flatMap((d) => d.productTypes.map((t) => [t, f] as const)),
+  ),
+);
+
 /** Look up a device node by its slug. */
 export function findDevice(id: string): DeviceNode | undefined {
   return DEVICE_BY_ID.get(id);
@@ -98,6 +159,29 @@ export function findDevice(id: string): DeviceNode | undefined {
 /** The family a device belongs to (for breadcrumbs / headers). */
 export function familyOfDevice(id: string): DeviceFamily | undefined {
   return FAMILY_OF_DEVICE.get(id);
+}
+
+/** Flat list of every device across all families, in menu order. */
+export function allDevices(): DeviceNode[] {
+  return DEVICE_FAMILIES.flatMap((f) => f.devices);
+}
+
+/**
+ * The device a product type belongs to — the reverse of
+ * {@link deviceProductTypes}. Lets the admin group a flat product list into the
+ * same device tree the storefront uses, from the product's `productType` alone.
+ */
+export function deviceOfProductType(
+  productTypeId: string,
+): DeviceNode | undefined {
+  return DEVICE_OF_TYPE.get(productTypeId);
+}
+
+/** The brand family a product type belongs to (Apple, Samsung, …). */
+export function familyOfProductType(
+  productTypeId: string,
+): DeviceFamily | undefined {
+  return FAMILY_OF_TYPE.get(productTypeId);
 }
 
 /**

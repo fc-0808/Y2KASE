@@ -150,10 +150,12 @@ export default async function AdminVisitorsPage({
               {trend.map((d) => (
                 <div
                   key={d.key}
-                  className="group flex min-w-0 flex-1 flex-col items-center justify-end"
+                  className="group relative flex h-full min-w-0 flex-1 items-end"
                   title={`${d.full}: ${d.uniques} unique · ${d.views} views`}
                 >
-                  <span className="mb-1 text-[10px] font-semibold text-[var(--foreground)]/0 group-hover:text-[var(--foreground)]/70">
+                  {/* Value label — floats above the bar, only on hover, so it
+                      never steals height from the bar itself. */}
+                  <span className="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-[var(--foreground)]/0 group-hover:text-[var(--foreground)]/70">
                     {d.uniques}
                   </span>
                   <div

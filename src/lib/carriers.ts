@@ -4,6 +4,7 @@
  */
 
 export const CARRIERS = [
+  "4PX",
   "USPS",
   "UPS",
   "FedEx",
@@ -18,7 +19,17 @@ export const CARRIERS = [
 
 export type Carrier = (typeof CARRIERS)[number];
 
+/**
+ * The carrier every order ships with by default. 4PX is our fulfilment partner,
+ * so the admin form and any automation should assume it unless overridden.
+ */
+export const DEFAULT_CARRIER: Carrier = "4PX";
+
 const TEMPLATES: Record<string, (n: string) => string> = {
+  // 4PX is a cross-border consolidator: its own portal is authoritative, but the
+  // parcel is handed to a local post (USPS, Royal Mail, …) for last-mile. Admins
+  // can paste a 17TRACK/Parcelsapp link in the Tracking URL field to override.
+  "4PX": (n) => `https://track.4px.com/#/result/0/${n}`,
   USPS: (n) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${n}`,
   UPS: (n) => `https://www.ups.com/track?tracknum=${n}`,
   FedEx: (n) => `https://www.fedex.com/fedextrack/?trknbr=${n}`,

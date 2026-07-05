@@ -1,0 +1,15 @@
+{
+  "$schema": "Optional per-product overrides. Drop as listing.json inside a product folder, e.g. ./bestListings/Sanrio/hello-kitty-bow/listing.json. Every field is optional — omit a field to let AI / category defaults fill it.",
+
+  "sku": "HK-BOW-001",
+  "productType": "iphone_case",
+  "title": "Hello Kitty Pink Bow Case — iPhone 17 16 15 14 13 Pro Max",
+  "description": "Pin your own copy here, or delete this field to let GPT vision write it from the photos.",
+  "price": 19.99,
+  "currency": "USD",
+  "materials": "soft TPU",
+  "tags": ["hello_kitty", "sanrio", "pink", "bow", "kawaii"],
+  "collections": ["sanrio", "hello-kitty"],
+  "status": "draft",
+  "altText": "Pink Hello Kitty phone case with a glittery bow"
+}

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { eq, sql } from "drizzle-orm";
 import { getAdminProductOverviews } from "@/lib/products";
 import { getAdminCollectionOptions } from "@/lib/collections";
-import { isDbConfigured } from "@/lib/db";
+import { db, isDbConfigured } from "@/lib/db";
+import { products as productsTable } from "@/lib/db/schema";
 import { ProductsConsole } from "./ProductsConsole";
 
 export const metadata: Metadata = { title: "Admin · Products" };
@@ -26,9 +28,13 @@ export default async function AdminProductsPage({
     );
   }
 
-  const [products, collectionOptions] = await Promise.all([
+  const [products, collectionOptions, magsafeReview] = await Promise.all([
     getAdminProductOverviews(),
     getAdminCollectionOptions(),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(productsTable)
+      .where(eq(productsTable.needsMagsafeReview, true)),
   ]);
 
   return (
@@ -36,6 +42,7 @@ export default async function AdminProductsPage({
       products={products}
       collectionOptions={collectionOptions}
       initialCollectionId={initialCollectionId}
+      magsafeReviewCount={magsafeReview[0]?.count ?? 0}
     />
   );
 }

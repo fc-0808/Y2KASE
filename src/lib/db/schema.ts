@@ -115,7 +115,9 @@ export const orders = pgTable(
   {
     id: serial("id").primaryKey(),
     /** Null for guest orders until the customer claims their account. */
-    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     email: text("email").notNull(),
     /** pending | paid | shipped | delivered | cancelled | refunded */
     status: text("status").notNull().default("pending"),
@@ -214,6 +216,12 @@ export const products = pgTable(
     /** active | draft | archived */
     status: text("status").notNull().default("active"),
     featured: boolean("featured").notNull().default(false),
+    /**
+     * Curated order within the homepage "Bestsellers" rail (ascending). Only
+     * meaningful when `featured` is true; null = unordered/legacy. Lets the
+     * operator hand-merchandise the rail so it stays stable across uploads.
+     */
+    featuredPosition: integer("featured_position"),
     totalQuantity: integer("total_quantity").notNull().default(0),
     /** Where the record originated (e.g. "Y2KASEshop"). Provenance for MDM. */
     sourceShops: text("source_shops"),
@@ -236,6 +244,12 @@ export const products = pgTable(
     videoPosition: integer("video_position"),
     /** Relative folder path under LOCAL_CATALOG_ROOT used at ingest time. */
     sourceFolder: text("source_folder"),
+    /**
+     * Set when MagSafe was detected with only a weak/low-confidence signal —
+     * the product is queued for human confirmation rather than auto-labelled.
+     * See `src/lib/catalog/magsafe.ts` and `/admin/products/magsafe-review`.
+     */
+    needsMagsafeReview: boolean("needs_magsafe_review").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -274,8 +288,17 @@ export const productImages = pgTable(
     styleTags: text("style_tags").array().notNull().default([]),
     /** Original source filename (without extension) for traceability. */
     sourceFilename: text("source_filename"),
+    /**
+     * Perceptual hash (dHash, 16-char hex) of the image — a resize/recompress-
+     * robust fingerprint used to detect near-duplicate products. See
+     * `src/lib/catalog/phash.ts`. Null until computed (ingest or backfill).
+     */
+    phash: text("phash"),
   },
-  (t) => [index("product_images_product_idx").on(t.productId)],
+  (t) => [
+    index("product_images_product_idx").on(t.productId),
+    index("product_images_phash_idx").on(t.phash),
+  ],
 );
 
 /**
@@ -422,7 +445,9 @@ export const reviews = pgTable(
       onDelete: "set null",
     }),
     /** Optional signed-in author. */
-    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     /** Public display name. */
     authorName: text("author_name").notNull(),
     /** Private — used for verified-purchase matching, never displayed. */
@@ -775,7 +800,9 @@ export const pageViews = pgTable(
     /** Anonymous first-party visitor id (cookie). Powers unique-visitor counts. */
     visitorId: text("visitor_id").notNull(),
     /** Set when the visitor is a logged-in user at view time. */
-    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     /** Pathname visited, e.g. "/products/hello-kitty-case". */
     path: text("path").notNull(),
     /** Document referrer, when present. */

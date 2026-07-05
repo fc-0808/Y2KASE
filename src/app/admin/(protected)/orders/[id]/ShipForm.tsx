@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Truck, Check } from "lucide-react";
-import { CARRIERS } from "@/lib/carriers";
+import { CARRIERS, DEFAULT_CARRIER } from "@/lib/carriers";
 import { markShipped } from "../actions";
 
 /**
@@ -25,7 +25,7 @@ export function ShipForm({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [carrier, setCarrier] = useState(initialCarrier ?? CARRIERS[0]);
+  const [carrier, setCarrier] = useState(initialCarrier ?? DEFAULT_CARRIER);
   const [trackingNumber, setTrackingNumber] = useState(initialTracking ?? "");
   const [trackingUrl, setTrackingUrl] = useState(initialTrackingUrl ?? "");
   const [message, setMessage] = useState<string | null>(null);
@@ -37,6 +37,9 @@ export function ShipForm({
         carrier,
         trackingNumber,
         trackingUrl,
+        // Once an order is already shipped, this button is an explicit
+        // "Update & re-send", so the customer gets the corrected tracking info.
+        resend: shipped,
       });
       setMessage(res.message);
       router.refresh();
@@ -65,7 +68,7 @@ export function ShipForm({
         <input
           value={trackingNumber}
           onChange={(e) => setTrackingNumber(e.target.value)}
-          placeholder="e.g. 9400 1000 0000 0000 0000 00"
+          placeholder="e.g. 4PX30000000000 or 9400 1000 0000 …"
           className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-sm font-semibold outline-none focus:border-[var(--primary)]"
         />
       </label>

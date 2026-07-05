@@ -1,0 +1,30 @@
+{
+  "$schema": "Catalog ingestion config. Copy to <LOCAL_CATALOG_ROOT>/catalog.config.json (default ./bestListings/catalog.config.json). All fields optional.",
+  "$docs": "Resolution precedence per product folder: listing.json > categories[<top-folder>] > defaults > CLI/env. See src/lib/catalog/manifest.ts.",
+
+  "defaultProductType": "iphone_case",
+  "defaultCurrency": "USD",
+  "defaultStatus": "draft",
+
+  "categories": {
+    "Sanrio": {
+      "productType": "iphone_case",
+      "collections": ["sanrio"]
+    },
+    "Miffy": {
+      "productType": "iphone_case",
+      "collections": ["miffy"]
+    },
+    "Others": {
+      "productType": "iphone_case"
+    },
+    "AirPods": {
+      "productType": "airpod_case",
+      "price": 14.99
+    },
+    "WatchBands": {
+      "productType": "watch_band",
+      "currency": "USD"
+    }
+  }
+}

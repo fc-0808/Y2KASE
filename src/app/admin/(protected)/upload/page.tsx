@@ -55,6 +55,18 @@ export default async function UploadPage() {
         <p className="mt-2 text-xs text-[var(--foreground)]/50">
           The ingest is resumable — re-running skips folders already pushed.
         </p>
+        <p className="mt-3 text-xs text-[var(--foreground)]/50">
+          Recommended layout:{" "}
+          <code className="rounded bg-[var(--muted)] px-1 py-0.5">
+            &lt;category&gt;/&lt;product-slug&gt;/{`{1.jpg,2.mp4,…}`}
+          </code>
+          . Add an optional{" "}
+          <code className="rounded bg-[var(--muted)] px-1 py-0.5">catalog.config.json</code>{" "}
+          (per-category defaults) or{" "}
+          <code className="rounded bg-[var(--muted)] px-1 py-0.5">listing.json</code>{" "}
+          (per-product overrides) to pin product type, price, copy and
+          collections — AI fills anything you leave out.
+        </p>
       </div>
 
       {recent.length > 0 && (

@@ -3,14 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { revalidateStorefrontCatalog } from "@/lib/cache";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   products,
   productImages,
   productOptions,
   productCollections,
+  collections,
 } from "@/lib/db/schema";
+import { applyMagSafeCopy, removeMagSafeCopy } from "@/lib/catalog/magsafe";
 import { requireAdmin } from "@/lib/auth";
 import {
   MODEL_OPTION_NAME,
@@ -148,9 +150,21 @@ export async function unpublishProduct(id: number) {
 
 export async function setFeatured(id: number, featured: boolean) {
   if (!(await requireAdmin(await headers()))) return;
+  // Maintain the curated bestsellers order: featuring appends to the end of the
+  // rail; un-featuring clears its position. The homepage reads this order.
+  let featuredPosition: number | null = null;
+  if (featured) {
+    const [row] = await db
+      .select({
+        max: sql<number>`coalesce(max(${products.featuredPosition}), -1)`,
+      })
+      .from(products)
+      .where(eq(products.featured, true));
+    featuredPosition = (row?.max ?? -1) + 1;
+  }
   await db
     .update(products)
-    .set({ featured, updatedAt: new Date() })
+    .set({ featured, featuredPosition, updatedAt: new Date() })
     .where(eq(products.id, id));
   revalidateCatalog(id);
 }
@@ -159,6 +173,174 @@ export async function deleteProduct(id: number) {
   if (!(await requireAdmin(await headers()))) return;
   await deleteProductsAndMedia([id]);
   revalidateCatalog();
+}
+
+/**
+ * Confirm a queued MagSafe candidate: fold MagSafe into its copy + tags, link
+ * the MagSafe collection, and clear the review flag. Idempotent.
+ */
+export async function confirmMagsafe(id: number) {
+  if (!(await requireAdmin(await headers()))) return;
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, id),
+    columns: { id: true, title: true, description: true, tags: true },
+  });
+  if (!product) return;
+
+  const applied = applyMagSafeCopy({
+    title: product.title,
+    description: product.description,
+    tags: product.tags,
+  });
+  await db
+    .update(products)
+    .set({
+      title: applied.title,
+      description: applied.description,
+      tags: applied.tags,
+      needsMagsafeReview: false,
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, id));
+
+  const magCol = await db.query.collections.findFirst({
+    where: eq(collections.slug, "magsafe"),
+    columns: { id: true },
+  });
+  if (magCol) {
+    await db
+      .insert(productCollections)
+      .values({ productId: id, collectionId: magCol.id })
+      .onConflictDoNothing();
+  }
+  revalidateCatalog(id);
+}
+
+/**
+ * Authoritative manual override: mark (or unmark) many products as MagSafe in
+ * one action. Vision can't see MagSafe that isn't visible in the photos (e.g.
+ * a clear case whose ring isn't shown), so the operator — who knows the product
+ * spec — gets the final say. Marking folds MagSafe into title/description/tags +
+ * the MagSafe collection; unmarking fully reverts it. Always clears the review
+ * flag (a human just decided).
+ */
+export async function bulkSetMagsafe(
+  productIds: number[],
+  magsafe: boolean,
+): Promise<{ ok: boolean; message: string; changed: number }> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  const ids = Array.from(new Set(productIds)).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) {
+    return { ok: false, message: "No products selected.", changed: 0 };
+  }
+
+  const rows = await db.query.products.findMany({
+    where: inArray(products.id, ids),
+    columns: { id: true, title: true, description: true, tags: true },
+  });
+
+  for (const p of rows) {
+    const next = magsafe
+      ? applyMagSafeCopy({
+          title: p.title,
+          description: p.description,
+          tags: p.tags,
+        })
+      : removeMagSafeCopy({
+          title: p.title,
+          description: p.description,
+          tags: p.tags,
+        });
+    await db
+      .update(products)
+      .set({
+        title: next.title,
+        description: next.description,
+        tags: next.tags,
+        needsMagsafeReview: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, p.id));
+  }
+
+  const magCol = await db.query.collections.findFirst({
+    where: eq(collections.slug, "magsafe"),
+    columns: { id: true },
+  });
+  if (magCol) {
+    if (magsafe) {
+      await db
+        .insert(productCollections)
+        .values(
+          ids.map((productId) => ({ productId, collectionId: magCol.id })),
+        )
+        .onConflictDoNothing();
+    } else {
+      await db
+        .delete(productCollections)
+        .where(
+          and(
+            eq(productCollections.collectionId, magCol.id),
+            inArray(productCollections.productId, ids),
+          ),
+        );
+    }
+  }
+
+  revalidateCatalog();
+  return {
+    ok: true,
+    message: `${magsafe ? "Marked" : "Unmarked"} ${rows.length} product${rows.length === 1 ? "" : "s"} ${magsafe ? "as" : "from"} MagSafe.`,
+    changed: rows.length,
+  };
+}
+
+/**
+ * Dismiss a MagSafe review candidate — it's NOT MagSafe. Fully undo any MagSafe
+ * classification (strip the appended title/description, drop the `magsafe` tag,
+ * unlink the MagSafe collection) and clear the review flag.
+ */
+export async function dismissMagsafe(id: number) {
+  if (!(await requireAdmin(await headers()))) return;
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, id),
+    columns: { id: true, title: true, description: true, tags: true },
+  });
+  if (!product) return;
+
+  const stripped = removeMagSafeCopy({
+    title: product.title,
+    description: product.description,
+    tags: product.tags,
+  });
+  await db
+    .update(products)
+    .set({
+      title: stripped.title,
+      description: stripped.description,
+      tags: stripped.tags,
+      needsMagsafeReview: false,
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, id));
+
+  const magCol = await db.query.collections.findFirst({
+    where: eq(collections.slug, "magsafe"),
+    columns: { id: true },
+  });
+  if (magCol) {
+    await db
+      .delete(productCollections)
+      .where(
+        and(
+          eq(productCollections.productId, id),
+          eq(productCollections.collectionId, magCol.id),
+        ),
+      );
+  }
+  revalidateCatalog(id);
 }
 
 export type BulkDeleteResult = {
@@ -320,7 +502,12 @@ export async function bulkUpdateProducts(
     Number.isFinite(n),
   );
   if (ids.length === 0) {
-    return { ok: false, message: "No products selected.", updated: 0, skipped: 0 };
+    return {
+      ok: false,
+      message: "No products selected.",
+      updated: 0,
+      skipped: 0,
+    };
   }
 
   const wantsStyles = payload.styles != null;
@@ -422,7 +609,8 @@ export async function bulkUpdateProducts(
   revalidateCatalog();
 
   const parts: string[] = [];
-  if (wantsStatus) parts.push(payload.status === "active" ? "published" : "unpublished");
+  if (wantsStatus)
+    parts.push(payload.status === "active" ? "published" : "unpublished");
   if (wantsStyles) parts.push("styles");
   if (wantsModels) parts.push("models");
   const what = parts.join(" + ");

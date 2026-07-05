@@ -181,6 +181,16 @@ export const COLLECTION_TAXONOMY: CollectionSeed[] = [
     description: "Licensed and original character designs.",
     match: ["character"],
   },
+  {
+    slug: "magsafe",
+    name: "MagSafe",
+    kind: "feature",
+    icon: "🧲",
+    accentColor: "#8e8e93",
+    description:
+      "Cases with a built-in magnetic ring — snap-on MagSafe charging and accessories.",
+    match: ["magsafe", "mag safe"],
+  },
 ];
 
 /** A flattened seed node with its resolved parent slug (null for top level). */
