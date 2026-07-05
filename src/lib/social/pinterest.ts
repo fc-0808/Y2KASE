@@ -14,6 +14,7 @@
  * our creatives live on the public R2 bucket, so they qualify.
  */
 
+import sharp from "sharp";
 import { getToken } from "@/lib/social/token-store";
 
 const API_BASE =
@@ -298,6 +299,42 @@ async function uploadVideoToBucket(
   }
 }
 
+/**
+ * Build a Pinterest-compatible cover for a video pin.
+ *
+ * Pinterest video pins accept ONLY JPEG/PNG covers (WebP — which our catalog
+ * uses — is rejected with "The format of the image is not supported", even
+ * though WebP is fine for photo pins). We fetch the source image and transcode
+ * it to JPEG, returning it as base64 so it can be embedded directly in the pin
+ * payload (`cover_image_data`). Embedding avoids relying on Pinterest being able
+ * to re-fetch a converted URL, so it works identically in dev and prod.
+ */
+async function buildJpegCover(
+  coverImageUrl: string,
+): Promise<{ contentType: string; data: string }> {
+  const res = await fetch(coverImageUrl);
+  if (!res.ok) {
+    throw new PinterestError(
+      `Could not fetch cover image (${res.status}) from ${coverImageUrl}`,
+      res.status,
+    );
+  }
+  const input = Buffer.from(await res.arrayBuffer());
+  try {
+    const jpeg = await sharp(input)
+      .rotate() // respect EXIF orientation
+      .resize({ width: 1000, withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+    return { contentType: "image/jpeg", data: jpeg.toString("base64") };
+  } catch (err) {
+    throw new PinterestError(
+      `Failed to prepare a JPEG cover for the video: ${err instanceof Error ? err.message : String(err)}`,
+      422,
+    );
+  }
+}
+
 async function waitForMediaProcessing(
   mediaId: string,
   opts: { timeoutMs?: number; intervalMs?: number } = {},
@@ -344,6 +381,10 @@ export async function createVideoPin(
     );
   }
 
+  // Prepare the JPEG cover BEFORE uploading the video, so a bad cover fails fast
+  // without leaving an orphaned media upload.
+  const cover = await buildJpegCover(input.coverImageUrl);
+
   const reg = await registerVideoMedia();
   await uploadVideoToBucket(reg, input.videoUrl);
   await waitForMediaProcessing(reg.mediaId);
@@ -359,7 +400,9 @@ export async function createVideoPin(
     media_source: {
       source_type: "video_id",
       media_id: reg.mediaId,
-      cover_image_url: input.coverImageUrl,
+      // JPEG cover embedded inline — Pinterest rejects WebP covers.
+      cover_image_content_type: cover.contentType,
+      cover_image_data: cover.data,
     },
   };
 
