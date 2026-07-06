@@ -525,6 +525,12 @@ export const socialCreatives = pgTable(
     imageUrl: text("image_url").notNull(),
     /** The full prompt sent to the image model (audit + regenerate). */
     prompt: text("prompt").notNull(),
+    /**
+     * Per-pin SEO title. For the Pinterest drip each pin of a listing gets a
+     * DISTINCT, keyword-varied title so the listing surfaces for more searches
+     * (and pins don't look duplicate). Falls back to the product title when null.
+     */
+    title: text("title"),
     /** Platform-tailored caption copy. */
     caption: text("caption"),
     /** Hashtags (no leading '#'). */

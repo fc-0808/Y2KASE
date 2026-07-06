@@ -65,6 +65,10 @@ async function main() {
   // a capped number of failed attempts so it can't block the daily queue.
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "attempts" integer NOT NULL DEFAULT 0`;
 
+  // Per-pin SEO title — each pin of a listing gets a distinct keyword-varied
+  // title to widen search coverage (falls back to product title when null).
+  await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "title" text`;
+
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_impressions" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_saves" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_pin_clicks" integer`;

@@ -79,9 +79,12 @@ function tiktokVideoUrl(productId: number): string {
  *                  visual search and improves ranking.
  */
 function buildPinTitle(creative: SocialCreative): string | undefined {
+  // Prefer the per-pin SEO title (distinct across a listing's pins); fall back
+  // to the product title with a brand suffix for recognition.
+  const perPin = creative.title?.trim();
+  if (perPin) return perPin.slice(0, 100);
   const base = creative.productTitle?.trim();
   if (!base) return undefined;
-  // Append brand for recognition if there's room and it isn't already present.
   const withBrand = /y2kase/i.test(base) ? base : `${base} | Y2KASE`;
   return withBrand.slice(0, 100);
 }

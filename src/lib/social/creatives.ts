@@ -31,6 +31,7 @@ export type SocialCreative = {
   videoUrl: string | null;
   imageUrl: string;
   prompt: string;
+  title: string | null;
   caption: string | null;
   hashtags: string[];
   status: string;
@@ -140,6 +141,27 @@ export async function updateCreativeCopy(
   await db
     .update(socialCreatives)
     .set({ caption, hashtags, updatedAt: new Date() })
+    .where(eq(socialCreatives.id, id));
+}
+
+/**
+ * Set a creative's full SEO content — per-pin title + caption + hashtags. Used
+ * by the auto-pin drip to give each pin of a listing a distinct, keyword-varied
+ * title/description (empty title clears it → publish falls back to the product
+ * title).
+ */
+export async function updateCreativeContent(
+  id: number,
+  content: { title?: string | null; caption: string; hashtags: string[] },
+): Promise<void> {
+  await db
+    .update(socialCreatives)
+    .set({
+      title: content.title?.trim() ? content.title.trim() : null,
+      caption: content.caption,
+      hashtags: content.hashtags,
+      updatedAt: new Date(),
+    })
     .where(eq(socialCreatives.id, id));
 }
 

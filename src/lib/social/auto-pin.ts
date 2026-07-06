@@ -31,10 +31,14 @@ import { sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import {
   getCreativeById,
-  updateCreativeCopy,
+  updateCreativeContent,
 } from "@/lib/social/creatives";
 import { publishCreative } from "@/lib/social/publish";
-import { generateCaption } from "@/lib/social/caption-gen";
+import {
+  generateCaption,
+  generateCaptionVariations,
+  type CaptionVariation,
+} from "@/lib/social/caption-gen";
 import { isImageGenConfigured } from "@/lib/social/image-gen";
 import {
   listBoards,
@@ -812,24 +816,6 @@ export async function runAutoPin(
       failed: 0,
     };
 
-    // One AI caption per listing, reused across all its assets (best-effort).
-    let copy: { caption: string; hashtags: string[] } | null = null;
-    if (isImageGenConfigured()) {
-      try {
-        const generated = await generateCaption({
-          productTitle: listing.productTitle,
-          productType: listing.productType,
-          description: listing.description,
-          tags: listing.tags,
-          platform: "pinterest",
-          preset: PRODUCT_PHOTO_PRESET,
-        });
-        copy = { caption: generated.caption, hashtags: generated.hashtags };
-      } catch (err) {
-        console.error("[auto-pin] caption generation failed:", err);
-      }
-    }
-
     // Build the ordered work list: every photo, then the video.
     type Job =
       | { kind: "image"; image: PinImage }
@@ -838,6 +824,40 @@ export async function runAutoPin(
       ...listing.images.map((image) => ({ kind: "image" as const, image })),
       ...(listing.videoUrl ? [{ kind: "video" as const }] : []),
     ];
+
+    // Distinct SEO copy per pin, so the listing ranks for MANY searches instead
+    // of posting a set of duplicate-looking pins. One AI call returns a
+    // variation per pin (title + caption + hashtags); if it fails we fall back
+    // to a single reused caption. Best-effort — pins still post without copy.
+    let variations: CaptionVariation[] = [];
+    if (isImageGenConfigured()) {
+      try {
+        variations = await generateCaptionVariations({
+          productTitle: listing.productTitle,
+          productType: listing.productType,
+          description: listing.description,
+          tags: listing.tags,
+          count: jobs.length,
+        });
+      } catch (err) {
+        console.error("[auto-pin] caption variations failed:", err);
+      }
+      if (variations.length === 0) {
+        try {
+          const c = await generateCaption({
+            productTitle: listing.productTitle,
+            productType: listing.productType,
+            description: listing.description,
+            tags: listing.tags,
+            platform: "pinterest",
+            preset: PRODUCT_PHOTO_PRESET,
+          });
+          variations = [{ title: "", caption: c.caption, hashtags: c.hashtags }];
+        } catch {
+          /* no copy available — pins still post with the product title */
+        }
+      }
+    }
 
     for (let j = 0; j < jobs.length; j++) {
       const job = jobs[j];
@@ -851,11 +871,18 @@ export async function runAutoPin(
         continue;
       }
 
-      if (copy) {
+      // Assign a distinct variation to this pin (cycles if a listing has more
+      // pins than variations — neighbours still differ).
+      if (variations.length > 0) {
+        const v = variations[j % variations.length];
         try {
-          await updateCreativeCopy(creativeId, copy.caption, copy.hashtags);
+          await updateCreativeContent(creativeId, {
+            title: v.title,
+            caption: v.caption,
+            hashtags: v.hashtags,
+          });
         } catch (err) {
-          console.error("[auto-pin] failed to attach caption:", err);
+          console.error("[auto-pin] failed to attach copy:", err);
         }
       }
 
