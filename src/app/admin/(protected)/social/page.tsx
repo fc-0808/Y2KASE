@@ -17,8 +17,14 @@ import {
   getRecentPostedListings,
   getNextListingPreview,
 } from "@/lib/social/auto-pin";
+import { isMetaConfigured } from "@/lib/social/meta";
+import {
+  getMetaCoverage,
+  getMetaNextPreview,
+} from "@/lib/social/meta-autopost";
 import { SocialStudio } from "./SocialStudio";
 import { AutoPinPanel } from "./AutoPinPanel";
+import { MetaAutopostPanel } from "./MetaAutopostPanel";
 import { PostingHistory } from "./PostingHistory";
 
 export const metadata: Metadata = { title: "Admin · Social Studio" };
@@ -52,6 +58,8 @@ export default async function AdminSocialPage({
     autoPinCoverage,
     postingHistory,
     nextListing,
+    metaCoverage,
+    metaNextPreview,
   ] = await Promise.all([
     getCreatives(activeStatus),
     getCreativeStatusCounts(),
@@ -61,7 +69,11 @@ export default async function AdminSocialPage({
     getAutoPinCoverage(),
     getRecentPostedListings(20),
     getNextListingPreview(),
+    getMetaCoverage(),
+    getMetaNextPreview(),
   ]);
+
+  const metaReady = isMetaConfigured();
 
   const total =
     counts.draft +
@@ -105,6 +117,12 @@ export default async function AdminSocialPage({
         coverage={autoPinCoverage}
         nextListing={nextListing}
         pinterestReady={pinterestReady}
+      />
+
+      <MetaAutopostPanel
+        coverage={metaCoverage}
+        nextPreview={metaNextPreview}
+        metaConfigured={metaReady}
       />
 
       <PostingHistory history={postingHistory} />

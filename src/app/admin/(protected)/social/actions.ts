@@ -24,6 +24,11 @@ import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
 import { refreshAllPinMetrics } from "@/lib/social/analytics";
 import { runAutoPin, AUTO_PIN_PER_RUN } from "@/lib/social/auto-pin";
+import { isMetaConfigured, getMetaConnection } from "@/lib/social/meta";
+import {
+  runMetaAutopost,
+  META_AUTOPOST_PER_RUN,
+} from "@/lib/social/meta-autopost";
 import {
   getProductGallery,
   importProductPhotos,
@@ -535,6 +540,115 @@ export async function runAutoPinNow(input?: {
   return {
     ok: res.failed === 0,
     message: `Posted ${res.mediaPinned} pin${res.mediaPinned === 1 ? "" : "s"} across ${listings} listing${listings === 1 ? "" : "s"} to Pinterest 📌${tail}`,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// META (Instagram + Facebook) auto-posting
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type MetaConnectionResult = {
+  ok: boolean;
+  configured: boolean;
+  connected: boolean;
+  pageName?: string;
+  igUsername?: string;
+  message: string;
+};
+
+/** Build the Meta OAuth URL for connecting a Facebook Page + Instagram. */
+export async function getMetaConnectUrl(): Promise<{
+  ok: boolean;
+  url?: string;
+  message: string;
+}> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  const appId = process.env.META_APP_ID;
+  if (!appId) {
+    return {
+      ok: false,
+      message:
+        "META_APP_ID is not set. Create an app at developers.facebook.com → add Facebook Login + Instagram, then add the App ID.",
+    };
+  }
+
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://y2kase.com";
+  const redirectUri = encodeURIComponent(
+    process.env.META_REDIRECT_URI ?? `${siteUrl}/api/auth/meta/callback`,
+  );
+  // Permissions required for IG/FB content publishing (need App Review in prod).
+  const scope = encodeURIComponent(
+    [
+      "pages_show_list",
+      "pages_read_engagement",
+      "pages_manage_posts",
+      "publish_video",
+      "instagram_basic",
+      "instagram_content_publish",
+      "business_management",
+    ].join(","),
+  );
+  const version = process.env.META_GRAPH_VERSION ?? "v25.0";
+  const url =
+    `https://www.facebook.com/${version}/dialog/oauth?` +
+    `client_id=${appId}&redirect_uri=${redirectUri}` +
+    `&response_type=code&scope=${scope}&state=y2kase-admin`;
+
+  return { ok: true, url, message: "Click to connect Instagram + Facebook." };
+}
+
+/** Verify the stored Meta token still works and return the connected accounts. */
+export async function checkMetaConnection(): Promise<MetaConnectionResult> {
+  if (!(await guard())) {
+    return { ok: false, configured: false, connected: false, message: "Not authorized." };
+  }
+  if (!isMetaConfigured()) {
+    return {
+      ok: false,
+      configured: false,
+      connected: false,
+      message: "META_APP_ID / META_APP_SECRET not set.",
+    };
+  }
+  const conn = await getMetaConnection();
+  return {
+    ok: conn.connected,
+    configured: true,
+    connected: conn.connected,
+    pageName: conn.pageName,
+    igUsername: conn.igUsername,
+    message: conn.message,
+  };
+}
+
+/** Manually trigger the Meta drip — posts the next listing to IG + FB now. */
+export async function runMetaAutopostNow(input?: {
+  max?: number;
+}): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+
+  const max = Math.min(5, Math.max(1, input?.max ?? META_AUTOPOST_PER_RUN));
+  const res = await runMetaAutopost({ max });
+  revalidatePath("/admin/social");
+
+  if (res.reason === "not-configured") {
+    return { ok: false, message: "Set META_APP_ID / META_APP_SECRET first." };
+  }
+  if (res.reason === "not-connected") {
+    return { ok: false, message: "Connect Instagram / Facebook first." };
+  }
+  if (res.reason === "all-posted") {
+    return { ok: true, message: "Every listing is already posted to Meta 🎉" };
+  }
+  if (res.posted === 0 && res.failed === 0) {
+    return { ok: true, message: "Nothing new to post right now." };
+  }
+  const tail = res.failed ? ` · ${res.failed} failed` : "";
+  return {
+    ok: res.failed === 0,
+    message: `Posted ${res.posted} update${res.posted === 1 ? "" : "s"} across ${res.listingsProcessed} listing${res.listingsProcessed === 1 ? "" : "s"} to ${res.platforms.join(" + ")} 📣${tail}`,
   };
 }
 

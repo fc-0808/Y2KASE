@@ -51,12 +51,25 @@ export const AUTO_PIN_MODEL = "auto-pin";
 export const PRODUCT_VIDEO_PRESET = "product_video";
 
 /**
- * How many *listings* each run posts. One per day is the recommended evergreen
- * drip (all of that listing's photos + video go out together).
+ * How many *listings* a single cron invocation posts. Kept at 1 so the daily
+ * volume is spread across multiple runs (see AUTO_PIN_CRON_HOURS_UTC) rather
+ * than dumped in one burst — Pinterest rewards steady activity over spikes.
  */
 export const AUTO_PIN_PER_RUN = Math.max(
   1,
   Number(process.env.PINTEREST_AUTOPIN_PER_RUN ?? 1),
+);
+
+/**
+ * Hard cap on *listings posted per UTC day*, enforced across every run. This is
+ * the single knob that controls daily volume: raise it (and add matching cron
+ * slots) to post more listings/day, e.g. 2 to accelerate catalog coverage. A
+ * listing is ~8–14 pins, so 2/day ≈ 20–28 fresh pins/day. Defaults to the
+ * per-run count for backward compatibility.
+ */
+export const AUTO_PIN_PER_DAY = Math.max(
+  AUTO_PIN_PER_RUN,
+  Number(process.env.PINTEREST_AUTOPIN_PER_DAY ?? AUTO_PIN_PER_RUN),
 );
 
 /** Pause between individual media posts (stays under Pinterest write limits). */
@@ -66,35 +79,29 @@ const MEDIA_GAP_MS = Math.max(
 );
 
 /**
- * Hour (UTC) the daily cron fires. Kept in sync with vercel.json
- * (`/api/cron/pinterest-autopin` → "0 15 * * *"). Used to show operators when
- * the next listing will go out.
+ * Hours (UTC) the cron fires — kept in sync with vercel.json
+ * (`/api/cron/pinterest-autopin`). Two spread peak windows (≈ US evening and
+ * US morning) so the day's listings don't post in one burst. Used to show
+ * operators when the next listing will go out.
  */
-export const AUTO_PIN_CRON_HOUR_UTC = 15;
+export const AUTO_PIN_CRON_HOURS_UTC = [1, 15];
 
 /** Opt-in flag — automation only runs when explicitly enabled. */
 export function isAutoPinEnabled(): boolean {
   return process.env.PINTEREST_AUTOPIN_ENABLED === "true";
 }
 
-/** ISO timestamp of the next daily cron run (today or tomorrow at the cron hour). */
+/** ISO timestamp of the nearest upcoming cron run across the scheduled hours. */
 function nextRunAtIso(): string {
   const now = new Date();
-  const next = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      AUTO_PIN_CRON_HOUR_UTC,
-      0,
-      0,
-      0,
-    ),
-  );
-  if (next.getTime() <= now.getTime()) {
-    next.setUTCDate(next.getUTCDate() + 1);
-  }
-  return next.toISOString();
+  const candidates = AUTO_PIN_CRON_HOURS_UTC.map((h) => {
+    const d = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, 0, 0, 0),
+    );
+    if (d.getTime() <= now.getTime()) d.setUTCDate(d.getUTCDate() + 1);
+    return d.getTime();
+  });
+  return new Date(Math.min(...candidates)).toISOString();
 }
 
 /** States that mean an asset is already "spoken for" (live or in the pipeline). */
@@ -294,14 +301,33 @@ export type AutoPinCoverage = {
   /** Assets the drip gave up on after exhausting retries (need attention). */
   stuckCount: number;
   enabled: boolean;
-  /** Listings posted per run. */
+  /** Listings posted per cron run. */
   perRun: number;
+  /** Listings posted per day (the daily cap across all runs). */
+  perDay: number;
 };
 
 function startOfUtcDay(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
   return d;
+}
+
+/**
+ * Number of distinct listings that have had at least one pin published so far
+ * today (UTC). Drives the per-day cap so volume stays controlled across every
+ * cron run and any manual triggers combined.
+ */
+export async function getListingsPostedToday(): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const res = await db.execute<{ n: number }>(sql`
+    SELECT count(DISTINCT product_id)::int AS n
+    FROM social_creatives
+    WHERE platform = 'pinterest' AND status = 'published'
+      AND product_id IS NOT NULL
+      AND published_at >= ${startOfUtcDay().toISOString()}
+  `);
+  return rows<{ n: number }>(res)[0]?.n ?? 0;
 }
 
 export async function getAutoPinCoverage(): Promise<AutoPinCoverage> {
@@ -315,6 +341,7 @@ export async function getAutoPinCoverage(): Promise<AutoPinCoverage> {
     stuckCount: 0,
     enabled: isAutoPinEnabled(),
     perRun: AUTO_PIN_PER_RUN,
+    perDay: AUTO_PIN_PER_DAY,
   };
   if (!isDbConfigured()) return base;
 
@@ -465,6 +492,7 @@ export type PostedListing = {
   productId: number | null;
   productTitle: string | null;
   productSlug: string | null;
+  platform: string;
   day: string;
   imageCount: number;
   videoCount: number;
@@ -476,9 +504,10 @@ export type PostedListing = {
 };
 
 /**
- * Recent posting history for the admin — one row per listing per day, with the
- * count of photos/videos posted, a sample pin link, and a thumbnail. This is the
- * "what went out and when" ledger operators rely on.
+ * Recent posting history for the admin — one row per listing per platform per
+ * day, with the count of photos/videos posted, a sample link, and a thumbnail.
+ * Spans every social platform (Pinterest, Instagram, Facebook) so it's the one
+ * unified "what went out and when" ledger operators rely on.
  */
 export async function getRecentPostedListings(
   limit = 30,
@@ -488,6 +517,7 @@ export async function getRecentPostedListings(
     product_id: number | null;
     product_title: string | null;
     product_slug: string | null;
+    platform: string;
     day: string;
     image_count: number;
     video_count: number;
@@ -501,8 +531,9 @@ export async function getRecentPostedListings(
       sc.product_id,
       max(sc.product_title) AS product_title,
       max(sc.product_slug) AS product_slug,
+      sc.platform,
       to_char(date_trunc('day', sc.published_at), 'YYYY-MM-DD') AS day,
-      count(*) FILTER (WHERE sc.media_type = 'image')::int AS image_count,
+      count(*) FILTER (WHERE sc.media_type IN ('image','carousel'))::int AS image_count,
       count(*) FILTER (WHERE sc.media_type = 'video')::int AS video_count,
       0::int AS failed_count,
       min(sc.published_at) AS first_posted_at,
@@ -510,10 +541,9 @@ export async function getRecentPostedListings(
       (array_agg(sc.external_url ORDER BY sc.published_at) FILTER (WHERE sc.external_url IS NOT NULL))[1] AS sample_url,
       (array_agg(sc.image_url ORDER BY sc.published_at))[1] AS sample_image
     FROM social_creatives sc
-    WHERE sc.platform = 'pinterest'
-      AND sc.status = 'published'
+    WHERE sc.status = 'published'
       AND sc.published_at IS NOT NULL
-    GROUP BY sc.product_id, date_trunc('day', sc.published_at)
+    GROUP BY sc.product_id, sc.platform, date_trunc('day', sc.published_at)
     ORDER BY max(sc.published_at) DESC
     LIMIT ${limit}
   `);
@@ -522,6 +552,7 @@ export async function getRecentPostedListings(
     product_id: number | null;
     product_title: string | null;
     product_slug: string | null;
+    platform: string;
     day: string;
     image_count: number;
     video_count: number;
@@ -534,6 +565,7 @@ export async function getRecentPostedListings(
     productId: r.product_id,
     productTitle: r.product_title,
     productSlug: r.product_slug,
+    platform: r.platform,
     day: r.day,
     imageCount: r.image_count ?? 0,
     videoCount: r.video_count ?? 0,
@@ -697,9 +729,9 @@ export type AutoPinResult = {
  * between posts keeps us under Pinterest's write rate limit.
  */
 export async function runAutoPin(
-  opts: { max?: number; boardId?: string } = {},
+  opts: { max?: number; boardId?: string; dailyCap?: number } = {},
 ): Promise<AutoPinResult> {
-  const maxListings = Math.max(1, opts.max ?? AUTO_PIN_PER_RUN);
+  let maxListings = Math.max(1, opts.max ?? AUTO_PIN_PER_RUN);
   const result: AutoPinResult = {
     ok: true,
     listingsProcessed: 0,
@@ -714,6 +746,17 @@ export async function runAutoPin(
   if (!isDbConfigured()) return { ...result, ok: false, reason: "no-db" };
   if (!isPinterestConfigured()) {
     return { ...result, ok: false, reason: "no-pinterest-token" };
+  }
+
+  // Enforce the per-day cap across all runs (cron slots + manual triggers): if
+  // today's quota is already met, stop; otherwise only post the remainder.
+  if (opts.dailyCap != null) {
+    const postedToday = await getListingsPostedToday();
+    const allowed = Math.max(0, opts.dailyCap - postedToday);
+    if (allowed <= 0) {
+      return { ...result, reason: "daily-cap-reached" };
+    }
+    maxListings = Math.min(maxListings, allowed);
   }
 
   let defaultBoardId: string;

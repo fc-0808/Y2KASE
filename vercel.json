@@ -15,7 +15,15 @@
     },
     {
       "path": "/api/cron/pinterest-autopin",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/pinterest-autopin",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/meta-autopost",
+      "schedule": "0 16 * * *"
     },
     {
       "path": "/api/cron/social-generate",

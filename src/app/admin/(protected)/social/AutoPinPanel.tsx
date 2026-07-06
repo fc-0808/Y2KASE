@@ -61,7 +61,7 @@ export function AutoPinPanel({
     mediaPinnedToday,
     stuckCount,
     enabled,
-    perRun,
+    perDay,
   } = coverage;
 
   const pct =
@@ -105,7 +105,7 @@ export function AutoPinPanel({
             </h3>
             <p className="mt-0.5 text-xs text-[var(--foreground)]/55">
               {enabled
-                ? `Posts ${perRun} full listing${perRun === 1 ? "" : "s"} per day — every photo + the video.`
+                ? `Posts ${perDay} full listing${perDay === 1 ? "" : "s"} per day — every photo + the video.`
                 : 'Set PINTEREST_AUTOPIN_ENABLED="true" to run the daily drip automatically.'}
             </p>
           </div>

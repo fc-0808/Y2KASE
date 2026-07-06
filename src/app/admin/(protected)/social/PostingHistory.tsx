@@ -8,6 +8,13 @@
 import { History, Images, Film, ExternalLink, ImageOff } from "lucide-react";
 import type { PostedListing } from "@/lib/social/auto-pin";
 
+const PLATFORM_LABELS: Record<string, { label: string; className: string }> = {
+  pinterest: { label: "Pinterest", className: "bg-[#E60023]/10 text-[#E60023]" },
+  instagram: { label: "Instagram", className: "bg-[#E1306C]/10 text-[#E1306C]" },
+  facebook: { label: "Facebook", className: "bg-[#1877F2]/10 text-[#1877F2]" },
+  tiktok: { label: "TikTok", className: "bg-[var(--muted)] text-[var(--foreground)]/70" },
+};
+
 const dayFmt = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
@@ -43,8 +50,12 @@ export function PostingHistory({ history }: { history: PostedListing[] }) {
       ) : (
         <ul className="divide-y divide-[var(--border)]">
           {history.map((h) => {
-            const key = `${h.productId ?? "x"}-${h.day}`;
+            const key = `${h.productId ?? "x"}-${h.platform}-${h.day}`;
             const posted = h.lastPostedAt ? new Date(h.lastPostedAt) : null;
+            const platform = PLATFORM_LABELS[h.platform] ?? {
+              label: h.platform,
+              className: "bg-[var(--muted)] text-[var(--foreground)]/70",
+            };
             return (
               <li
                 key={key}
@@ -84,6 +95,14 @@ export function PostingHistory({ history }: { history: PostedListing[] }) {
                     )}
                   </p>
                   <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--foreground)]/55">
+                    <span
+                      className={
+                        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold " +
+                        platform.className
+                      }
+                    >
+                      {platform.label}
+                    </span>
                     {h.imageCount > 0 && (
                       <span className="inline-flex items-center gap-1">
                         <Images className="h-3 w-3" />

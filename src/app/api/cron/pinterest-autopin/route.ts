@@ -14,7 +14,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isDbConfigured } from "@/lib/db";
 import { isPinterestConfigured } from "@/lib/social/pinterest";
-import { isAutoPinEnabled, runAutoPin } from "@/lib/social/auto-pin";
+import {
+  isAutoPinEnabled,
+  runAutoPin,
+  AUTO_PIN_PER_DAY,
+} from "@/lib/social/auto-pin";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // seconds — leaves room for rate-limit pauses.
@@ -43,6 +47,8 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const result = await runAutoPin();
+  // Each run posts up to AUTO_PIN_PER_RUN listings, but never more than the
+  // per-day cap across all runs combined (spread over the scheduled cron slots).
+  const result = await runAutoPin({ dailyCap: AUTO_PIN_PER_DAY });
   return NextResponse.json(result);
 }

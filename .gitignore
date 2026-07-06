@@ -59,3 +59,5 @@ next-env.d.ts
 # NEVER hardcode live keys (sk_live_ / rk_live_ / re_...) in .cursor/mcp.json.
 # If you need a local key override, put it in .cursor/mcp.local.json (gitignored below)
 .cursor/mcp.local.json
+
+.vercel
