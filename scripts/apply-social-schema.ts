@@ -69,6 +69,37 @@ async function main() {
   // title to widen search coverage (falls back to product title when null).
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "title" text`;
 
+  // The auto-pin dedup predicate claims an image by source_image_id OR by
+  // image_url. The url arm is what survives product_images row churn, so it is
+  // on the hot path of every selection/coverage query and needs its own index.
+  await sql`CREATE INDEX IF NOT EXISTS "social_creatives_image_url_idx" ON "social_creatives" ("platform", "image_url")`;
+
+  // Heal creatives orphaned by row churn: source_image_id is nulled by its
+  // ON DELETE SET NULL constraint whenever the product_images row it pointed at
+  // was replaced (catalog re-ingest, thumbnail re-approval). Re-anchor them to
+  // the live image row with the same url so the primary (indexed, integer) arm
+  // of the dedup key keeps doing the work. Idempotent: only fills NULLs, and
+  // only where exactly one live image owns that url.
+  const relinked = await sql`
+    UPDATE "social_creatives" sc
+    SET "source_image_id" = m."image_id"
+    FROM (
+      SELECT "url", min("id") AS "image_id"
+      FROM "product_images"
+      GROUP BY "url"
+      HAVING count(*) = 1
+    ) AS m
+    WHERE sc."source_image_id" IS NULL
+      AND sc."media_type" = 'image'
+      AND sc."image_url" = m."url"
+    RETURNING sc."id"
+  `;
+  if (relinked.length > 0) {
+    console.log(
+      `✓ Re-anchored ${relinked.length} orphaned creative(s) to their source image.`,
+    );
+  }
+
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_impressions" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_saves" integer`;
   await sql`ALTER TABLE "social_creatives" ADD COLUMN IF NOT EXISTS "metric_pin_clicks" integer`;

@@ -15,10 +15,20 @@
  * brands merchandise on Pinterest, while the daily cadence keeps the account's
  * fresh-pin signal high (which the algorithm rewards).
  *
+ * What counts as postable media
+ * ─────────────────────────────
+ * Only *authentic* product photos, plus the product video. The AI hero thumbnail
+ * that the thumbnail-review queue promotes to gallery position 0 is excluded —
+ * see {@link isPinnablePhoto} for why that exclusion is load-bearing, not just
+ * cosmetic.
+ *
  * How "pinned" is tracked
  * ───────────────────────
  * Every Pin is a `social_creatives` row:
- *   - image pins link back to the exact `product_images.id` via `sourceImageId`;
+ *   - image pins link back to the exact `product_images.id` via `sourceImageId`,
+ *     and additionally by `imageUrl` — a dual key, because `sourceImageId` is
+ *     nulled whenever the underlying image row is replaced (see
+ *     {@link imageNeedsPin});
  *   - the video pin is keyed by `productId` + `mediaType = 'video'`.
  * An asset is "spoken for" when it has a pinterest creative in an active state
  * (draft / approved / scheduled / published), so it is never pinned twice.
@@ -29,6 +39,7 @@
 
 import { sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
+import { NORMALIZED_THUMBNAIL_SOURCE } from "@/lib/db/schema";
 import {
   getCreativeById,
   updateCreativeContent,
@@ -136,11 +147,42 @@ function rows<T>(res: unknown): T[] {
 // auto-pin retry, or a creative a human rejected. Centralising this keeps the
 // selection, coverage and per-listing loading perfectly consistent.
 
-/** SQL: does the image (referenced by `imgIdExpr`) still need a pin? */
-function imageNeedsPin(imgIdExpr: string) {
+/**
+ * SQL: is the image behind table alias `alias` a pinnable asset?
+ *
+ * Two exclusions, both deliberate:
+ *  - non-HTTP urls (Pinterest can only fetch publicly reachable media);
+ *  - the derived AI hero thumbnail. That asset is a white-background crop of a
+ *    photo we already pin, so posting it is near-duplicate content Pinterest
+ *    suppresses. It is also a *brand-new* product_images row inserted at
+ *    position 0 by the thumbnail review queue — so without this filter, a
+ *    listing whose real photos are all pinned reads as having exactly one
+ *    un-pinned asset, and the drip spends its daily slot posting that thumbnail
+ *    alone instead of advancing to the next listing.
+ */
+function isPinnablePhoto(alias: string) {
+  const a = sql.raw(alias);
+  return sql`(
+    ${a}.url LIKE 'http%'
+    AND (${a}.source_filename IS NULL
+         OR ${a}.source_filename <> ${NORMALIZED_THUMBNAIL_SOURCE})
+  )`;
+}
+
+/**
+ * SQL: does the image behind table alias `alias` still need a pin?
+ *
+ * An existing creative claims the image by `source_image_id` **or** by
+ * `image_url`. The url is the resilient key: `source_image_id` is set to NULL by
+ * its ON DELETE SET NULL constraint whenever the product_images row is replaced
+ * (catalog re-ingest, thumbnail re-approval), which would otherwise make an
+ * already-published photo look un-pinned and get posted a second time.
+ */
+function imageNeedsPin(alias: string) {
+  const a = sql.raw(alias);
   return sql`NOT EXISTS (
     SELECT 1 FROM social_creatives sc
-    WHERE sc.source_image_id = ${sql.raw(imgIdExpr)}
+    WHERE (sc.source_image_id = ${a}.id OR sc.image_url = ${a}.url)
       AND sc.platform = 'pinterest'
       AND (
         sc.status IN ${ACTIVE}
@@ -169,12 +211,16 @@ function productNeedsPinning() {
   return sql`(
     EXISTS (
       SELECT 1 FROM product_images pi
-      WHERE pi.product_id = p.id AND pi.url LIKE 'http%'
-        AND ${imageNeedsPin("pi.id")}
+      WHERE pi.product_id = p.id
+        AND ${isPinnablePhoto("pi")}
+        AND ${imageNeedsPin("pi")}
     )
     OR (
       p.video_url LIKE 'http%'
-      AND EXISTS (SELECT 1 FROM product_images pi2 WHERE pi2.product_id = p.id AND pi2.url LIKE 'http%')
+      AND EXISTS (
+        SELECT 1 FROM product_images pi2
+        WHERE pi2.product_id = p.id AND ${isPinnablePhoto("pi2")}
+      )
       AND ${videoNeedsPin("p.id")}
     )
   )`;
@@ -193,7 +239,11 @@ export type NextListing = {
   productType: string;
   description: string | null;
   tags: string[];
-  /** Cover thumbnail (the listing's hero image) — required for a video pin. */
+  /**
+   * Cover still for the video pin (Pinterest requires one). The listing's first
+   * *authentic* photo — never the derived AI thumbnail, so the video's poster
+   * frame matches the real product shots around it.
+   */
   coverUrl: string | null;
   /** Photos that still need an image pin. */
   images: PinImage[];
@@ -256,9 +306,9 @@ async function loadListing(productId: number): Promise<NextListing | null> {
   }>(sql`
     SELECT
       pi.id, pi.url, pi.alt_text,
-      ${imageNeedsPin("pi.id")} AS needs_pin
+      ${imageNeedsPin("pi")} AS needs_pin
     FROM product_images pi
-    WHERE pi.product_id = ${productId} AND pi.url LIKE 'http%'
+    WHERE pi.product_id = ${productId} AND ${isPinnablePhoto("pi")}
     ORDER BY pi.position ASC, pi.id ASC
   `);
   const allImages = rows<{
@@ -365,7 +415,7 @@ export async function getAutoPinCoverage(): Promise<AutoPinCoverage> {
         SELECT count(*)::int FROM products p
         WHERE p.status = 'active'
           AND (
-            EXISTS (SELECT 1 FROM product_images pi WHERE pi.product_id = p.id AND pi.url LIKE 'http%')
+            EXISTS (SELECT 1 FROM product_images pi WHERE pi.product_id = p.id AND ${isPinnablePhoto("pi")})
             OR p.video_url LIKE 'http%'
           )
       ) AS total_products,
@@ -374,7 +424,7 @@ export async function getAutoPinCoverage(): Promise<AutoPinCoverage> {
         WHERE p.status = 'active' AND ${productNeedsPinning()}
       ) AS remaining_products,
       (
-        (SELECT count(*)::int FROM product_images pi JOIN products p ON p.id = pi.product_id AND p.status = 'active' WHERE pi.url LIKE 'http%')
+        (SELECT count(*)::int FROM product_images pi JOIN products p ON p.id = pi.product_id AND p.status = 'active' WHERE ${isPinnablePhoto("pi")})
         +
         (SELECT count(*)::int FROM products p WHERE p.status = 'active' AND p.video_url LIKE 'http%')
       ) AS total_media,
@@ -593,14 +643,16 @@ async function claimImageForPin(
   // Reuse a parked (rejected) auto-pin row for this image that still has retries
   // left — keeps the attempt counter so the poison-pill guard can eventually
   // give up. Exhausted rows are left alone (never reused, never re-inserted).
+  // Re-anchors source_image_id, so a row orphaned by a re-ingest heals itself.
   const reuse = await db.execute<{ id: number }>(sql`
     UPDATE social_creatives
     SET status = 'draft', last_error = NULL, board_id = ${boardId},
+        product_id = ${listing.productId}, source_image_id = ${image.imageId},
         product_title = ${listing.productTitle}, product_slug = ${listing.productSlug},
         image_url = ${image.url}, media_type = 'image', video_url = NULL, updated_at = now()
     WHERE id = (
       SELECT id FROM social_creatives
-      WHERE source_image_id = ${image.imageId}
+      WHERE (source_image_id = ${image.imageId} OR image_url = ${image.url})
         AND platform = 'pinterest' AND model = ${AUTO_PIN_MODEL}
         AND status = 'rejected' AND attempts < ${AUTO_PIN_MAX_ATTEMPTS}
       ORDER BY id LIMIT 1
@@ -612,7 +664,8 @@ async function claimImageForPin(
 
   // Insert a fresh draft only when no pinterest creative exists for this image
   // at all (any status) — reuse already handled retryable rows, and rows that
-  // are published/in-pipeline or given-up must not be duplicated.
+  // are published/in-pipeline or given-up must not be duplicated. Matching the
+  // url as well as the id keeps that guarantee across product_images row churn.
   const inserted = await db.execute<{ id: number }>(sql`
     INSERT INTO social_creatives
       (product_id, product_title, product_slug, source_image_id, preset,
@@ -624,7 +677,8 @@ async function claimImageForPin(
       ${AUTO_PIN_MODEL}, 0, ${boardId}
     WHERE NOT EXISTS (
       SELECT 1 FROM social_creatives sc
-      WHERE sc.source_image_id = ${image.imageId} AND sc.platform = 'pinterest'
+      WHERE sc.platform = 'pinterest'
+        AND (sc.source_image_id = ${image.imageId} OR sc.image_url = ${image.url})
     )
     RETURNING id
   `);

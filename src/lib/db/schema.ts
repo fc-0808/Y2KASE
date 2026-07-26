@@ -265,6 +265,19 @@ export const products = pgTable(
 );
 
 /**
+ * `product_images.source_filename` marker for the AI-normalized hero thumbnail
+ * that the thumbnail-review queue promotes to position 0 (see
+ * `src/lib/admin/thumbnails.ts`).
+ *
+ * It identifies a *derived* catalog asset — a white-background square crop of an
+ * existing photo, built for the product grid — rather than an original studio
+ * photo. Consumers that reason about authentic product media (notably the social
+ * auto-pin drip) must exclude it, so this marker is shared here, next to the
+ * column that stores it, instead of being duplicated per call site.
+ */
+export const NORMALIZED_THUMBNAIL_SOURCE = "thumbnail-normalized";
+
+/**
  * product_images — ordered gallery per product. URLs point at Cloudinary
  * (or the legacy Etsy CDN during migration).
  */
