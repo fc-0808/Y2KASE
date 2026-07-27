@@ -27,6 +27,20 @@ import {
 } from "@/lib/pricing";
 import { saveProductVariations } from "@/lib/admin/product-variations";
 import {
+  approveProposal,
+  setProposalDecision,
+  approveProposals,
+  decideProposals,
+} from "@/lib/admin/thumbnails";
+import {
+  generateProposalsForPending,
+  regenerateProposalWithAiCleanup,
+  regenerateProposalsWithAiCleanup,
+  recropProposal,
+  removeBackgroundProposal,
+  type CropRect,
+} from "@/lib/admin/thumbnails-generate";
+import {
   makeR2Client,
   deleteObjectsFromR2,
   r2KeyFromUrl,
@@ -784,4 +798,180 @@ export async function bulkSaveProducts(
     ? `Saved ${saved} product${saved === 1 ? "" : "s"}.`
     : `Saved ${saved}, ${failed.length} failed.`;
   return { ok, message, saved, failed };
+}
+
+// ── Thumbnail normalization review ──────────────────────────────────────────
+
+export type ActionResult = { ok: boolean; message: string };
+
+/**
+ * Generate normalization proposals for the next batch of pending products.
+ * Bounded + synchronous so the admin can click, wait, and review the results;
+ * each product is processed independently so one bad image can't abort the run.
+ */
+export async function generateThumbnailProposals(
+  limit = 5,
+): Promise<ActionResult & { changed: number }> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  try {
+    const { processed, proposed, flagged } =
+      await generateProposalsForPending(limit);
+    revalidatePath("/admin/products/thumbnails");
+    revalidatePath("/admin/products");
+    return {
+      ok: true,
+      message:
+        processed === 0
+          ? "Nothing left to process — the queue is clear."
+          : `Processed ${processed} · ${proposed} proposed · ${flagged} flagged.`,
+      changed: processed,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Generation failed.",
+      changed: 0,
+    };
+  }
+}
+
+/** Approve a proposal — promotes the normalized image to the live thumbnail. */
+export async function approveThumbnailProposal(
+  productId: number,
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  const res = await approveProposal(productId);
+  if (res.ok) {
+    revalidateCatalog(productId);
+    revalidatePath("/admin/products/thumbnails");
+  }
+  return res;
+}
+
+/** Flag (needs a better photo) or skip a proposal. */
+export async function decideThumbnailProposal(
+  productId: number,
+  decision: "flagged" | "skipped",
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  const res = await setProposalDecision(productId, decision);
+  if (res.ok) revalidatePath("/admin/products/thumbnails");
+  return res;
+}
+
+/**
+ * Generatively remove the hand/props from a product's photo and rebuild the
+ * proposal on plain white. Used for products with no clean, hand-free shot.
+ */
+export async function aiCleanupThumbnail(
+  productId: number,
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  try {
+    const res = await regenerateProposalWithAiCleanup(productId);
+    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    return res;
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "AI cleanup failed.",
+    };
+  }
+}
+
+/** Remove the background of a proposal (segmentation) and re-center on white. */
+export async function removeThumbnailBackground(
+  productId: number,
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  try {
+    const res = await removeBackgroundProposal(productId);
+    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    return res;
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Background removal failed.",
+    };
+  }
+}
+
+/** Re-crop a proposal to the selected region and re-center it on white. */
+export async function adjustThumbnailCrop(
+  productId: number,
+  rect: CropRect,
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  try {
+    const res = await recropProposal(productId, rect);
+    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    return res;
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Adjust failed.",
+    };
+  }
+}
+
+export type BulkResult = ActionResult & { processed: number };
+
+/** Approve a set of proposals (non-proposed ids are skipped). */
+export async function bulkApproveThumbnails(
+  ids: number[],
+): Promise<BulkResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", processed: 0 };
+  }
+  const { processed } = await approveProposals(ids);
+  if (processed > 0) {
+    revalidateCatalog();
+    revalidatePath("/admin/products/thumbnails");
+  }
+  return { ok: true, processed, message: `Approved ${processed}.` };
+}
+
+/** Flag or skip a set of proposals. */
+export async function bulkDecideThumbnails(
+  ids: number[],
+  decision: "flagged" | "skipped",
+): Promise<BulkResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", processed: 0 };
+  }
+  const { processed } = await decideProposals(ids, decision);
+  if (processed > 0) revalidatePath("/admin/products/thumbnails");
+  return { ok: true, processed, message: `Updated ${processed}.` };
+}
+
+/** Regenerate a set of products in parallel (bounded server-side). */
+export async function bulkRegenerateThumbnails(
+  ids: number[],
+): Promise<BulkResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", processed: 0 };
+  }
+  try {
+    const { processed } = await regenerateProposalsWithAiCleanup(ids);
+    revalidatePath("/admin/products/thumbnails");
+    return { ok: true, processed, message: `Regenerated ${processed}.` };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Bulk regenerate failed.",
+      processed: 0,
+    };
+  }
 }

@@ -21,7 +21,7 @@ import { db } from "@/lib/db";
 import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { priceCart, CheckoutError, type CheckoutLineInput } from "@/lib/checkout";
-import { resolvePromotionCode } from "@/lib/coupon";
+import { computePromotions } from "@/lib/promotions";
 import { getSession } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { items?: CheckoutLineInput[]; promotionCode?: string };
+  let body: { items?: CheckoutLineInput[]; couponCode?: string };
   try {
     body = await request.json();
   } catch {
@@ -61,20 +61,33 @@ export async function POST(request: NextRequest) {
   try {
     const cart = await priceCart(body.items ?? []);
 
-    // Resolve an optional promo code to a Stripe promotion code id. If valid we
-    // pre-apply it via `discounts`; otherwise we let the buyer enter one on the
-    // Stripe page via `allow_promotion_codes` (the two are mutually exclusive).
-    let promotionCodeId: string | null = null;
-    if (body.promotionCode?.trim()) {
-      const resolved = await resolvePromotionCode(body.promotionCode);
-      if (resolved) promotionCodeId = resolved.promotionCodeId;
-    }
+    // Apply promotions with the SAME engine the cart preview uses, so the amount
+    // we charge equals the amount the buyer saw to the cent. The engine enforces
+    // mutual exclusivity (an entered coupon is ignored while the bundle is live)
+    // and hands us a per-line charge plan we bake straight into the Stripe line
+    // items — no Stripe promotion codes involved.
+    const promo = computePromotions(
+      cart.lines.map((l) => ({ unitCents: l.unitCents, quantity: l.quantity })),
+      body.couponCode,
+    );
 
     // Tie the order to a logged-in user if there is one (guests are fine too).
     const session = await getSession(await headers());
     const userId = session?.user?.id ?? null;
 
+    // Coarse country from the edge geo header (Vercel populates this). Gives
+    // even abandoned guest orders a location signal without storing raw IPs.
+    const geoCountry =
+      request.headers.get("x-vercel-ip-country")?.toUpperCase() || null;
+
+    // The promotion only ever reduces line items — never shipping. Shipping is
+    // still quoted off the GROSS subtotal (same as the cart preview), so the
+    // final total is: discounted subtotal + shipping.
+    const totalCents = promo.totalAfterDiscountCents + cart.shippingCents;
+
     // 1) Persist a pending order first so we never lose a paid transaction.
+    // `subtotalCents` stays gross; `totalCents` reflects the applied discount so
+    // the admin record matches what Stripe actually charges.
     const [order] = await db
       .insert(orders)
       .values({
@@ -84,8 +97,9 @@ export async function POST(request: NextRequest) {
         subtotalCents: cart.subtotalCents,
         shippingCents: cart.shippingCents,
         taxCents: 0,
-        totalCents: cart.totalCents,
+        totalCents,
         currency: cart.currency,
+        geoCountry,
       })
       .returning({ id: orders.id });
 
@@ -102,26 +116,47 @@ export async function POST(request: NextRequest) {
       })),
     );
 
-    // 2) Build Stripe line items from the SERVER-priced cart.
-    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
-      cart.lines.map((l) => {
-        const optionLabel = Object.entries(l.options)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(" · ");
-        return {
-          quantity: l.quantity,
+    // 2) Build Stripe line items from the SERVER-priced cart with the discount
+    // already baked in. Each line is split into its paid units (at the — possibly
+    // %-reduced — unit price) and, for the bundle, its free units at $0. Stripe
+    // therefore only ever receives finished math, so the charged total is exactly
+    // `promo.totalAfterDiscountCents` + shipping.
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    cart.lines.forEach((l, i) => {
+      const plan = promo.plans[i];
+      const optionLabel = Object.entries(l.options)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(" · ");
+      const productData = (extra?: string) => ({
+        name: l.title,
+        ...(optionLabel || extra
+          ? { description: [optionLabel, extra].filter(Boolean).join(" · ") }
+          : {}),
+        ...(l.imageUrl ? { images: [l.imageUrl] } : {}),
+        metadata: { productId: String(l.productId), slug: l.slug },
+      });
+
+      if (plan.paidQty > 0) {
+        lineItems.push({
+          quantity: plan.paidQty,
           price_data: {
             currency: l.currency.toLowerCase(),
-            unit_amount: l.unitCents,
-            product_data: {
-              name: l.title,
-              ...(optionLabel ? { description: optionLabel } : {}),
-              ...(l.imageUrl ? { images: [l.imageUrl] } : {}),
-              metadata: { productId: String(l.productId), slug: l.slug },
-            },
+            unit_amount: plan.unitCents,
+            product_data: productData(),
           },
-        };
-      });
+        });
+      }
+      if (plan.freeQty > 0) {
+        lineItems.push({
+          quantity: plan.freeQty,
+          price_data: {
+            currency: l.currency.toLowerCase(),
+            unit_amount: 0,
+            product_data: productData("Bundle: Free ✨"),
+          },
+        });
+      }
+    });
 
     // 3) Shipping as a Checkout shipping option (free over threshold).
     const shippingOptions: Stripe.Checkout.SessionCreateParams.ShippingOption[] =
@@ -152,10 +187,9 @@ export async function POST(request: NextRequest) {
       shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
       phone_number_collection: { enabled: true },
       billing_address_collection: "auto",
-      // Either pre-apply the entered code, or let them add one on Stripe — never both.
-      ...(promotionCodeId
-        ? { discounts: [{ promotion_code: promotionCodeId }] }
-        : { allow_promotion_codes: true }),
+      // Discounts are computed locally and already baked into the line items, so
+      // Stripe's own promotion-code UI is intentionally disabled here (no
+      // `allow_promotion_codes`, no `discounts`) — there is nothing left to stack.
       automatic_tax: { enabled: false },
       // Reconstruct & fulfill the order in the webhook.
       client_reference_id: String(order.id),

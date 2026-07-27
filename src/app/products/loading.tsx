@@ -44,7 +44,7 @@ export default function ProductsLoading() {
             key={i}
             className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--card)]"
           >
-            <div className="aspect-square animate-pulse bg-[var(--muted)]" />
+            <div className="aspect-[4/5] animate-pulse bg-[var(--muted)]" />
             <div className="flex flex-col gap-2 p-4">
               <div className="h-4 w-3/4 animate-pulse rounded bg-[var(--muted)]" />
               <div className="h-4 w-1/3 animate-pulse rounded bg-[var(--muted)]" />

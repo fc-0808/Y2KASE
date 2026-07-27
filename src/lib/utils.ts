@@ -37,3 +37,47 @@ export function formatCents(
 ) {
   return formatPrice((Number.isFinite(cents) ? cents : 0) / 100, currency);
 }
+
+/** Turn an ISO 3166-1 alpha-2 code into its flag emoji ("US" → 🇺🇸). */
+export function countryFlag(code?: string | null): string {
+  if (!code) return "";
+  const cc = code.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return "";
+  return String.fromCodePoint(
+    ...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65),
+  );
+}
+
+let regionNames: Intl.DisplayNames | null | undefined;
+/** Human country name from an ISO code ("US" → "United States"). */
+export function countryName(code?: string | null): string {
+  if (!code) return "";
+  try {
+    if (regionNames === undefined) {
+      regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+    }
+    return regionNames?.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/**
+ * Human label for an order's customer column. Guest checkouts start with no
+ * email (it's collected by Stripe at payment), so instead of rendering a blank
+ * cell we explain the state. `muted` flags a placeholder rather than real data.
+ */
+export function orderCustomerLabel(order: {
+  email?: string | null;
+  status: string;
+}): { text: string; muted: boolean } {
+  if (order.email) return { text: order.email, muted: false };
+  switch (order.status) {
+    case "pending":
+      return { text: "Guest · awaiting payment", muted: true };
+    case "cancelled":
+      return { text: "Guest · abandoned", muted: true };
+    default:
+      return { text: "Guest", muted: true };
+  }
+}

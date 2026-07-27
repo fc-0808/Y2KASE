@@ -150,6 +150,8 @@ export function SocialStudio({
     if (mode !== "photos") return;
     if (gallery || galleryLoading) return;
     if (photoProductId === "") return;
+    // Lazy fetch on first entry into photo mode; guarded above so it runs once.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadGallery(Number(photoProductId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);

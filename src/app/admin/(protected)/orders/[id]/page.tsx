@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, MapPin, User as UserIcon, CreditCard, Truck } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { getOrderById } from "@/lib/admin/orders";
-import { formatCents } from "@/lib/utils";
+import { formatCents, countryFlag, countryName } from "@/lib/utils";
 import { trackingLink } from "@/lib/carriers";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ShipForm } from "./ShipForm";
@@ -128,7 +128,26 @@ export default async function AdminOrderDetailPage({
         <aside className="space-y-4">
           <Card title="Customer" icon={<UserIcon className="h-4 w-4" />}>
             <p className="font-semibold">{order.user?.name ?? "Guest"}</p>
-            <p className="break-all text-[var(--foreground)]/60">{order.email}</p>
+            {order.email ? (
+              <p className="break-all text-[var(--foreground)]/60">
+                {order.email}
+              </p>
+            ) : (
+              <p className="italic text-[var(--foreground)]/45">
+                {order.status === "cancelled"
+                  ? "Abandoned before payment"
+                  : "Awaiting payment — email arrives when the customer pays"}
+              </p>
+            )}
+            {order.geoCountry && (
+              <p className="mt-1 text-xs text-[var(--foreground)]/50">
+                {countryFlag(order.geoCountry)} {countryName(order.geoCountry)}
+                <span className="text-[var(--foreground)]/40">
+                  {" "}
+                  · from checkout location
+                </span>
+              </p>
+            )}
             {order.user && (
               <Link
                 href="/admin/members"

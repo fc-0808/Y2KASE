@@ -3,7 +3,7 @@
  *
  * Accepts an email (and optional name) from the welcome pop-up or footer form.
  * - Upserts the subscriber in the DB (idempotent on email).
- * - Issues the WELCOME15 promo code.
+ * - Issues the store's welcome coupon.
  * - Sends a branded welcome email with the discount code.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -15,10 +15,14 @@ import { render } from "@react-email/components";
 import { WelcomeEmail } from "@/emails/WelcomeEmail";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { listUnsubscribeHeaders, unsubscribeUrl } from "@/lib/unsubscribe";
+import { WELCOME_COUPON } from "@/lib/promotions";
 
 export const runtime = "nodejs";
 
-const PROMO_CODE = "WELCOME15";
+// Both the code and the percentage come from the promotions engine, so the
+// email can never promise a discount that checkout won't honour.
+const PROMO_CODE = WELCOME_COUPON.code;
+const PERCENT_OFF = WELCOME_COUPON.percentOff;
 
 // Lazily construct the client so a missing key can't crash the module at import
 // time (which would 500 the whole route instead of degrading gracefully).
@@ -77,14 +81,19 @@ export async function POST(request: NextRequest) {
       try {
         const unsubUrl = unsubscribeUrl(email);
         const html = await render(
-          WelcomeEmail({ name: name ?? undefined, code: PROMO_CODE, unsubscribeUrl: unsubUrl }),
+          WelcomeEmail({
+            name: name ?? undefined,
+            code: PROMO_CODE,
+            percentOff: PERCENT_OFF,
+            unsubscribeUrl: unsubUrl,
+          }),
         );
-        const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\nHere is your 15% off code for your first order:\n\n${PROMO_CODE}\n\nEnter it at checkout at https://y2kase.com\n\nShop now: https://y2kase.com/products\n\nUnsubscribe: ${unsubUrl}`;
+        const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\nHere is your ${PERCENT_OFF}% off code for your first order:\n\n${PROMO_CODE}\n\nEnter it at checkout at https://y2kase.com\n\nShop now: https://y2kase.com/products\n\nUnsubscribe: ${unsubUrl}`;
 
         await resend.emails.send({
           from: process.env.EMAIL_FROM ?? "Y2KASE <onboarding@resend.dev>",
           to: email,
-          subject: "✨ Your 15% off code is here, bestie!",
+          subject: `✨ Your ${PERCENT_OFF}% off code is here, bestie!`,
           html,
           text,
           // One-click unsubscribe (RFC 8058) — required for bulk senders and

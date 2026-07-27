@@ -17,6 +17,7 @@ import {
   Globe,
   UploadCloud,
   Megaphone,
+  Newspaper,
   ExternalLink,
   Inbox,
   Menu,
@@ -81,7 +82,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Marketing",
-    items: [{ href: "/admin/social", label: "Social", icon: Megaphone }],
+    items: [
+      { href: "/admin/social", label: "Social", icon: Megaphone },
+      { href: "/admin/blog", label: "Blog", icon: Newspaper },
+    ],
   },
 ];
 
@@ -214,7 +218,9 @@ export function AdminNavbar({ user }: { user: AuthUser }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Collapse the mobile drawer whenever the admin navigates.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMobileOpen(false);
   }, [pathname]);
 

@@ -5,7 +5,7 @@
  * tools (and Google) discover new posts quickly — a low-cost distribution
  * channel that compounds the blog's reach.
  */
-import { getAllPosts } from "@/lib/blog";
+import { listPublishedPosts } from "@/lib/blog";
 import { absoluteUrl, BRAND } from "@/lib/seo";
 
 export const revalidate = 3600;
@@ -20,7 +20,7 @@ function xmlEscape(value: string): string {
 }
 
 export async function GET() {
-  const posts = getAllPosts();
+  const posts = await listPublishedPosts();
 
   const items = posts
     .map(

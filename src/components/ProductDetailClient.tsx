@@ -63,9 +63,8 @@ export function ProductDetailClient({
   );
   const [activeSlide, setActiveSlide] = useState(0);
   const [added, setAdded] = useState(false);
-  // When the shopper switches Style the visible gallery changes, so jump back to
-  // the first (now style-matched) slide. Done via the render-time "adjust state
-  // on dependency change" pattern rather than an effect — no cascading render.
+  // Tracks the Style the gallery last reacted to, so switching Style can reveal
+  // that style's first photo (see below) without an effect / cascading render.
   const [styleAtSlideReset, setStyleAtSlideReset] = useState(
     selected[STYLE_OPTION_NAME],
   );
@@ -73,9 +72,25 @@ export function ProductDetailClient({
   const allSelected = options.every((o) => selected[o.name]);
   const selectedStyle = selected[STYLE_OPTION_NAME];
 
+  // The video is spliced into the slide list at this slot, so an image's index
+  // within `images` shifts by one for slides at/after it. -1 = no video.
+  const videoSlot = videoUrl
+    ? Math.max(0, Math.min(videoPosition ?? 1, images.length))
+    : -1;
+  const imageIndexToSlideIndex = (imgIdx: number) =>
+    videoSlot >= 0 && imgIdx >= videoSlot ? imgIdx + 1 : imgIdx;
+
+  // The FULL gallery is always shown so shoppers see every angle at a glance.
+  // Switching Style never hides images — it simply reveals the first photo
+  // tagged for the newly chosen style (like Apple / CASETiFY variant galleries).
+  // If the style has no dedicated photo, the current slide is left untouched.
+  // Uses the render-time "adjust state on dependency change" pattern (no effect).
   if (selectedStyle !== styleAtSlideReset) {
     setStyleAtSlideReset(selectedStyle);
-    setActiveSlide(0);
+    const imgIdx = selectedStyle
+      ? images.findIndex((img) => img.styleTags.includes(selectedStyle))
+      : -1;
+    if (imgIdx >= 0) setActiveSlide(imageIndexToSlideIndex(imgIdx));
   }
 
   // Price is driven by the selected Style (iPhone cases). Other product types
@@ -86,20 +101,9 @@ export function ProductDetailClient({
     [isIphoneCase, selectedStyle, currency, price],
   );
 
-  // Gallery: images with empty styleTags are universal (always visible).
-  // Images tagged for a specific style only appear when that style is active.
-  // This applies consistently for every style — including the default "Case Only".
-  // Fallback to all images only if the filter would produce an empty set.
-  const visibleImages = useMemo(() => {
-    if (!selectedStyle) return images;
-    const matching = images.filter(
-      (img) => img.styleTags.length === 0 || img.styleTags.includes(selectedStyle),
-    );
-    return matching.length > 0 ? matching : images;
-  }, [images, selectedStyle]);
-
+  // Every image is a slide (plus the optional video) — nothing is filtered out.
   const slides = useMemo<Slide[]>(() => {
-    const imgSlides: Slide[] = visibleImages.map((img) => ({
+    const imgSlides: Slide[] = images.map((img) => ({
       kind: "image",
       id: img.id,
       url: img.url,
@@ -107,18 +111,13 @@ export function ProductDetailClient({
     }));
     if (!videoUrl) return imgSlides;
 
-    // Insert the video at its configured slot (clamped to a valid index).
-    // Null preserves the historical default of "second slide" (index 1).
-    const slot = Math.max(
-      0,
-      Math.min(videoPosition ?? 1, imgSlides.length),
-    );
+    // Insert the video at its configured slot (default: second slide, index 1).
     return [
-      ...imgSlides.slice(0, slot),
+      ...imgSlides.slice(0, videoSlot),
       { kind: "video", url: videoUrl },
-      ...imgSlides.slice(slot),
+      ...imgSlides.slice(videoSlot),
     ];
-  }, [visibleImages, videoUrl, videoPosition, title]);
+  }, [images, videoUrl, videoSlot, title]);
 
   const current = slides[activeSlide] ?? slides[0];
 
@@ -141,7 +140,14 @@ export function ProductDetailClient({
       title,
       price: currentPrice,
       currency,
-      imageUrl: visibleImages[0]?.url ?? images[0]?.url ?? null,
+      // Cart thumbnail reflects the chosen Style (its first tagged photo),
+      // falling back to the hero image when the style has no dedicated shot.
+      imageUrl:
+        (selectedStyle
+          ? images.find((img) => img.styleTags.includes(selectedStyle))?.url
+          : undefined) ??
+        images[0]?.url ??
+        null,
       options: selected,
     });
     trackAddToCart(
@@ -155,7 +161,7 @@ export function ProductDetailClient({
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="relative aspect-square overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--muted)]">
+        <div className="relative aspect-square overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--product-surface)]">
           {current?.kind === "video" ? (
             <video
               key={current.url}
@@ -187,7 +193,7 @@ export function ProductDetailClient({
               <button
                 key={slide.kind === "video" ? `video-${slide.url}` : `img-${slide.id}`}
                 onClick={() => setActiveSlide(i)}
-                className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border-2 bg-[var(--muted)] ${
+                className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border-2 bg-[var(--product-surface)] ${
                   i === activeSlide
                     ? "border-[var(--primary)]"
                     : "border-transparent"

@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// Relative, not "@/lib/routes": Next.js require()s this config before the app's
+// path aliases exist. The module is kept dependency-free for the same reason.
+import { REDIRECTS, assertRedirectsAreResolvable } from "./src/lib/routes";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,16 +13,16 @@ const nextConfig: NextConfig = {
   // and one less framework-fingerprint exposed.
   poweredByHeader: false,
 
+  // Sourced from src/lib/routes.ts so the redirects and the canonical paths the
+  // app links to can never disagree. Validated here rather than at import time
+  // so a bad row surfaces as a build failure with a readable message.
   async redirects() {
-    return [
-      // Stale Google-indexed URLs for products that were renamed or removed.
-      // 301 so Google deindexes the old path and transfers link equity.
-      {
-        source: "/products/coquette-y2k-floral-magsafe-case-for-iphone-17-w-grip",
-        destination: "/products",
-        permanent: true,
-      },
-    ];
+    assertRedirectsAreResolvable(REDIRECTS);
+    return REDIRECTS.map(({ source, destination, permanent }) => ({
+      source,
+      destination,
+      permanent,
+    }));
   },
 
   // Pin the workspace root so Next.js doesn't pick up an unrelated lockfile
@@ -49,7 +52,15 @@ const nextConfig: NextConfig = {
   // analyse them. We don't use them (we use the Drizzle adapter), so we opt
   // better-auth out of bundling entirely — it will be loaded at runtime via
   // native Node require instead.
-  serverExternalPackages: ["better-auth", "kysely", "@better-auth/kysely-adapter"],
+  // `sharp` is a native module used by the thumbnail-normalization server
+  // actions; keep it external so the bundler loads it via native require
+  // instead of trying to bundle the platform binary.
+  serverExternalPackages: [
+    "better-auth",
+    "kysely",
+    "@better-auth/kysely-adapter",
+    "sharp",
+  ],
 
   images: {
     // Product images are already optimised to WebP at ingest time and served

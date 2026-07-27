@@ -102,7 +102,7 @@ export default async function CheckoutSuccessPage({
             <ul className="space-y-3">
               {order.items.map((item) => (
                 <li key={item.id} className="flex items-center gap-3">
-                  <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)]">
+                  <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--product-surface)]">
                     {item.imageUrl && (
                       <Image
                         src={item.imageUrl}

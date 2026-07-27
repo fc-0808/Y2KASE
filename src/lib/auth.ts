@@ -64,13 +64,42 @@ export const auth = betterAuth({
     },
   },
 
-  // ── email + password (admin login) ───────────────────────────────────────
+  // ── email + password (admin login only) ──────────────────────────────────
   emailAndPassword: {
     enabled: true,
-    // Disable public self-registration — admin creates their account via the
-    // CLI seed script; customers use OAuth or magic link only.
     autoSignIn: true,
+    /**
+     * Close public self-registration. Customers sign in with OAuth or a magic
+     * link; the only password account is the owner's, created by
+     * `npm run seed:admin`, which writes the rows directly instead of calling
+     * this route.
+     *
+     * Without this, POST /api/auth/sign-up/email accepted anyone. Beyond the
+     * junk-account problem, an open password sign-up is the setup for a
+     * pre-registration hijack: register victim@example.com first, wait for the
+     * real owner to arrive via Google, and hope the provider gets linked into
+     * the account you control. Better Auth's `requireLocalEmailVerified`
+     * default already blocks that link — this removes the first step entirely.
+     */
+    disableSignUp: true,
   },
+
+  /**
+   * ── account linking ───────────────────────────────────────────────────────
+   * Deliberately left unconfigured, because Better Auth's defaults are the
+   * strict ones and every knob here only loosens them.
+   *
+   * The default requires BOTH that the provider reports a verified email AND
+   * that the existing local user is already verified before it will attach a
+   * new provider to an existing account. Adding `trustedProviders: ["google"]`
+   * would waive the first check; `requireLocalEmailVerified: false` waives the
+   * second and re-opens the hijack path described above. Neither buys us
+   * anything: Google always reports verification for the accounts we accept,
+   * and our own users become verified through magic link or OAuth sign-up.
+   *
+   * If a legitimate user ever hits `account_not_linked`, the fix is to verify
+   * their email — not to relax this.
+   */
 
   // ── social OAuth ──────────────────────────────────────────────────────────
   socialProviders: {

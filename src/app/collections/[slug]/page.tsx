@@ -73,7 +73,7 @@ export default async function CollectionPage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-6 sm:px-6 sm:py-8">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -93,7 +93,7 @@ export default async function CollectionPage({
         ]}
       />
       {/* Breadcrumb */}
-      <nav className="mb-6 flex flex-wrap items-center gap-1 text-sm text-[var(--foreground)]/55">
+      <nav className="mb-4 flex flex-wrap items-center gap-1 text-sm text-[var(--foreground)]/55 sm:mb-5">
         <Link href="/collections" className="hover:text-[var(--primary)]">
           Collections
         </Link>
@@ -116,31 +116,28 @@ export default async function CollectionPage({
         ))}
       </nav>
 
-      {/* Hero */}
+      {/*
+        Hero — intentionally icon-free. The decorative emoji tile previously sat
+        in a 64px flex row that set the header's minimum height on every device;
+        dropping it lets the title/count/description stack in their natural
+        height and pulls the product grid ~70px further up the fold on mobile.
+        `collection.icon` is still carried by the data model and used for the
+        sub-collection pills and the empty state below.
+      */}
       <header
-        className="mb-8 overflow-hidden rounded-3xl border border-[var(--border)] p-8 sm:p-10"
+        className="mb-5 overflow-hidden rounded-2xl border border-[var(--border)] px-5 py-4 sm:mb-6 sm:rounded-3xl sm:px-7 sm:py-6"
         style={{
           background: `linear-gradient(135deg, ${accent}1f, transparent 70%)`,
         }}
       >
-        <div className="flex items-center gap-4">
-          {collection.icon && (
-            <span
-              className="grid h-16 w-16 place-items-center rounded-3xl text-4xl"
-              style={{ background: `${accent}33` }}
-            >
-              {collection.icon}
-            </span>
-          )}
-          <div>
-            <h1 className="text-3xl font-black sm:text-4xl">{collection.name}</h1>
-            <p className="mt-1 text-sm font-semibold text-[var(--foreground)]/50">
-              {total} product{total === 1 ? "" : "s"}
-            </p>
-          </div>
-        </div>
+        <h1 className="text-2xl font-black sm:text-3xl lg:text-4xl">
+          {collection.name}
+        </h1>
+        <p className="mt-1 text-sm font-semibold text-[var(--foreground)]/50">
+          {total} product{total === 1 ? "" : "s"}
+        </p>
         {collection.description && (
-          <p className="mt-4 max-w-2xl text-[var(--foreground)]/70">
+          <p className="mt-2 max-w-2xl text-sm text-[var(--foreground)]/70 sm:text-base">
             {collection.description}
           </p>
         )}
@@ -148,7 +145,7 @@ export default async function CollectionPage({
 
       {/* Sub-collections */}
       {children.length > 0 && (
-        <section className="mb-8">
+        <section className="mb-5 sm:mb-6">
           <div className="flex flex-wrap gap-2">
             {children.map((c) => (
               <Link

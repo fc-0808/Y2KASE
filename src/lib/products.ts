@@ -17,6 +17,7 @@ import type { ProductWithRelations } from "@/lib/db/schema";
 import {
   MODEL_OPTION_NAME,
   STYLE_OPTION_NAME,
+  getBasePrice,
   orderModels,
   orderStyles,
 } from "@/lib/pricing";
@@ -24,6 +25,27 @@ import { productTypeLabel } from "@/lib/catalog/product-types";
 import { deviceProductTypes } from "@/lib/catalog/devices";
 import { resolveCollectionFilterIds } from "@/lib/collections";
 import { getReviewSummaries } from "@/lib/reviews";
+
+/**
+ * The "from" price shown on listing cards / rails.
+ *
+ * iPhone cases are priced LIVE by Style (see `@/lib/pricing`), so their entry
+ * price is the canonical base ("Case Only") from the pricing table — NOT the
+ * value stored on `products.price` (which is only a snapshot from ingest time).
+ * Deriving it here keeps every card in lock-step with the product page and the
+ * cart without needing a DB backfill. All other product types keep their stored
+ * price, which is authoritative for them (and honours per-product overrides).
+ */
+function listingPriceFor(
+  productType: string,
+  storedPrice: string,
+  currency: string,
+): string {
+  if (productType === "iphone_case") {
+    return getBasePrice(currency).toFixed(2);
+  }
+  return storedPrice;
+}
 
 /** Attach published-review summaries to a list of products for card star ratings. */
 async function withRatings(
@@ -53,6 +75,12 @@ export type ProductListItem = {
 
 const PAGE_SIZE = 24;
 
+/**
+ * Tag that marks a product as MagSafe-compatible. Written by the AI
+ * classification step and the single source of truth for the MagSafe facet.
+ */
+export const MAGSAFE_TAG = "magsafe";
+
 export type ProductQuery = {
   search?: string;
   tag?: string;
@@ -60,6 +88,12 @@ export type ProductQuery = {
   device?: string;
   /** Collection slug — matches the collection and all of its descendants. */
   collection?: string;
+  /**
+   * MagSafe compatibility facet: `true` = MagSafe only, `false` = non-MagSafe
+   * only, `undefined` = no filter. Modelled as a tri-state boolean rather than
+   * a tag string so the negated ("Non-MagSafe") case is expressible.
+   */
+  magsafe?: boolean;
   page?: number;
   sort?: "newest" | "price-asc" | "price-desc";
 };
@@ -88,6 +122,16 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
   }
   if (query.tag) {
     filters.push(sql`${query.tag} = ANY(${products.tags})`);
+  }
+
+  // MagSafe facet. `tags` is NOT NULL DEFAULT '{}', so the negated form is safe
+  // — there are no NULL arrays that would silently drop out of `NOT (… = ANY)`.
+  if (query.magsafe !== undefined) {
+    filters.push(
+      query.magsafe
+        ? sql`${MAGSAFE_TAG} = ANY(${products.tags})`
+        : sql`NOT (${MAGSAFE_TAG} = ANY(${products.tags}))`,
+    );
   }
 
   // Device filter → restrict to the device's product type(s).
@@ -144,17 +188,7 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
     .from(products)
     .where(where);
 
-  const items: ProductListItem[] = rows.map((p) => ({
-    id: p.id,
-    slug: p.slug,
-    title: p.title,
-    price: p.price,
-    compareAtPrice: p.compareAtPrice,
-    currency: p.currency,
-    tags: p.tags,
-    featured: p.featured,
-    imageUrl: p.images[0]?.url ?? null,
-  }));
+  const items: ProductListItem[] = rows.map(toListItem);
 
   return {
     items: await withRatings(items),
@@ -522,7 +556,7 @@ export async function getAdminProductOverviews(): Promise<
       availableStyles: orderStyles(styleOpt?.values ?? []),
       availableModels: orderModels(modelOpt?.values ?? []),
       collectionIds: p.collections.map((c) => c.collectionId),
-      isMagsafe: (p.tags ?? []).includes("magsafe"),
+      isMagsafe: (p.tags ?? []).includes(MAGSAFE_TAG),
       needsMagsafeReview: p.needsMagsafeReview,
     };
   });
@@ -643,6 +677,7 @@ function toListItem(p: {
   price: string;
   compareAtPrice: string | null;
   currency: string;
+  productType: string;
   tags: string[];
   featured: boolean;
   images: { url: string }[];
@@ -651,7 +686,7 @@ function toListItem(p: {
     id: p.id,
     slug: p.slug,
     title: p.title,
-    price: p.price,
+    price: listingPriceFor(p.productType, p.price, p.currency),
     compareAtPrice: p.compareAtPrice,
     currency: p.currency,
     tags: p.tags,

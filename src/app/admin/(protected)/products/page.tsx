@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { getAdminProductOverviews } from "@/lib/products";
 import { getAdminCollectionOptions } from "@/lib/collections";
 import { db, isDbConfigured } from "@/lib/db";
-import { products as productsTable } from "@/lib/db/schema";
+import { products as productsTable, thumbnailProposals } from "@/lib/db/schema";
 import { ProductsConsole } from "./ProductsConsole";
 
 export const metadata: Metadata = { title: "Admin · Products" };
@@ -28,14 +28,19 @@ export default async function AdminProductsPage({
     );
   }
 
-  const [products, collectionOptions, magsafeReview] = await Promise.all([
-    getAdminProductOverviews(),
-    getAdminCollectionOptions(),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(productsTable)
-      .where(eq(productsTable.needsMagsafeReview, true)),
-  ]);
+  const [products, collectionOptions, magsafeReview, thumbnailReview] =
+    await Promise.all([
+      getAdminProductOverviews(),
+      getAdminCollectionOptions(),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(productsTable)
+        .where(eq(productsTable.needsMagsafeReview, true)),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(thumbnailProposals)
+        .where(eq(thumbnailProposals.status, "proposed")),
+    ]);
 
   return (
     <ProductsConsole
@@ -43,6 +48,7 @@ export default async function AdminProductsPage({
       collectionOptions={collectionOptions}
       initialCollectionId={initialCollectionId}
       magsafeReviewCount={magsafeReview[0]?.count ?? 0}
+      thumbnailReviewCount={thumbnailReview[0]?.count ?? 0}
     />
   );
 }

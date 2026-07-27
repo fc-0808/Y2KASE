@@ -44,6 +44,10 @@ next-env.d.ts
 # local catalog database (contains product data, keep out of git)
 /data/
 
+# Local-only thumbnail normalization review output (before/after previews +
+# contact sheet). Regenerated on demand; never shipped.
+/normalized-thumbnails/
+
 # Local-only ingest assets — NOT needed by the deployed app (it reads from
 # Neon + Cloudflare R2). Keep these multi-GB folders out of the repo.
 /bestListings/

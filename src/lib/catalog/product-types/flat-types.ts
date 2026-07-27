@@ -22,8 +22,8 @@ import type { ProductTypeConfig, ProductTypeId } from "../types";
  */
 const USD_BASE: Record<string, number> = {
   airpod_case: 16.99,
-  samsung_case: 18.49,
-  pixel_case: 18.49,
+  samsung_case: 24.99,
+  pixel_case: 24.99,
   ipad_case: 26.99,
   macbook_case: 32.99,
   kindle_case: 21.99,

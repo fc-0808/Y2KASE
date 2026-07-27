@@ -6,20 +6,41 @@
  *
  * Usage: prompts for email + password, or use env vars:
  *   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD=... npm run seed:admin
+ *
+ * The rows are written directly rather than through `auth.api.signUpEmail()`,
+ * for two reasons:
+ *
+ *  1. Public email/password registration is disabled (see `disableSignUp` in
+ *     src/lib/auth.ts). Going through the sign-up route would mean leaving an
+ *     open registration endpoint on the internet purely so a one-off setup
+ *     script could work. Better Auth's password hashing is still the single
+ *     source of truth — we borrow it from `auth.$context`.
+ *
+ *  2. The sign-up route marks new accounts `emailVerified: false`. Better Auth
+ *     refuses to link an OAuth provider into an unverified local account (an
+ *     anti-hijacking rule), so a seeded admin could never later sign in with
+ *     Google — it failed with `account_not_linked`. We own this mailbox by
+ *     definition, so the seeded row is created verified.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
+import { randomBytes } from "node:crypto";
+import { createInterface } from "node:readline/promises";
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { eq } from "drizzle-orm";
 import * as schema from "../src/lib/db/schema";
-import { createInterface } from "node:readline/promises";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing required env var: ${name}`);
   return v;
+}
+
+/** 32-char id, matching the format Better Auth generates for its own rows. */
+function generateId(): string {
+  return randomBytes(16).toString("hex");
 }
 
 async function prompt(question: string): Promise<string> {
@@ -33,17 +54,18 @@ async function main() {
   const databaseUrl = requireEnv("DATABASE_URL");
   const db = drizzle(neon(databaseUrl), { schema });
 
-  const email =
-    process.env.ADMIN_EMAIL || (await prompt("Admin email: "));
+  const rawEmail = process.env.ADMIN_EMAIL || (await prompt("Admin email: "));
   const password =
-    process.env.ADMIN_PASSWORD || (await prompt("Admin password (min 8 chars): "));
+    process.env.ADMIN_PASSWORD ||
+    (await prompt("Admin password (min 8 chars): "));
+  const email = rawEmail.toLowerCase();
 
   if (!email || !password || password.length < 8) {
     throw new Error("Email and password (min 8 chars) are required.");
   }
 
   const existing = await db.query.users.findFirst({
-    where: eq(schema.users.email, email.toLowerCase()),
+    where: eq(schema.users.email, email),
     columns: { id: true, role: true },
   });
 
@@ -55,29 +77,40 @@ async function main() {
     await db
       .update(schema.users)
       .set({ role: "admin", updatedAt: new Date() })
-      .where(eq(schema.users.email, email.toLowerCase()));
+      .where(eq(schema.users.email, email));
     console.log(`✓ Updated existing user to admin: ${email}`);
     return;
   }
 
-  // Use Better Auth's internal API to create a user with proper password hashing.
-  // Import auth here to avoid circular deps — it lazy-loads the DB.
+  // Borrow Better Auth's configured hasher so the stored credential is byte-for
+  // byte what its own sign-in route will verify against.
   const { auth } = await import("../src/lib/auth");
+  const ctx = await auth.$context;
+  const passwordHash = await ctx.password.hash(password);
 
-  const result = await auth.api.signUpEmail({
-    body: { email, password, name: "Admin" },
+  const userId = generateId();
+
+  await db.insert(schema.users).values({
+    id: userId,
+    name: "Admin",
+    email,
+    emailVerified: true,
+    role: "admin",
+    isAnonymous: false,
   });
 
-  if (result?.user) {
-    await db
-      .update(schema.users)
-      .set({ role: "admin", updatedAt: new Date() })
-      .where(eq(schema.users.email, email.toLowerCase()));
-    console.log(`✓ Admin user created: ${email}`);
-    console.log(`  Sign in at: http://localhost:3000/admin/sign-in`);
-  } else {
-    throw new Error("Failed to create admin user via Better Auth.");
-  }
+  // Better Auth models an email/password credential as an account row whose
+  // providerId is "credential" and whose accountId mirrors the user id.
+  await db.insert(schema.accounts).values({
+    id: generateId(),
+    accountId: userId,
+    providerId: "credential",
+    userId,
+    password: passwordHash,
+  });
+
+  console.log(`✓ Admin user created: ${email}`);
+  console.log(`  Sign in at: http://localhost:3000/admin/sign-in`);
 }
 
 main().catch((err) => {

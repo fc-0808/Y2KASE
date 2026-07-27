@@ -20,9 +20,18 @@ type SearchParams = {
   tag?: string;
   device?: string;
   collection?: string;
+  /** "true" = MagSafe only, "false" = non-MagSafe only, absent = both. */
+  magsafe?: string;
   page?: string;
   sort?: SortValue;
 };
+
+/** Parse the tri-state MagSafe facet, ignoring anything that isn't true/false. */
+function parseMagsafe(value: string | undefined): boolean | undefined {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
+}
 
 /** Merge current params with overrides into a /products URL (undefined drops a key). */
 function buildHrefStatic(
@@ -35,6 +44,7 @@ function buildHrefStatic(
   if (merged.tag) params.set("tag", merged.tag);
   if (merged.device) params.set("device", merged.device);
   if (merged.collection) params.set("collection", merged.collection);
+  if (merged.magsafe) params.set("magsafe", merged.magsafe);
   if (merged.sort) params.set("sort", merged.sort);
   if (merged.page && merged.page !== "1") params.set("page", merged.page);
   const qs = params.toString();
@@ -64,6 +74,9 @@ export default async function ProductsPage({
 }) {
   const sp = await searchParams;
   const page = Number(sp.page ?? "1") || 1;
+  const magsafe = parseMagsafe(sp.magsafe);
+  const magsafeLabel =
+    magsafe === true ? "MagSafe" : magsafe === false ? "Non-MagSafe" : null;
 
   const [{ items, total, pageSize }, tags, activeCollection] =
     await Promise.all([
@@ -72,6 +85,7 @@ export default async function ProductsPage({
         tag: sp.tag,
         device: sp.device,
         collection: sp.collection,
+        magsafe,
         page,
         sort: sp.sort,
       }),
@@ -101,6 +115,11 @@ export default async function ProductsPage({
       label: sp.tag.replace(/_/g, " "),
       clearHref: buildHrefStatic(sp, { tag: undefined, page: undefined }),
     });
+  if (magsafeLabel)
+    activeFilters.push({
+      label: magsafeLabel,
+      clearHref: buildHrefStatic(sp, { magsafe: undefined, page: undefined }),
+    });
   if (sp.q)
     activeFilters.push({
       label: `“${sp.q}”`,
@@ -111,21 +130,25 @@ export default async function ProductsPage({
     ? `${activeDevice.label} cases`
     : activeCollection
       ? activeCollection.name
-      : sp.tag
-        ? sp.tag.replace(/_/g, " ")
-        : sp.q
-          ? `Results for “${sp.q}”`
-          : "Shop All";
+      : magsafeLabel
+        ? `${magsafeLabel} cases`
+        : sp.tag
+          ? sp.tag.replace(/_/g, " ")
+          : sp.q
+            ? `Results for “${sp.q}”`
+            : "Shop All";
 
   const eyebrow = activeDevice
     ? "Shop by device"
     : activeCollection
       ? "Collection"
-      : sp.tag
-        ? "Tagged"
-        : sp.q
-          ? "Search results"
-          : "Browse the shop";
+      : magsafeLabel
+        ? "Shop by compatibility"
+        : sp.tag
+          ? "Tagged"
+          : sp.q
+            ? "Search results"
+            : "Browse the shop";
 
   const subtitle = sp.q
     ? `We found ${total} match${total === 1 ? "" : "es"} for your search.`

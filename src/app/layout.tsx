@@ -6,6 +6,11 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Footer } from "@/components/Footer";
 import { CartDrawer } from "@/components/CartDrawer";
 import { EmailCapturePopLoader } from "@/components/EmailCapturePopLoader";
+import { SupportWidgetLoader } from "@/components/support/SupportWidgetLoader";
+import { StorefrontOnly } from "@/components/StorefrontOnly";
+import { CheckoutFlowOnly } from "@/components/CheckoutFlowOnly";
+import { CheckoutHeader } from "@/components/checkout/CheckoutHeader";
+import { CheckoutFooter } from "@/components/checkout/CheckoutFooter";
 import { VisitorTracker } from "@/components/VisitorTracker";
 import { JsonLd } from "@/components/JsonLd";
 import { ConsentMode } from "@/components/analytics/ConsentMode";
@@ -130,11 +135,25 @@ export default function RootLayout({
       <body className="flex min-h-dvh flex-col">
         <ConsentMode />
         <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
-        <SiteHeader />
+        {/* Storefront chrome is suppressed on /admin (own shell) and inside the
+            checkout funnel (/cart, /checkout/*), which gets the minimal,
+            distraction-free header/footer below instead. */}
+        <StorefrontOnly>
+          <SiteHeader />
+        </StorefrontOnly>
+        <CheckoutFlowOnly>
+          <CheckoutHeader />
+        </CheckoutFlowOnly>
         <main className="flex-1">{children}</main>
-        <Footer />
-        <CartDrawer />
-        <EmailCapturePopLoader />
+        <StorefrontOnly>
+          <Footer />
+          <CartDrawer />
+          <EmailCapturePopLoader />
+          <SupportWidgetLoader />
+        </StorefrontOnly>
+        <CheckoutFlowOnly>
+          <CheckoutFooter />
+        </CheckoutFlowOnly>
         <Analytics />
         <VisitorTracker />
         <GoogleAnalytics />

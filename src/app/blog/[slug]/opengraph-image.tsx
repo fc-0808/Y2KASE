@@ -1,4 +1,4 @@
-import { getPost } from "@/lib/blog";
+import { getPublishedPost } from "@/lib/blog";
 import { renderOgImage, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export default async function Image({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const post = getPost(slug);
+  const post = await getPublishedPost(slug);
 
   if (!post) {
     return renderOgImage({ eyebrow: "The Y2KASE Edit", title: "Blog" });

@@ -76,9 +76,16 @@ export async function POST(request: NextRequest) {
         const session = event.data.object;
         const orderId = orderIdFrom(session);
         if (orderId) {
+          // Capture any contact details the shopper entered before leaving so
+          // the admin console and abandoned-cart recovery still have a name to
+          // work with — Stripe often has the email even on an expired session.
           await db
             .update(orders)
-            .set({ status: "cancelled", updatedAt: new Date() })
+            .set({
+              status: "cancelled",
+              ...contactFrom(session),
+              updatedAt: new Date(),
+            })
             .where(eq(orders.id, orderId));
         }
         break;
@@ -103,6 +110,40 @@ function orderIdFrom(session: Stripe.Checkout.Session): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+/**
+ * Extract the customer contact + shipping details Stripe collected on a session.
+ * Only present keys are returned, so spreading this into a Drizzle `.set()` never
+ * clobbers existing data with `undefined` (Drizzle omits undefined fields).
+ */
+function contactFrom(session: Stripe.Checkout.Session): {
+  email?: string;
+  shippingAddress?: NonNullable<(typeof orders.$inferInsert)["shippingAddress"]>;
+} {
+  const patch: {
+    email?: string;
+    shippingAddress?: NonNullable<(typeof orders.$inferInsert)["shippingAddress"]>;
+  } = {};
+
+  const email = session.customer_details?.email ?? session.customer_email;
+  if (email) patch.email = email;
+
+  const shipping = session.collected_information?.shipping_details ?? null;
+  const address = shipping?.address;
+  if (address) {
+    patch.shippingAddress = {
+      name: shipping?.name ?? session.customer_details?.name ?? "",
+      line1: address.line1 ?? "",
+      line2: address.line2 ?? undefined,
+      city: address.city ?? "",
+      state: address.state ?? undefined,
+      postalCode: address.postal_code ?? "",
+      country: address.country ?? "",
+    };
+  }
+
+  return patch;
+}
+
 /** Idempotently mark an order paid + capture the address and payment intent. */
 async function markOrderPaid(session: Stripe.Checkout.Session) {
   const orderId = orderIdFrom(session);
@@ -111,34 +152,15 @@ async function markOrderPaid(session: Stripe.Checkout.Session) {
     return;
   }
 
-  const shipping = session.collected_information?.shipping_details ?? null;
-  const address = shipping?.address;
-
   await db
     .update(orders)
     .set({
       status: "paid",
-      email:
-        session.customer_details?.email ??
-        session.customer_email ??
-        undefined,
+      ...contactFrom(session),
       stripePaymentIntentId:
         typeof session.payment_intent === "string"
           ? session.payment_intent
           : (session.payment_intent?.id ?? null),
-      ...(address
-        ? {
-            shippingAddress: {
-              name: shipping?.name ?? session.customer_details?.name ?? "",
-              line1: address.line1 ?? "",
-              line2: address.line2 ?? undefined,
-              city: address.city ?? "",
-              state: address.state ?? undefined,
-              postalCode: address.postal_code ?? "",
-              country: address.country ?? "",
-            },
-          }
-        : {}),
       updatedAt: new Date(),
     })
     .where(eq(orders.id, orderId));

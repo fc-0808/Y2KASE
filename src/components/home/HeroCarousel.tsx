@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { ROUTES } from "@/lib/routes";
 
 type Slide = {
   image: string;
@@ -43,6 +44,22 @@ const SLIDES: Slide[] = [
       "Kawaii, Y2K & holographic phone cases — designed to make every glance a little cuter.",
     cta: { label: "Shop the collection", href: "/products" },
     secondary: { label: "Browse characters", href: "/collections" },
+    align: "left",
+  },
+  {
+    image: "/brand/hero-3.webp",
+    eyebrow: "Bundle & save 🎁",
+    title: (
+      <>
+        Buy 2,
+        <br />
+        get <span className="text-holo">2 free</span>.
+      </>
+    ),
+    subtitle:
+      "Add any 4 cases, grips or charms to your bag — the 2 cheapest are on us. Automatically.",
+    cta: { label: "Start your bundle", href: "/products" },
+    secondary: { label: "How it works", href: ROUTES.welcomeGift },
     align: "left",
   },
   {

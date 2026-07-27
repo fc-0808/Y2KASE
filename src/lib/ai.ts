@@ -357,6 +357,141 @@ export async function classifyImageStyles(
   return result;
 }
 
+/** How an image reads for use as a storefront grid thumbnail. */
+export type ThumbnailCategory =
+  | "clean_product" // product only, plain/simple background — ideal
+  | "hand_held" // a hand is holding the product
+  | "has_props" // extra objects: cards, packaging, plates, decor
+  | "lifestyle" // in-context / scene shot
+  | "busy"; // cluttered or hard to isolate the product
+
+export type ThumbnailScore = {
+  /** 0–1 suitability as a clean catalog thumbnail (higher = better). */
+  score: number;
+  category: ThumbnailCategory;
+  /** True only for a product-only shot with no hands/props/scene. */
+  cleanProductShot: boolean;
+  /** Short human-readable justification for the review sheet. */
+  reason: string;
+};
+
+export type ThumbnailSuitability = Record<string, ThumbnailScore>;
+
+const THUMB_CATEGORIES = new Set<ThumbnailCategory>([
+  "clean_product",
+  "hand_held",
+  "has_props",
+  "lifestyle",
+  "busy",
+]);
+
+const THUMBNAIL_SCORE_PROMPT = `You are curating hero thumbnails for an e-commerce grid (like Amazon/CASETiFY).
+For EACH image (identified by its filename key), judge how well it works as a clean product THUMBNAIL.
+
+STEP 1 — HANDS FIRST (most important). Look very carefully for ANY human body part:
+fingers, a fingernail, a thumb, a palm, a hand, a wrist, an arm, or a person
+holding or touching the product. Phone-case photos are very often shot held in a
+hand — do not overlook it just because the product looks nice.
+• If ANY human hand/finger/arm is visible (even partially, even just fingertips
+  at an edge): category = "hand_held", score MUST be <= 0.2, cleanProductShot = false.
+  This overrides everything else — a beautiful product held in a hand is STILL 0.2.
+
+STEP 2 — only for images with NO human body part, score the rest:
+- "clean_product" (0.8–1.0): ONE product, well framed, on a plain/simple/neutral
+  or transparent background, no hands, no props, sharp and fully visible.
+- "has_props" (0.3–0.6): extra objects — cards, packaging, plates, decor, other items.
+- "lifestyle" (0.2–0.5): an in-context / staged scene.
+- "busy" (0.0–0.3): cluttered, or the product is hard to make out.
+
+Be strict: when unsure whether something is a finger/hand, assume it IS and use "hand_held".
+
+Return STRICT JSON keyed by each filename:
+{ "<filename>": { "score": number, "category": "clean_product|hand_held|has_props|lifestyle|busy", "cleanProductShot": boolean, "reason": string }, ... }
+The reason should name what you saw (e.g. "hand holding case", "clean product on white"). No markdown.`;
+
+/**
+ * Score each supplied image for use as a storefront grid thumbnail.
+ *
+ * This is the SELECTION half of thumbnail normalization: because background
+ * removal cannot strip a hand that is holding the product (the hand is the
+ * segmented foreground), the durable fix is to pick each product's cleanest
+ * existing shot as the hero. Runs on the same cheap gpt-4o-mini vision path as
+ * the other classifiers; a failed batch degrades to score 0 (never selected)
+ * rather than failing the run.
+ *
+ * @param items filename key (unique per image) + image as https URL or data URL
+ */
+export async function classifyThumbnailSuitability(
+  items: { filename: string; imageUrl: string }[],
+): Promise<ThumbnailSuitability> {
+  if (items.length === 0) return {};
+
+  const { client, model } = visionClient();
+  const result: ThumbnailSuitability = {};
+
+  const BATCH = 6;
+  for (let i = 0; i < items.length; i += BATCH) {
+    const batch = items.slice(i, i + BATCH);
+    const fileList = batch.map((b) => b.filename).join(", ");
+
+    let parsed: Record<string, unknown> = {};
+    try {
+      const raw = await visionJsonCompletion(
+        client,
+        model,
+        [
+          { role: "system", content: THUMBNAIL_SCORE_PROMPT },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Score these images as thumbnails. Filenames: ${fileList}. Return JSON keyed by each filename.`,
+              },
+              ...batch.map((item) => ({
+                type: "image_url" as const,
+                image_url: { url: item.imageUrl, detail: "low" as const },
+              })),
+            ],
+          },
+        ],
+        0.2,
+      );
+      parsed = parseJsonObject(raw) ?? {};
+    } catch {
+      parsed = {};
+    }
+
+    for (const item of batch) {
+      result[item.filename] = coerceThumbnailScore(parsed[item.filename]);
+    }
+  }
+
+  return result;
+}
+
+/** Normalize an untrusted model result into a safe ThumbnailScore. */
+function coerceThumbnailScore(raw: unknown): ThumbnailScore {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const rawScore = typeof o.score === "number" ? o.score : 0;
+  const score = Math.max(0, Math.min(1, rawScore));
+  const category: ThumbnailCategory = THUMB_CATEGORIES.has(
+    o.category as ThumbnailCategory,
+  )
+    ? (o.category as ThumbnailCategory)
+    : "busy";
+  return {
+    score,
+    category,
+    cleanProductShot:
+      o.cleanProductShot === true || category === "clean_product",
+    reason: typeof o.reason === "string" ? o.reason.slice(0, 160) : "",
+  };
+}
+
 export function slugify(input: string): string {
   return input
     .toLowerCase()

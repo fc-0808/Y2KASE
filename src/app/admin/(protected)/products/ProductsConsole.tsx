@@ -23,6 +23,7 @@ import {
   FolderTree,
   CopyCheck,
   Magnet,
+  Image as ImageIcon,
 } from "lucide-react";
 import { IPHONE_GENERATIONS, summarizeModels } from "@/lib/pricing";
 import type { AdminProductOverview } from "@/lib/products";
@@ -64,11 +65,13 @@ export function ProductsConsole({
   collectionOptions,
   initialCollectionId,
   magsafeReviewCount = 0,
+  thumbnailReviewCount = 0,
 }: {
   products: AdminProductOverview[];
   collectionOptions: AdminCollectionOption[];
   initialCollectionId?: number;
   magsafeReviewCount?: number;
+  thumbnailReviewCount?: number;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -345,6 +348,17 @@ export function ProductsConsole({
               </span>
             </Link>
           )}
+          <Link
+            href="/admin/products/thumbnails"
+            className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1 font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            <ImageIcon className="h-4 w-4" /> Thumbnails
+            {thumbnailReviewCount > 0 && (
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--primary)] px-1 text-[11px] text-white">
+                {thumbnailReviewCount}
+              </span>
+            )}
+          </Link>
           <Link
             href="/admin/products/duplicates"
             className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1 font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"

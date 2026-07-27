@@ -49,6 +49,8 @@ export default async function AdminDashboardPage() {
     await Promise.all([
       getOrderStats().catch(() => ({
         total: 0,
+        ordersCount: 0,
+        incomplete: 0,
         pending: 0,
         paid: 0,
         shipped: 0,
@@ -91,9 +93,15 @@ export default async function AdminDashboardPage() {
       accent: "text-emerald-600",
     },
     {
+      // "Orders" = real orders (a Stripe payment intent exists), matching the
+      // Orders page "All" tab and the recent-orders list below. `total` also
+      // counts incomplete/abandoned checkouts, which would overstate the count.
       label: "Orders",
-      value: String(orderStats.total),
-      sub: `${orderStats.pending} pending · ${orderStats.paid} paid`,
+      value: String(orderStats.ordersCount),
+      sub:
+        orderStats.incomplete > 0
+          ? `${orderStats.pending} pending · ${orderStats.incomplete} incomplete`
+          : `${orderStats.pending} pending · ${orderStats.paid} paid`,
       href: "/admin/orders",
       accent: "text-pink-600",
     },
@@ -128,9 +136,9 @@ export default async function AdminDashboardPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-black">Dashboard</h1>
+    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl font-black sm:text-3xl">Dashboard</h1>
         <p className="mt-1 text-sm text-[var(--foreground)]/60">
           A live overview of your store — revenue, orders, members and traffic.
         </p>
@@ -177,14 +185,16 @@ export default async function AdminDashboardPage() {
                 <li key={o.id}>
                   <Link
                     href={`/admin/orders/${o.id}`}
-                    className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--muted)]/40"
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--muted)]/40 sm:px-5"
                   >
-                    <span className="font-mono text-sm font-bold">#{o.id}</span>
+                    <span className="shrink-0 font-mono text-sm font-bold">
+                      #{o.id}
+                    </span>
                     <span className="min-w-0 flex-1 truncate text-sm text-[var(--foreground)]/70">
                       {o.email}
                     </span>
                     <StatusBadge status={o.status} />
-                    <span className="text-sm font-bold">
+                    <span className="shrink-0 text-sm font-bold tabular-nums">
                       {formatCents(o.totalCents, o.currency)}
                     </span>
                   </Link>
@@ -215,17 +225,22 @@ export default async function AdminDashboardPage() {
               {recentVisits.map((v) => (
                 <li
                   key={v.id}
-                  className="flex items-center gap-3 px-5 py-3 text-sm"
+                  className="flex flex-col gap-0.5 px-4 py-3 text-sm sm:flex-row sm:items-center sm:gap-3 sm:px-5"
                 >
                   <span className="min-w-0 flex-1 truncate font-mono text-[var(--foreground)]/70">
                     {v.path}
                   </span>
-                  <span className="text-[var(--foreground)]/50">
-                    {[v.city, v.country].filter(Boolean).join(", ") || "—"}
-                  </span>
-                  <span className="text-xs text-[var(--foreground)]/40">
-                    {timeAgo(v.createdAt)}
-                  </span>
+                  {/* On mobile these wrap to a second line and share a row;
+                      `sm:contents` dissolves the wrapper so they rejoin the
+                      main flex row on larger screens. */}
+                  <div className="flex items-center justify-between gap-2 sm:contents">
+                    <span className="text-xs text-[var(--foreground)]/50 sm:text-sm">
+                      {[v.city, v.country].filter(Boolean).join(", ") || "—"}
+                    </span>
+                    <span className="shrink-0 text-xs text-[var(--foreground)]/40">
+                      {timeAgo(v.createdAt)}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>

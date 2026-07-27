@@ -79,7 +79,16 @@ export async function GET(req: NextRequest) {
           continue;
         }
         if (sess.url && sess.status === "open") resumeUrl = sess.url;
-        email = email || sess.customer_details?.email || "";
+        const discovered = sess.customer_details?.email || "";
+        email = email || discovered;
+        // Backfill the email we just learned so the admin console shows a real
+        // customer instead of a blank cell while the order is still pending.
+        if (discovered && !order.email) {
+          await db
+            .update(orders)
+            .set({ email: discovered, updatedAt: new Date() })
+            .where(eq(orders.id, order.id));
+        }
       } catch {
         // Session lookup failed — fall back to the cart link.
       }

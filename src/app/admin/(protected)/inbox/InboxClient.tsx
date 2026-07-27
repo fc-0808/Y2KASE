@@ -135,8 +135,11 @@ function EmailPane({
   const [sending, setSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<"idle" | "ok" | "error">("idle");
 
-  // Reset composer when a different email is opened.
+  // Reset composer when a different email is opened. Resetting on prop change
+  // is the intent here; the tidier fix is a `key` on this component, which is
+  // a behaviour change best made on its own.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowReply(false);
     setReplyBody("");
     setSendStatus("idle");
@@ -358,6 +361,8 @@ export function InboxClient() {
   }, []);
 
   useEffect(() => {
+    // Initial fetch plus a poll — the effect IS the external subscription here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadEmails();
     // Auto-refresh every 60 seconds.
     const id = setInterval(loadEmails, 60_000);

@@ -1,9 +1,13 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
-import { getAllPosts, formatPostDate, readingMinutes } from "@/lib/blog";
+import { listPublishedPosts, formatPostDate, readingMinutes } from "@/lib/blog";
 import { JsonLd } from "@/components/JsonLd";
 import { absoluteUrl, breadcrumbJsonLd } from "@/lib/seo";
+
+// Refresh hourly so newly published (incl. AI-generated) posts appear without a
+// deploy, while still serving a cached, instant response to shoppers.
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: "The Y2KASE Edit — Blog",
@@ -19,8 +23,8 @@ export const metadata: Metadata = {
   },
 };
 
-export default function BlogIndexPage() {
-  const posts = getAllPosts();
+export default async function BlogIndexPage() {
+  const posts = await listPublishedPosts();
   const [featured, ...rest] = posts;
 
   return (

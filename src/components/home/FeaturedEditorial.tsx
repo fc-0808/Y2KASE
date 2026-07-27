@@ -8,6 +8,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { BUNDLE } from "@/lib/promotions";
 
 type Entry = {
   kicker: string;
@@ -33,10 +34,13 @@ const EDITORIAL: Entry[] = [
     href: "/collections/sanrio",
   },
   {
+    // The always-on bundle offer. Copy is derived from the promotions engine so
+    // this card, the announcement bar and the cart can never disagree about the
+    // deal — change `BUNDLE` and every surface updates.
     kicker: "03",
-    title: "Join the Club",
-    desc: "Member-only drops, perks & birthday gifts.",
-    image: "/brand/club.png",
+    title: BUNDLE.label,
+    desc: `Add any ${BUNDLE.groupSize} cases — the ${BUNDLE.freePerGroup} cheapest are on us.`,
+    image: "/brand/promo-bundle.webp",
     href: "/products",
   },
 ];
@@ -48,7 +52,6 @@ export function FeaturedEditorial() {
       {/* Tall hero card */}
       <EditorialCard
         entry={hero}
-        priority
         className="min-h-[22rem] lg:row-span-2 lg:min-h-full"
       />
       {rest.map((entry) => (
@@ -62,14 +65,14 @@ export function FeaturedEditorial() {
   );
 }
 
+// This block renders below the fold (after the full-viewport hero), so images
+// are intentionally lazy — preloading them would compete with the real LCP.
 function EditorialCard({
   entry,
   className = "",
-  priority = false,
 }: {
   entry: Entry;
   className?: string;
-  priority?: boolean;
 }) {
   return (
     <Link

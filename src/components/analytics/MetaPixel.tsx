@@ -59,7 +59,7 @@ function MetaPageviewTracker() {
 
   useEffect(() => {
     trackFbEvent("track", "PageView");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [pathname, searchParams]);
 
   return null;

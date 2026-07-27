@@ -2,10 +2,11 @@ import { Sparkle, PixelHeart } from "@/components/brand/Decor";
 
 const MESSAGES = [
   "Welcome to the Y2KASE Club, bestie!",
+  "Buy 2, Get 2 Free — add any 4 to your bag ✨",
   "Free shipping on orders over $35",
-  "Tag @y2kase.co for 15% off your next order",
+  "10% off with code BESTIE10",
+  "Tag @y2kase.co for a chance to be featured",
   "New holographic drops every week",
-  "Use code MYCHARM for a free charm at checkout",
 ];
 
 /**

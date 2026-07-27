@@ -7,10 +7,12 @@ import {
   getCollectionRail,
   type ProductListItem,
 } from "@/lib/products";
-import { getCollectionTree, getCollectionImagePools } from "@/lib/collections";
+import { getCollectionTree } from "@/lib/collections";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
+import { RAIL_HIDDEN_SLUGS } from "@/lib/catalog/collections-config";
+import { BUNDLE } from "@/lib/promotions";
+import { DEVICE_COVER_IDS, deviceCoverSrc } from "@/lib/brand/device-covers";
 import { ProductCard } from "@/components/ProductCard";
-import { DeviceIcon } from "@/components/brand/DeviceIcon";
 import { HeroCarousel } from "@/components/home/HeroCarousel";
 import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
@@ -30,22 +32,11 @@ export default async function HomePage() {
   const col = (slug: string) =>
     getCollectionRail(slug).catch(() => [] as ProductListItem[]);
 
-  const [
-    featured,
-    tree,
-    pools,
-    sanrioItems,
-    helloKittyItems,
-    myMelodyItems,
-    cinnamorollItems,
-  ] = await Promise.all([
+  const [featured, tree, sanrioItems, helloKittyItems] = await Promise.all([
     getFeaturedProducts(8),
     getCollectionTree().catch(() => []),
-    getCollectionImagePools().catch(() => new Map<number, string[]>()),
     col("sanrio"),
     col("hello-kitty"),
-    col("my-melody"),
-    col("cinnamoroll"),
   ]);
 
   // ── Global product de-duplication ────────────────────────────────────────
@@ -66,61 +57,29 @@ export default async function HomePage() {
   const helloKittyPicks = pickDistinct(helloKittyItems, 12);
   const sanrioPicks = pickDistinct(sanrioItems, 12);
 
-  // Club collage uses 3 DISTINCT real products from different characters.
-  const clubPicks: ProductListItem[] = [];
-  const clubSeen = new Set<number>();
-  for (const arr of [
-    helloKittyItems,
-    myMelodyItems,
-    cinnamorollItems,
-    sanrioItems,
-  ]) {
-    if (clubPicks.length >= 3) break;
-    const p = arr.find((x) => x.imageUrl && !clubSeen.has(x.id));
-    if (p) {
-      clubSeen.add(p.id);
-      clubPicks.push(p);
-    }
-  }
-
   // Flatten the taxonomy (roots + character children), stocked collections
-  // first. Keep each node's id so we can assign a representative photo.
-  const nodes: { id: number; cat: RailCategory }[] = [];
+  // first, de-duplicated by slug. Each tile renders as a branded cover, so no
+  // per-collection photo assignment is needed.
+  const cats: RailCategory[] = [];
   const seen = new Set<string>();
   for (const node of tree) {
     for (const n of [node, ...node.children]) {
-      if (seen.has(n.slug)) continue;
+      if (seen.has(n.slug) || RAIL_HIDDEN_SLUGS.has(n.slug)) continue;
       seen.add(n.slug);
-      nodes.push({
-        id: n.id,
-        cat: {
-          slug: n.slug,
-          name: n.name,
-          icon: n.icon,
-          accent: n.accentColor,
-          count: n.totalCount,
-          kind: n.kind,
-          thumb: null,
-        },
+      cats.push({
+        slug: n.slug,
+        name: n.name,
+        icon: n.icon,
+        accent: n.accentColor,
+        count: n.totalCount,
+        kind: n.kind,
       });
     }
   }
-  nodes.sort(
-    (a, b) =>
-      Number(b.cat.count > 0) - Number(a.cat.count > 0) ||
-      b.cat.count - a.cat.count,
+  cats.sort(
+    (a, b) => Number(b.count > 0) - Number(a.count > 0) || b.count - a.count,
   );
-  const top = nodes.slice(0, 14);
-
-  // Greedily assign a DISTINCT photo to each tile so no two categories repeat.
-  const usedImages = new Set<string>();
-  for (const { id, cat } of top) {
-    const pool = pools.get(id) ?? [];
-    const pick = pool.find((u) => !usedImages.has(u)) ?? pool[0] ?? null;
-    if (pick) usedImages.add(pick);
-    cat.thumb = pick;
-  }
-  const railCategories = top.map((t) => t.cat);
+  const railCategories = cats.slice(0, 14);
 
   const devices = DEVICE_FAMILIES.flatMap((f) => f.devices).slice(0, 6);
 
@@ -184,21 +143,44 @@ export default async function HomePage() {
       {/* ── Shop by device ────────────────────────────────────────────────── */}
       <section className="mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
         <SectionHeading eyebrow="Find your fit" title="Shop by device" href="/products" />
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-          {devices.map((d) => (
-            <Link
-              key={d.id}
-              // Live devices have a dedicated, indexable landing page; others
-              // fall back to the filtered catalog until they're stocked.
-              href={d.comingSoon ? `/products?device=${d.id}` : `/devices/${d.id}`}
-              className="card-cute group flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-1 hover:border-[var(--primary)]"
-            >
-              <span className="grid h-16 w-16 place-items-center rounded-2xl bg-white shadow-sm ring-1 ring-[var(--border)] transition group-hover:scale-110">
-                <DeviceIcon id={d.id} className="h-11 w-11" />
-              </span>
-              <span className="text-sm font-bold">{d.label}</span>
-            </Link>
-          ))}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {devices.map((d) => {
+            const hasCover = DEVICE_COVER_IDS.has(d.id);
+            return (
+              <Link
+                key={d.id}
+                // Live devices have a dedicated, indexable landing page; others
+                // fall back to the filtered catalog until they're stocked.
+                href={d.comingSoon ? `/products?device=${d.id}` : `/devices/${d.id}`}
+                className="group relative block overflow-hidden rounded-3xl border border-[var(--border)] shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 hover:-translate-y-1 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-24px_rgba(255,62,165,0.55)]"
+              >
+                {/* Themed device banner — the name is baked into the art
+                    (matches the collection covers). */}
+                <div className="relative aspect-video">
+                  {hasCover ? (
+                    <Image
+                      src={deviceCoverSrc(d.id)}
+                      alt={d.label}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw"
+                      className="object-cover transition duration-500 group-hover:scale-105"
+                    />
+                  ) : (
+                    <span className="absolute inset-0 grid place-items-center bg-holo p-3 text-center">
+                      <span className="font-display text-base font-extrabold text-[var(--foreground)] sm:text-lg">
+                        {d.label}
+                      </span>
+                    </span>
+                  )}
+                  {d.comingSoon && (
+                    <span className="absolute right-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/60 backdrop-blur-sm">
+                      Soon
+                    </span>
+                  )}
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </section>
 
@@ -224,31 +206,48 @@ export default async function HomePage() {
       </section>
 
       {/* ── Y2KASE Club band ──────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-[1800px] px-4 py-16 sm:px-6">
-        <div className="relative overflow-hidden rounded-[2.5rem] border-2 border-white bg-holo-shimmer p-8 shadow-xl sm:p-12">
+      <section className="mx-auto w-full max-w-[1800px] px-4 py-12 sm:px-6 sm:py-16">
+        <div className="relative overflow-hidden rounded-[2rem] border-2 border-white bg-holo-shimmer p-6 shadow-xl sm:rounded-[2.5rem] sm:p-10 lg:p-12">
           <div className="bg-grid absolute inset-0 opacity-40" />
           <SparkleField />
+          {/* Single column until `lg`, so the copy + CTA always read first and
+              the collage stacks underneath on phones and tablets. */}
           <div className="relative grid items-center gap-8 lg:grid-cols-2">
             <div>
-              <p className="font-pixel text-xs uppercase text-[var(--primary)]">
+              <p className="font-pixel text-[10px] uppercase text-[var(--primary)] sm:text-xs">
                 ★ Members only
               </p>
-              <h2 className="mt-3 font-display text-3xl font-extrabold sm:text-4xl">
-                Join the <Wordmark className="text-2xl sm:text-3xl" /> Club
+              <h2 className="mt-3 font-display text-2xl font-extrabold sm:text-3xl lg:text-4xl">
+                Join the <Wordmark className="text-xl sm:text-2xl lg:text-3xl" />{" "}
+                Club
               </h2>
-              <ul className="mt-5 space-y-2 text-[var(--foreground)]/80">
+
+              {/* Headline offer. The strongest perk gets its own sticker badge
+                  rather than a bullet, so it out-ranks the list visually.
+                  Copy is derived from the promotions engine, so it stays in
+                  lockstep with the cart banner and the featured card. */}
+              <p className="sticker mt-4 text-xs sm:text-sm">
+                <Gift className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+                <span className="text-[var(--primary)]">{BUNDLE.label}</span>
+                <span className="font-semibold text-[var(--foreground)]/55">
+                  · add any {BUNDLE.groupSize}
+                </span>
+              </p>
+
+              <ul className="mt-4 space-y-2 text-sm text-[var(--foreground)]/80 sm:text-base">
                 <ClubPerk>Free shipping over $35</ClubPerk>
                 <ClubPerk>Limited member-only discounts</ClubPerk>
                 <ClubPerk>VIP tiers & birthday gifts</ClubPerk>
               </ul>
+              {/* Full-bleed tap target on phones, natural width from `sm`. */}
               <Link
                 href="/products"
-                className="btn-candy mt-7 inline-flex items-center gap-2 px-7 py-3.5"
+                className="btn-candy mt-6 inline-flex w-full items-center justify-center gap-2 px-7 py-3.5 sm:mt-7 sm:w-auto"
               >
                 <Gift className="h-4 w-4" /> Start shopping
               </Link>
             </div>
-            <ClubCollage products={clubPicks} />
+            <ClubHero />
           </div>
         </div>
       </section>
@@ -325,41 +324,25 @@ function CollectionShowcase({
 }
 
 /**
- * ClubCollage — a fanned arrangement of REAL, distinct product photos for the
- * membership band. Using live catalog images (not an AI render) guarantees no
- * duplicated or made-up products.
+ * ClubHero — the membership band's visual: a single editorial still of the real
+ * catalog cases, fanned with ribbon and confetti (generated from live product
+ * photos via `npm run promos:generate`).
+ *
+ * Replaces the previous three fixed-width, absolutely-fanned product cards,
+ * which measured ~432px against ~295px of usable width on a 375px phone and
+ * were silently clipped by the band's `overflow-hidden`. A single
+ * aspect-ratio-locked image scales fluidly at every breakpoint instead.
  */
-function ClubCollage({ products }: { products: ProductListItem[] }) {
-  const cards = products.filter((p) => p.imageUrl).slice(0, 3);
-  if (cards.length === 0) {
-    return (
-      <div className="relative aspect-[3/2] w-full overflow-hidden rounded-3xl border-2 border-white shadow-lg">
-        <Image src="/brand/club.webp" alt="Y2KASE Club" fill sizes="45vw" className="object-cover" />
-      </div>
-    );
-  }
-  // Rotation + overlap per card position (left / centre / right).
-  const styles =
-    cards.length === 3
-      ? ["-rotate-[8deg] z-10 translate-y-3", "rotate-[2deg] z-20 -mx-6", "rotate-[8deg] z-10 translate-y-3"]
-      : cards.length === 2
-        ? ["-rotate-[6deg] z-10", "rotate-[6deg] z-20 -ml-6"]
-        : ["rotate-[2deg] z-20"];
+function ClubHero() {
   return (
-    <div className="flex items-center justify-center py-4">
-      {cards.map((p, i) => (
-        <div key={p.id} className={`transition duration-300 ${styles[i]}`}>
-          <div className="relative h-56 w-40 overflow-hidden rounded-[1.75rem] border-2 border-white bg-[var(--muted)] shadow-xl sm:h-64 sm:w-44">
-            <Image
-              src={p.imageUrl!}
-              alt={p.title}
-              fill
-              sizes="176px"
-              className="object-cover"
-            />
-          </div>
-        </div>
-      ))}
+    <div className="relative mx-auto aspect-[4/3] w-full max-w-sm overflow-hidden rounded-[1.5rem] border-2 border-white shadow-xl sm:max-w-md sm:rounded-[1.75rem] lg:max-w-none">
+      <Image
+        src="/brand/club-hero.webp"
+        alt="A fan of Y2KASE phone cases with ribbon and confetti"
+        fill
+        sizes="(max-width: 1024px) 90vw, 45vw"
+        className="object-cover"
+      />
     </div>
   );
 }

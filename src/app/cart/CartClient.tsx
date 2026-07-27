@@ -19,12 +19,14 @@ import {
   Loader2,
   Lock,
   Truck,
-  ArrowLeft,
   Tag,
   X,
   Check,
   ShieldCheck,
   RotateCcw,
+  Gift,
+  Sparkles,
+  HelpCircle,
 } from "lucide-react";
 import {
   useCart,
@@ -33,10 +35,16 @@ import {
   type CartItem,
 } from "@/lib/store/cart";
 import { shippingQuote } from "@/lib/pricing";
+import {
+  computePromotions,
+  resolveLocalCoupon,
+  BUNDLE,
+} from "@/lib/promotions";
 import { formatPrice } from "@/lib/utils";
 import { trackBeginCheckout } from "@/lib/analytics/gtag";
 
-type AppliedCoupon = { code: string; label: string; discountCents: number };
+/** Ties the "?" toggle to the disclosure it reveals (`aria-controls`). */
+const BUNDLE_INFO_ID = "bundle-how-it-works";
 
 export function CartClient() {
   const { items, removeItem, updateQuantity } = useCart();
@@ -44,11 +52,17 @@ export function CartClient() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Coupon state
+  // Coupon state. `appliedCode` is the code the buyer entered (kept even while
+  // the bundle is active, so it silently re-applies if they drop below 4 items).
   const [codeInput, setCodeInput] = useState("");
-  const [applying, setApplying] = useState(false);
   const [couponError, setCouponError] = useState<string | null>(null);
-  const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
+  const [appliedCode, setAppliedCode] = useState<string | null>(null);
+
+  // "How it works" for the bundle offer. Implemented as an inline disclosure
+  // rather than an absolutely-positioned tooltip because the summary card is
+  // `overflow-hidden` (a popover would be clipped) — and a tap target beats a
+  // hover-only tooltip on mobile, where most of this traffic converts.
+  const [bundleInfoOpen, setBundleInfoOpen] = useState(false);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
@@ -83,52 +97,42 @@ export function CartClient() {
     Math.round((subtotalCents / quote.freeOverCents) * 100),
   );
 
-  // Discount preview (Stripe re-validates and is authoritative at payment).
-  const discountCents = coupon
-    ? Math.min(coupon.discountCents, subtotalCents)
-    : 0;
-  const discount = discountCents / 100;
-  const total = Math.max(0, subtotal - discount) + shipping;
+  // Single source of truth for pricing — the SAME engine the checkout route runs
+  // server-side, so this preview equals the Stripe charge to the cent. It also
+  // enforces mutual exclusivity: while the bundle is active the coupon is ignored.
+  const promo = computePromotions(
+    items.map((i) => ({
+      unitCents: Math.round(i.price * 100),
+      quantity: i.quantity,
+    })),
+    appliedCode,
+  );
+  const totalUnits = items.reduce((n, i) => n + i.quantity, 0);
+  const bundleActive = promo.bundleActive;
+  const discount = promo.discountCents / 100;
+  const total = promo.totalAfterDiscountCents / 100 + shipping;
+  // Units still needed to unlock the bundle (0 once active).
+  const unitsToBundle = Math.max(0, BUNDLE.groupSize - totalUnits);
 
-  async function applyCoupon() {
-    const code = codeInput.trim();
+  /** Validate + apply a coupon locally (instant — no network round-trip). */
+  function applyCoupon() {
+    const code = codeInput.trim().toUpperCase();
     if (!code) return;
-    setCouponError(null);
-    setApplying(true);
-    try {
-      const res = await fetch("/api/coupon", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, subtotalCents, currency }),
-      });
-      const data = (await res.json()) as {
-        valid: boolean;
-        code?: string;
-        label?: string;
-        discountCents?: number;
-        error?: string;
-      };
-      if (!data.valid) {
-        setCouponError(data.error ?? "That code isn't valid.");
-        return;
-      }
-      setCoupon({
-        code: data.code ?? code.toUpperCase(),
-        label: data.label ?? "Discount",
-        discountCents: data.discountCents ?? 0,
-      });
-      setCodeInput("");
-    } catch {
-      setCouponError("Couldn't check that code. Try again.");
-    } finally {
-      setApplying(false);
+    const coupon = resolveLocalCoupon(code);
+    if (!coupon) {
+      setCouponError("That code isn't valid.");
+      return;
     }
+    setAppliedCode(coupon.code);
+    setCodeInput("");
+    setCouponError(null);
   }
 
   async function handleCheckout() {
     setError(null);
     setCheckingOut(true);
-    trackBeginCheckout(items, currency, coupon?.code);
+    // Only attribute the coupon if it actually applied (not while bundle wins).
+    trackBeginCheckout(items, currency, promo.appliedCode ?? undefined);
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
@@ -139,7 +143,7 @@ export function CartClient() {
             options: i.options,
             quantity: i.quantity,
           })),
-          promotionCode: coupon?.code,
+          couponCode: appliedCode,
         }),
       });
       const data = (await res.json()) as { url?: string; error?: string };
@@ -155,24 +159,18 @@ export function CartClient() {
 
   return (
     <div>
-      <div className="mb-8 flex items-end justify-between gap-4">
-        <div>
-          <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
-            Almost yours
-          </p>
-          <h1 className="mt-1.5 font-display text-3xl font-extrabold sm:text-4xl">
-            Your Bag{" "}
-            <span className="align-middle text-base font-bold text-[var(--foreground)]/40">
-              ({items.reduce((n, i) => n + i.quantity, 0)})
-            </span>
-          </h1>
-        </div>
-        <Link
-          href="/products"
-          className="inline-flex shrink-0 items-center gap-1.5 text-sm font-bold text-[var(--primary)] hover:underline"
-        >
-          <ArrowLeft className="h-4 w-4" /> Continue shopping
-        </Link>
+      {/* "Continue shopping" lives in the minimal checkout header, so the page
+          keeps exactly one unambiguous way back out of the funnel. */}
+      <div className="mb-8">
+        <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
+          Almost yours
+        </p>
+        <h1 className="mt-1.5 font-display text-3xl font-extrabold sm:text-4xl">
+          Your Bag{" "}
+          <span className="align-middle text-base font-bold text-[var(--foreground)]/40">
+            ({totalUnits})
+          </span>
+        </h1>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem] lg:gap-10">
@@ -188,17 +186,13 @@ export function CartClient() {
               }
             />
           ))}
-
-          {/* Trust badges */}
-          <div className="grid grid-cols-3 gap-3 pt-3">
-            <TrustBadge icon={<ShieldCheck className="h-4 w-4" />} label="Secure checkout" />
-            <TrustBadge icon={<Truck className="h-4 w-4" />} label="Tracked shipping" />
-            <TrustBadge icon={<RotateCcw className="h-4 w-4" />} label="Easy returns" />
-          </div>
         </div>
 
         {/* ── Order summary ──────────────────────────────────────────────── */}
-        <aside className="h-fit lg:sticky lg:top-24">
+        {/* Trust signals now live inside this card, directly under the CTA —
+            where they reassure at the moment of commitment instead of
+            competing with the line items. */}
+        <aside className="h-fit lg:sticky lg:top-8">
           <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--card)] shadow-[0_18px_50px_-30px_rgba(120,60,120,0.5)]">
             <div className="h-1 w-full bg-holo-vivid" />
             <div className="p-6">
@@ -224,24 +218,97 @@ export function CartClient() {
                 </div>
               </div>
 
-              {/* Promo code */}
-              <div className="mt-5">
-                {coupon ? (
-                  <div className="flex items-center justify-between rounded-2xl border border-[var(--primary)]/30 bg-[var(--primary-soft)] px-3.5 py-2.5">
-                    <span className="flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
-                      <Check className="h-4 w-4" /> {coupon.code} · {coupon.label}
+              {/* Bundle status — the automatic "Buy 2, Get 2 Free" offer.
+                  One short, scannable line; the full mechanics live behind the
+                  "?" so the summary stays uncluttered for the 90% who don't
+                  need them. */}
+              <div className="mt-4">
+                <div
+                  className={`flex items-center gap-2.5 rounded-2xl px-3.5 py-3 ${
+                    bundleActive
+                      ? "border border-[var(--primary)]/30 bg-[var(--primary-soft)]"
+                      : "bg-[var(--muted)]"
+                  }`}
+                >
+                  {bundleActive ? (
+                    <>
+                      <Sparkles className="h-4 w-4 shrink-0 text-[var(--primary)]" />
+                      <p className="flex-1 text-xs font-bold leading-relaxed text-[var(--primary)]">
+                        🎉 {BUNDLE.label} unlocked!
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Gift className="h-4 w-4 shrink-0 text-[var(--primary)]" />
+                      <p className="flex-1 text-xs font-semibold leading-relaxed text-[var(--foreground)]/70">
+                        Add{" "}
+                        <strong className="text-[var(--primary)]">
+                          {unitsToBundle} more
+                        </strong>{" "}
+                        to unlock{" "}
+                        <strong className="text-[var(--primary)]">
+                          {BUNDLE.label}
+                        </strong>
+                      </p>
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setBundleInfoOpen((v) => !v)}
+                    aria-expanded={bundleInfoOpen}
+                    aria-controls={BUNDLE_INFO_ID}
+                    aria-label={`How ${BUNDLE.label} works`}
+                    // Negative margin keeps the icon visually small while giving
+                    // it a 24px touch target.
+                    className="-m-1 shrink-0 rounded-full p-1 text-[var(--foreground)]/40 transition hover:text-[var(--primary)]"
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {bundleInfoOpen && (
+                  <p
+                    id={BUNDLE_INFO_ID}
+                    className="mt-2 px-1 text-[11px] leading-relaxed text-[var(--foreground)]/50"
+                  >
+                    Add {BUNDLE.groupSize} items in total — the free ones must be
+                    in your bag too. The discount applies automatically at
+                    checkout, where the {BUNDLE.freePerGroup} lowest-priced items
+                    are waived.
+                  </p>
+                )}
+              </div>
+
+              {/* Promo code — disabled whenever the bundle is active (no stacking). */}
+              <div className="mt-4">
+                {appliedCode && !bundleActive ? (
+                  /* Applied state reads as a removable PILL, not an empty
+                     input — the code, what it saved, and one clear way out. */
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--primary)]/30 bg-[var(--primary-soft)] py-1.5 pl-3 pr-1.5 text-sm font-bold text-[var(--primary)]">
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate tracking-wide">
+                        {promo.appliedCode}
+                      </span>
+                      <span className="shrink-0 font-extrabold">
+                        (−{formatPrice(discount, currency)})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedCode(null);
+                          setCouponError(null);
+                        }}
+                        aria-label={`Remove promo code ${promo.appliedCode}`}
+                        className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[var(--primary)]/15 text-[var(--primary)] transition hover:bg-[var(--primary)] hover:text-white"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCoupon(null);
-                        setCouponError(null);
-                      }}
-                      aria-label="Remove code"
-                      className="text-[var(--primary)]/70 transition hover:text-[var(--primary)]"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                    <span className="text-xs font-semibold text-[var(--foreground)]/50">
+                      {promo.appliedLabel} applied
+                    </span>
                   </div>
                 ) : (
                   <div>
@@ -255,6 +322,7 @@ export function CartClient() {
                       <input
                         id="promo"
                         value={codeInput}
+                        disabled={bundleActive}
                         onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
@@ -262,24 +330,30 @@ export function CartClient() {
                             applyCoupon();
                           }
                         }}
-                        placeholder="WELCOME10"
+                        placeholder="BESTIE10"
                         autoComplete="off"
                         autoCapitalize="characters"
-                        className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3.5 py-2.5 text-sm font-semibold uppercase tracking-wide outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                        className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3.5 py-2.5 text-sm font-semibold uppercase tracking-wide outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <button
                         type="button"
                         onClick={applyCoupon}
-                        disabled={applying || !codeInput.trim()}
+                        disabled={bundleActive || !codeInput.trim()}
                         className="shrink-0 rounded-xl border-2 border-[var(--primary)] px-4 text-sm font-bold text-[var(--primary)] transition hover:bg-[var(--primary)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                        Apply
                       </button>
                     </div>
-                    {couponError && (
-                      <p className="mt-1.5 text-xs font-semibold text-red-500">
-                        {couponError}
+                    {bundleActive ? (
+                      <p className="mt-1.5 text-xs font-semibold text-[var(--primary)]">
+                        Bundle active! Coupon codes cannot be stacked.
                       </p>
+                    ) : (
+                      couponError && (
+                        <p className="mt-1.5 text-xs font-semibold text-red-500">
+                          {couponError}
+                        </p>
+                      )
                     )}
                   </div>
                 )}
@@ -293,7 +367,9 @@ export function CartClient() {
                 </div>
                 {discount > 0 && (
                   <div className="flex justify-between text-[var(--primary)]">
-                    <dt className="font-semibold">Discount</dt>
+                    <dt className="font-semibold">
+                      {promo.appliedLabel ?? "Discount"}
+                    </dt>
                     <dd className="font-bold">−{formatPrice(discount, currency)}</dd>
                   </div>
                 )}
@@ -334,6 +410,23 @@ export function CartClient() {
                 {checkingOut ? "Redirecting…" : "Proceed to secure checkout"}
               </button>
 
+              {/* Reassurance strip — subtle inline text, never mistakable for
+                  another set of buttons competing with the CTA above. */}
+              <ul className="mt-3.5 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+                <TrustBadge
+                  icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                  label="Secure checkout"
+                />
+                <TrustBadge
+                  icon={<Truck className="h-3.5 w-3.5" />}
+                  label="Tracked shipping"
+                />
+                <TrustBadge
+                  icon={<RotateCcw className="h-3.5 w-3.5" />}
+                  label="Easy returns"
+                />
+              </ul>
+
               <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-[var(--foreground)]/50">
                 <Lock className="h-3 w-3" /> Encrypted & secured by Stripe
               </p>
@@ -354,14 +447,13 @@ export function CartClient() {
   );
 }
 
+/** Subtle inline reassurance item shown beneath the checkout CTA. */
 function TrustBadge({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <div className="flex flex-col items-center gap-1 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-2 py-3 text-center">
-      <span className="text-[var(--primary)]">{icon}</span>
-      <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/55">
-        {label}
-      </span>
-    </div>
+    <li className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--foreground)]/55">
+      <span className="shrink-0 text-[var(--primary)]/70">{icon}</span>
+      {label}
+    </li>
   );
 }
 
@@ -386,7 +478,7 @@ function CartRow({
     <div className="flex gap-4 rounded-3xl border border-[var(--border)] bg-[var(--card)] p-3.5 sm:p-4">
       <Link
         href={`/products/${item.slug}`}
-        className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-[var(--muted)] sm:h-28 sm:w-28"
+        className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-[var(--product-surface)] sm:h-28 sm:w-28"
       >
         {item.imageUrl && (
           <Image

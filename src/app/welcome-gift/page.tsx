@@ -12,27 +12,36 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { WelcomeGiftForm } from "@/components/WelcomeGiftForm";
-import {
-  Wordmark,
-  Sticker,
-  SparkleField,
-  PixelHeart,
-} from "@/components/brand/Decor";
+import { PromoCodeBlock } from "@/components/PromoCodeBlock";
+import { Wordmark, SparkleField, PixelHeart } from "@/components/brand/Decor";
+import { WELCOME_COUPON } from "@/lib/promotions";
+import { ROUTES } from "@/lib/routes";
+
+const OFF = `${WELCOME_COUPON.percentOff}% off`;
+
+// The offer is no longer gated behind a signup, so the description leads with
+// the code rather than promising something the visitor has to "unlock".
+const PITCH = `Take ${OFF} your order with code ${WELCOME_COUPON.code} — plus free shipping over $35, member-only drops and VIP perks from the Y2KASE Club.`;
 
 export const metadata: Metadata = {
   title: "Your Welcome Gift",
-  description:
-    "Join the Y2KASE Club and unlock 15% off your first order, free shipping over $35, and member-only drops.",
-  alternates: { canonical: "/pages/welcome-gift" },
+  description: PITCH,
+  // Aliases and the retired /pages/ URL all redirect here, so every variant
+  // reports one canonical and search engines pool the ranking on it.
+  alternates: { canonical: ROUTES.welcomeGift },
   openGraph: {
     title: "Your Welcome Gift · Y2KASE",
-    description:
-      "Join the Y2KASE Club and unlock 15% off your first order, free shipping over $35, and member-only drops. ✨",
-    url: "/pages/welcome-gift",
+    description: `${PITCH} ✨`,
+    url: ROUTES.welcomeGift,
   },
 };
 
 const PERKS = [
+  {
+    icon: <Sparkles className="h-5 w-5" />,
+    title: "Buy 2, Get 2 Free",
+    desc: "Add any 4 to your bag — the 2 cheapest are on us. ✨",
+  },
   {
     icon: <Truck className="h-5 w-5" />,
     title: "Free shipping over $35",
@@ -91,12 +100,7 @@ export default function WelcomeGiftPage() {
           <div className="relative grid items-center gap-4 sm:gap-6 lg:grid-cols-[1.05fr_1fr] lg:gap-10">
             {/* Pitch — compact on mobile so the form is the focal point */}
             <div className="text-center lg:text-left">
-              <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
-                <Sticker className="text-[var(--primary)]">★ Good vibes</Sticker>
-                <Sticker className="text-[var(--accent)]">Stay cute</Sticker>
-              </div>
-
-              <p className="mt-3 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)] sm:mt-6">
+              <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
                 Your welcome gift
               </p>
               <h1 className="mt-2 font-display text-[1.4rem] font-black leading-[1.12] sm:text-4xl lg:text-[2.9rem]">
@@ -105,10 +109,9 @@ export default function WelcomeGiftPage() {
                 Club! 🎀
               </h1>
               <p className="mx-auto mt-2 max-w-md text-[13px] leading-snug text-[var(--foreground)]/75 sm:mt-4 sm:text-[15px] sm:leading-relaxed lg:mx-0">
-                Here&apos;s{" "}
-                <strong className="text-[var(--primary)]">15% off</strong> your
-                first order — plus free shipping, member-only drops and perks
-                made for besties like you. 🌸
+                Enjoy <strong className="text-[var(--primary)]">{OFF}</strong>{" "}
+                your order on us — plus free shipping, member-only drops, and
+                perks made for besties like you. 🌸
               </p>
 
               {/* Perk bullets: desktop only (mirrored in the section below) */}
@@ -125,9 +128,24 @@ export default function WelcomeGiftPage() {
               </ul>
             </div>
 
-            {/* Claim card — the conversion focal point */}
-            <div className="card-cute relative overflow-hidden p-4 ring-1 ring-white/60 sm:p-8">
+            {/* Claim card — the conversion focal point. Two stacked jobs: hand
+                over the code with no strings attached, then ask for the email
+                on the strength of the perks rather than the discount. */}
+            <div className="card-cute relative overflow-hidden p-4 ring-1 ring-white/60 sm:p-6">
               <div className="absolute inset-x-0 top-0 h-1.5 bg-holo-vivid" />
+
+              <div className="text-center">
+                <h2 className="mb-2.5 font-display text-lg font-black leading-tight text-[var(--foreground)] sm:text-xl">
+                  Take {WELCOME_COUPON.percentOff}% Off Now ✨
+                </h2>
+                <PromoCodeBlock
+                  code={WELCOME_COUPON.code}
+                  note={`${OFF} · Enter at checkout`}
+                />
+              </div>
+
+              <hr className="my-4 border-t border-[var(--border)] sm:my-5" />
+
               <WelcomeGiftForm />
             </div>
           </div>

@@ -193,6 +193,19 @@ export const COLLECTION_TAXONOMY: CollectionSeed[] = [
   },
 ];
 
+/**
+ * Collections intentionally hidden from the "Shop the universe" homepage rail
+ * (and its generated cover set). These broad genre umbrellas are still browsable
+ * everywhere else — they're just not surfaced as feature tiles on the homepage.
+ */
+export const RAIL_HIDDEN_SLUGS: ReadonlySet<string> = new Set<string>([
+  "anime",
+  "kawaii",
+  "y2k",
+  "characters",
+  "cartoon",
+]);
+
 /** A flattened seed node with its resolved parent slug (null for top level). */
 export type FlatCollectionSeed = CollectionSeed & { parentSlug: string | null };
 

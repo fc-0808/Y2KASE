@@ -3,7 +3,7 @@
 /**
  * EmailCapturePop — welcome pop-up that fires after 3 s on the user's first
  * visit (or after 7 days since last shown). Collects an email address and
- * reveals the WELCOME10 promo code.
+ * reveals the store's welcome promo code.
  *
  * Strategy:
  *  - Shown once per session + throttled to once every 7 days via localStorage.
@@ -15,6 +15,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { X, Sparkles, Gift } from "lucide-react";
+import { useOverlayLock } from "@/lib/store/overlay";
+import { WELCOME_COUPON } from "@/lib/promotions";
 
 const LS_KEY_SHOWN_AT = "y2k_popup_shown_at";
 const LS_KEY_DISMISS_COUNT = "y2k_popup_dismiss_count";
@@ -31,9 +33,13 @@ export function EmailCapturePop() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [code, setCode] = useState("WELCOME15");
+  const [code, setCode] = useState(WELCOME_COUPON.code);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // On mobile this modal is anchored bottom-centre, exactly where the support
+  // launcher lives. Claim the lock so only one of them is ever on screen.
+  useOverlayLock("email-capture", state !== "hidden");
 
   // Decide whether to show the pop-up.
   useEffect(() => {
@@ -81,7 +87,7 @@ export function EmailCapturePop() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [state]);
 
   function dismiss() {
@@ -108,7 +114,7 @@ export function EmailCapturePop() {
         return;
       }
 
-      setCode(data.code ?? "WELCOME15");
+      setCode(data.code ?? WELCOME_COUPON.code);
       setState("success");
       localStorage.setItem(LS_KEY_SUBSCRIBED, "1");
     } catch {
@@ -168,8 +174,12 @@ export function EmailCapturePop() {
                   </h2>
                   <p className="mt-2 text-sm text-[var(--foreground)]/65 leading-relaxed">
                     Join Y2KASE besties and get{" "}
-                    <strong className="text-[var(--primary)]">15% off</strong> your
-                    first order — plus early access to new drops. 🌸
+                    <strong className="text-[var(--primary)]">
+                      {WELCOME_COUPON.percentOff}% off
+                    </strong>{" "}
+                    your first order — plus{" "}
+                    <strong className="text-[var(--primary)]">Buy 2, Get 2 Free</strong>{" "}
+                    on any 4 and early access to new drops. 🌸
                   </p>
                 </div>
 
@@ -221,7 +231,9 @@ export function EmailCapturePop() {
                     disabled={loading || !email}
                     className="btn-candy w-full py-3 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {loading ? "Sending…" : "Claim My 15% Off ✨"}
+                    {loading
+                      ? "Sending…"
+                      : `Claim My ${WELCOME_COUPON.percentOff}% Off ✨`}
                   </button>
 
                   <p className="text-center text-xs text-[var(--foreground)]/40">
@@ -259,7 +271,8 @@ export function EmailCapturePop() {
                     {code}
                   </p>
                   <p className="text-xs text-[var(--foreground)]/50 mt-1">
-                    15% off · Enter at checkout · One-time use
+                    {WELCOME_COUPON.percentOff}% off · Enter at checkout ·
+                    One-time use
                   </p>
                 </div>
 

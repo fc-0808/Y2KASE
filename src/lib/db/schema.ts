@@ -137,6 +137,13 @@ export const orders = pgTable(
     }>(),
     stripePaymentIntentId: text("stripe_payment_intent_id"),
     stripeSessionId: text("stripe_session_id"),
+    /**
+     * ISO 3166-1 alpha-2 country code inferred from the shopper's edge geo at
+     * checkout start (Vercel `x-vercel-ip-country`). Gives pending/abandoned
+     * guest orders a location signal without storing raw IPs (PII). Nullable —
+     * unknown in local dev and when geo lookup is unavailable.
+     */
+    geoCountry: text("geo_country"),
     /** Set when the order-confirmation email is sent — guarantees exactly-once. */
     confirmationEmailSentAt: timestamp("confirmation_email_sent_at", {
       withTimezone: true,
@@ -312,6 +319,45 @@ export const productImages = pgTable(
     index("product_images_product_idx").on(t.productId),
     index("product_images_phash_idx").on(t.phash),
   ],
+);
+
+/**
+ * thumbnail_proposals — the AI thumbnail-normalization review queue.
+ *
+ * One row per product. The pipeline scores every gallery image for thumbnail
+ * suitability, picks the cleanest, and (when it clears the bar) removes its
+ * background and centers it on the unified white surface — storing a preview at
+ * `proposalUrl` for a human to Approve / Flag / Skip. Nothing touches the live
+ * gallery until approved, so the whole flow is reversible and auditable.
+ */
+export const thumbnailProposals = pgTable(
+  "thumbnail_proposals",
+  {
+    id: serial("id").primaryKey(),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" })
+      .unique(),
+    /** proposed | approved | flagged | skipped */
+    status: text("status").notNull().default("proposed"),
+    /** R2 URL of the normalized preview (null when flagged / no clean shot). */
+    proposalUrl: text("proposal_url"),
+    /** Which product_images row the proposal was derived from. */
+    sourceImageId: integer("source_image_id"),
+    /** AI thumbnail-suitability score of the selected image (0–1). */
+    score: numeric("score", { precision: 4, scale: 3 }),
+    /** clean_product | hand_held | has_props | lifestyle | busy */
+    category: text("category"),
+    /** Short human-readable justification from the vision model. */
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("thumbnail_proposals_status_idx").on(t.status)],
 );
 
 /**
@@ -724,6 +770,16 @@ export const productImagesRelations = relations(productImages, ({ one }) => ({
   }),
 }));
 
+export const thumbnailProposalsRelations = relations(
+  thumbnailProposals,
+  ({ one }) => ({
+    product: one(products, {
+      fields: [thumbnailProposals.productId],
+      references: [products.id],
+    }),
+  }),
+);
+
 export const productOptionsRelations = relations(productOptions, ({ one }) => ({
   product: one(products, {
     fields: [productOptions.productId],
@@ -854,6 +910,117 @@ export const pageViews = pgTable(
 
 export type PageView = typeof pageViews.$inferSelect;
 export type NewPageView = typeof pageViews.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BLOG (AI content engine)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * blog_posts — the database-backed half of the blog.
+ *
+ * The blog has two content sources that render side-by-side: hand-authored MDX
+ * files in `src/content/blog` (the editorial flagship posts) and these rows,
+ * which the AI content engine generates on a schedule to grow organic search
+ * coverage. Every generated article is grounded in the real catalog and links
+ * back to live collections/products, so the blog compounds both SEO reach and
+ * on-site conversion.
+ *
+ * Posts move through a moderation lifecycle (draft → published, plus archived)
+ * exactly like `social_creatives` — the brand-safe, human-in-the-loop pattern.
+ * When BLOG_AUTOPUBLISH is enabled the generator publishes directly; otherwise
+ * a human approves each draft in the admin console.
+ */
+export const blogPosts = pgTable(
+  "blog_posts",
+  {
+    id: serial("id").primaryKey(),
+    /** URL slug — unique across the whole blog (also guards against dupes). */
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    /** Meta description (<=160 chars) for <head> + OG. */
+    description: text("description").notNull(),
+    /** Card + RSS summary. */
+    excerpt: text("excerpt").notNull(),
+    /** Article body as constrained Markdown (see src/components/Markdown.tsx). */
+    body: text("body").notNull(),
+    /** Cover image URL (R2/remote or a /public path). Nullable → gradient hero. */
+    cover: text("cover"),
+    tags: text("tags").array().notNull().default([]),
+    author: text("author").notNull().default("The Y2KASE Team"),
+    /** draft | published | archived */
+    status: text("status").notNull().default("draft"),
+    /** Optional FAQ block → FAQPage rich result on the post. */
+    faq: jsonb("faq").$type<{ question: string; answer: string }[]>(),
+    /** The target keyword / search intent this post was written for. */
+    keyword: text("keyword"),
+    /** ai | manual — provenance for auditing AI-authored content. */
+    source: text("source").notNull().default("ai"),
+    /** Model used to author the copy, e.g. "gpt-4o-mini". */
+    model: text("model"),
+    /** Manual reading-time override (minutes); computed from body when null. */
+    readingMinutes: integer("reading_minutes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Set the first time the post is published — drives ordering + JSON-LD. */
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("blog_posts_slug_idx").on(t.slug),
+    index("blog_posts_status_idx").on(t.status),
+    index("blog_posts_published_idx").on(t.publishedAt),
+  ],
+);
+
+/**
+ * blog_topics — the content backlog / generation queue.
+ *
+ * The generation cron claims one queued topic per run (atomically, so
+ * overlapping invocations never double-generate), writes an article, and marks
+ * the topic done. When the queue runs low the planner tops it up automatically
+ * from the live catalog (collections + product themes), so the blog keeps
+ * publishing without manual input — while the admin can still hand-queue
+ * high-value keywords. Mirrors the `social_jobs` queue + worker pattern.
+ */
+export const blogTopics = pgTable(
+  "blog_topics",
+  {
+    id: serial("id").primaryKey(),
+    /** The headline / target keyword to write about. */
+    title: text("title").notNull(),
+    /** Optional angle / extra guidance for the writer. */
+    angle: text("angle"),
+    /** Optional collection slug to feature + link (grounds the article). */
+    collectionSlug: text("collection_slug"),
+    /** queued | processing | done | failed | skipped */
+    status: text("status").notNull().default("queued"),
+    /** Higher runs first. */
+    priority: integer("priority").notNull().default(0),
+    /** auto (planner) | manual (admin) */
+    source: text("source").notNull().default("auto"),
+    /** The post produced when status=done. */
+    resultPostId: integer("result_post_id"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("blog_topics_title_idx").on(t.title),
+    index("blog_topics_status_idx").on(t.status),
+    index("blog_topics_priority_idx").on(t.priority),
+  ],
+);
+
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type NewBlogPost = typeof blogPosts.$inferInsert;
+export type BlogTopic = typeof blogTopics.$inferSelect;
+export type NewBlogTopic = typeof blogTopics.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type Order = typeof orders.$inferSelect;

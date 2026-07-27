@@ -13,6 +13,11 @@
   --foreground: #34203b; /* deep plum, softer than black */
   --card: #ffffff;
   --muted: #f7e7f6;
+  /* Unified neutral backdrop for ALL product imagery (grid cards, PDP,
+     cart, orders). Single source of truth — retune the whole catalog's
+     product-photo surface from here. White keeps the product forward and
+     reads consistently across every listing, CASETiFY/Apple-style. */
+  --product-surface: #ffffff;
 
   --primary: #ff3ea5; /* bubblegum / magenta pink — CTAs + wordmark */
   --primary-foreground: #ffffff;
@@ -50,6 +55,7 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-muted: var(--muted);
+  --color-product-surface: var(--product-surface);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-soft: var(--primary-soft);

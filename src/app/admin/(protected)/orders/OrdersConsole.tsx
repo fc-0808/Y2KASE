@@ -4,7 +4,13 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { formatCents } from "@/lib/utils";
+import {
+  cn,
+  countryFlag,
+  countryName,
+  formatCents,
+  orderCustomerLabel,
+} from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ORDER_STATUSES, type OrderRow } from "@/lib/admin/orders";
 import { updateOrderStatus } from "./actions";
@@ -47,7 +53,9 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
-            {orders.map((o) => (
+            {orders.map((o) => {
+              const customer = orderCustomerLabel(o);
+              return (
               <tr key={o.id} className="hover:bg-[var(--muted)]/30">
                 <td className="px-4 py-3">
                   <Link
@@ -57,7 +65,21 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
                     #{o.id}
                   </Link>
                 </td>
-                <td className="max-w-[200px] truncate px-4 py-3">{o.email}</td>
+                <td className="max-w-[200px] px-4 py-3">
+                  <span
+                    className={cn(
+                      "block truncate",
+                      customer.muted && "italic text-[var(--foreground)]/45",
+                    )}
+                  >
+                    {customer.text}
+                  </span>
+                  {customer.muted && o.geoCountry && (
+                    <span className="mt-0.5 block truncate text-xs not-italic text-[var(--foreground)]/40">
+                      {countryFlag(o.geoCountry)} {countryName(o.geoCountry)}
+                    </span>
+                  )}
+                </td>
                 <td className="whitespace-nowrap px-4 py-3 text-[var(--foreground)]/60">
                   {dateFmt.format(new Date(o.createdAt))}
                 </td>
@@ -90,7 +112,8 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

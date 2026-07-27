@@ -38,6 +38,9 @@ export function FolderBrowser({
 
   useEffect(() => {
     let cancelled = false;
+    // Entering the loading state is part of starting this fetch, not a
+    // cascading render — the `cancelled` flag handles the race.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     const qs = new URLSearchParams();

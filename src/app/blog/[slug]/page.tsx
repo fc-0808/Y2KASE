@@ -4,19 +4,24 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import {
-  getPost,
-  getAllPostSlugs,
+  getPublishedPost,
+  listPublishedSlugs,
   getRelatedPosts,
   formatPostDate,
   readingMinutes,
 } from "@/lib/blog";
 import { JsonLd } from "@/components/JsonLd";
-import { articleJsonLd, breadcrumbJsonLd } from "@/lib/seo";
+import { Markdown } from "@/components/Markdown";
+import { articleJsonLd, breadcrumbJsonLd, faqJsonLd } from "@/lib/seo";
 
-export const dynamicParams = false;
+// Allow posts published after build (AI-generated) to render on-demand, then be
+// cached via ISR. Editorial MDX posts are still prerendered at build time.
+export const dynamicParams = true;
+export const revalidate = 3600;
 
-export function generateStaticParams() {
-  return getAllPostSlugs().map((slug) => ({ slug }));
+export async function generateStaticParams() {
+  const slugs = await listPublishedSlugs();
+  return slugs.map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({
@@ -25,7 +30,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const post = getPost(slug);
+  const post = await getPublishedPost(slug);
   if (!post) return { title: "Not found" };
   const canonical = `/blog/${slug}`;
   return {
@@ -49,11 +54,11 @@ export default async function BlogPostPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const post = getPost(slug);
+  const post = await getPublishedPost(slug);
   if (!post) notFound();
 
-  const { meta, Content } = post;
-  const related = getRelatedPosts(slug);
+  const { meta, Content, body, faq } = post;
+  const related = await getRelatedPosts(slug);
 
   return (
     <article className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
@@ -72,6 +77,7 @@ export default async function BlogPostPage({
             { name: "Blog", url: "/blog" },
             { name: meta.title, url: `/blog/${slug}` },
           ]),
+          ...(faq && faq.length > 0 ? [faqJsonLd(faq)] : []),
         ]}
       />
 
@@ -110,10 +116,28 @@ export default async function BlogPostPage({
         </div>
       )}
 
-      {/* MDX body — styled via src/mdx-components.tsx */}
+      {/* Body — MDX flagship posts render a component; DB posts render Markdown.
+          Both inherit the same styles (see src/mdx-components.tsx). */}
       <div className="mt-2">
-        <Content />
+        {Content ? <Content /> : body ? <Markdown source={body} /> : null}
       </div>
+
+      {/* FAQ (DB posts) — mirrors the FAQPage structured data above. */}
+      {faq && faq.length > 0 && (
+        <section className="mt-14 border-t border-[var(--border)] pt-8">
+          <h2 className="mb-5 text-2xl font-black">Frequently asked questions</h2>
+          <div className="space-y-5">
+            {faq.map((item, i) => (
+              <div key={i}>
+                <h3 className="text-lg font-extrabold">{item.question}</h3>
+                <p className="mt-2 leading-relaxed text-[var(--foreground)]/80">
+                  {item.answer}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Related reading */}
       {related.length > 0 && (

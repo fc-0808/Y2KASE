@@ -112,7 +112,7 @@ export default async function AccountOrdersPage() {
           <ul className="divide-y divide-[var(--border)]">
             {order.items.map((item) => (
               <li key={item.id} className="flex items-center gap-3 px-5 py-3">
-                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)]">
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--product-surface)]">
                   {item.imageUrl && (
                     <Image
                       src={item.imageUrl}

@@ -86,7 +86,7 @@ async function uniqueSlug(
 ): Promise<string> {
   let slug = base || "product";
   let n = 1;
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     const existing = await db.query.products.findFirst({
       where: eq(products.slug, slug),

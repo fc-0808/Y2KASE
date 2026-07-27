@@ -26,9 +26,14 @@ import {
   readConsent,
   saveConsent,
 } from "@/lib/analytics/consent";
+import { useOverlayLock } from "@/lib/store/overlay";
 
 export function CookieConsent() {
   const [open, setOpen] = useState(false);
+
+  // Nothing may float over a consent choice — least of all a chat bubble. The
+  // support launcher stands down for as long as this banner is up.
+  useOverlayLock("cookie-consent", open);
 
   useEffect(() => {
     // Show only when the visitor hasn't decided yet. Runs after mount to avoid

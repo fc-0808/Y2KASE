@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { X, Minus, Plus, Trash2, Truck } from "lucide-react";
+import { X, Minus, Plus, Trash2, Truck, Sparkles, Gift } from "lucide-react";
 import {
   useCart,
   cartSubtotal,
@@ -11,21 +12,50 @@ import {
   type CartItem,
 } from "@/lib/store/cart";
 import { shippingQuote } from "@/lib/pricing";
+import { BUNDLE, computePromotions } from "@/lib/promotions";
 import { formatPrice } from "@/lib/utils";
 
 export function CartDrawer() {
   const { items, isOpen, close, removeItem, updateQuantity } = useCart();
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
   // Hydration guard: cart state lives in a persisted client store.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
+
+  // Never let the drawer outlive the page it was opened on. `isOpen` is part of
+  // the persisted store, so without this it could survive a reload — and since
+  // the checkout funnel doesn't render the drawer at all, a stale `isOpen`
+  // would make it pop open again the moment the shopper returns to the store.
+  useEffect(() => {
+    close();
+  }, [pathname, close]);
 
   if (!mounted) return null;
 
   const subtotal = cartSubtotal(items);
   const currency = items[0]?.currency ?? "USD";
+
+  // Reflect promotions live with the SAME engine the cart page + checkout use,
+  // so the drawer shows the true amount payable — never the pre-discount price.
+  // (Coupon codes are entered on /cart; the automatic bundle is what applies here.)
+  const promo = computePromotions(
+    items.map((i) => ({
+      unitCents: Math.round(i.price * 100),
+      quantity: i.quantity,
+    })),
+  );
+  const discount = promo.discountCents / 100;
+  const discountedSubtotal = promo.totalAfterDiscountCents / 100;
+
+  // Free shipping is quoted off the GROSS subtotal (matches the cart page + server).
   const quote = shippingQuote(currency, Math.round(subtotal * 100));
   const remaining = quote.remainingCents / 100;
+
+  // Bundle nudge — reinforce "Buy 2, Get 2 Free" at the moment items are added.
+  const totalUnits = items.reduce((n, i) => n + i.quantity, 0);
+  const bundleActive = promo.bundleActive;
+  const unitsToBundle = Math.max(0, BUNDLE.groupSize - totalUnits);
 
   return (
     <>
@@ -90,6 +120,31 @@ export function CartDrawer() {
 
         {items.length > 0 && (
           <div className="space-y-3 border-t border-[var(--border)] px-5 py-4">
+            {/* Bundle nudge — "Buy 2, Get 2 Free" progress. */}
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]/70">
+              {bundleActive ? (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+                  <span>
+                    <strong className="text-[var(--primary)]">
+                      {BUNDLE.label}
+                    </strong>{" "}
+                    unlocked! 🎉
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Gift className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+                  <span>
+                    Add {unitsToBundle} more{" "}
+                    {unitsToBundle === 1 ? "item" : "items"} for{" "}
+                    <strong className="text-[var(--primary)]">
+                      {BUNDLE.label}
+                    </strong>
+                  </span>
+                </>
+              )}
+            </p>
             {/* Free-shipping nudge so the buyer always knows where they stand */}
             <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]/70">
               <Truck className="h-3.5 w-3.5 text-[var(--primary)]" />
@@ -97,9 +152,23 @@ export function CartDrawer() {
                 ? "You've unlocked free shipping! 🎉"
                 : `Add ${formatPrice(remaining, currency)} for free shipping`}
             </p>
+            {/* Savings line — only when a promotion is actually reducing the total. */}
+            {discount > 0 && (
+              <div className="flex items-center justify-between text-xs font-bold text-[var(--primary)]">
+                <span>{promo.appliedLabel}</span>
+                <span>You save {formatPrice(discount, currency)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-base font-bold">
               <span>Subtotal</span>
-              <span>{formatPrice(subtotal, currency)}</span>
+              <span className="flex items-baseline gap-2">
+                {discount > 0 && (
+                  <span className="text-sm font-semibold text-[var(--foreground)]/40 line-through">
+                    {formatPrice(subtotal, currency)}
+                  </span>
+                )}
+                <span>{formatPrice(discountedSubtotal, currency)}</span>
+              </span>
             </div>
             <Link
               href="/cart"
@@ -127,7 +196,7 @@ function CartLine({
 }) {
   return (
     <div className="flex gap-3">
-      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)]">
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-[var(--product-surface)]">
         {item.imageUrl && (
           <Image
             src={item.imageUrl}

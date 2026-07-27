@@ -14,17 +14,25 @@ import * as React from "react";
 interface WelcomeEmailProps {
   name?: string;
   code: string;
+  /** Discount the code applies. Passed in so the copy can never contradict it. */
+  percentOff: number;
   /** Signed one-click unsubscribe link (marketing email requirement). */
   unsubscribeUrl?: string;
 }
 
-export function WelcomeEmail({ name, code, unsubscribeUrl }: WelcomeEmailProps) {
+export function WelcomeEmail({
+  name,
+  code,
+  percentOff,
+  unsubscribeUrl,
+}: WelcomeEmailProps) {
   const greeting = name ? `Hey ${name}! ✨` : "Welcome, bestie! ✨";
 
   return (
     <Html lang="en">
       <Head />
-      <Preview>Your 15% off code is ready — shop Y2KASE now ✨</Preview>
+      {/* Preview only accepts a plain string, so interpolate before passing. */}
+      <Preview>{`Your ${percentOff}% off code is ready — shop Y2KASE now ✨`}</Preview>
       <Body style={bodyStyle}>
         <Container style={containerStyle}>
           {/* Header */}
@@ -43,7 +51,7 @@ export function WelcomeEmail({ name, code, unsubscribeUrl }: WelcomeEmailProps) 
             </Text>
             <Text style={paraStyle}>
               As a thank-you for joining, here&apos;s your exclusive{" "}
-              <strong>15% off your first order</strong>:
+              <strong>{percentOff}% off your first order</strong>:
             </Text>
 
             {/* Promo code block */}

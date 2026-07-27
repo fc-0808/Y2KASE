@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Mail, Clock, HelpCircle } from "lucide-react";
 import { SUPPORT_EMAIL } from "@/lib/legal";
+import { SUPPORT_RESPONSE_TIME } from "@/lib/support/constants";
+import { SupportTrigger } from "@/components/support/SupportTrigger";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -35,11 +37,15 @@ export default function ContactPage() {
           {SUPPORT_EMAIL}
         </a>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <div className="mt-6">
+          <SupportTrigger label="Get instant answers" />
+        </div>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 text-left">
             <Clock className="h-5 w-5 shrink-0 text-[var(--accent)]" />
             <span className="text-sm font-semibold">
-              We reply within 24 hours
+              {SUPPORT_RESPONSE_TIME}
             </span>
           </div>
           <Link

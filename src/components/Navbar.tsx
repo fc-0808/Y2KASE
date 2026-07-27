@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ShoppingBag, Search, ChevronDown, Menu, X } from "lucide-react";
@@ -9,8 +8,6 @@ import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { Wordmark } from "@/components/brand/Decor";
-import { CategoryIcon } from "@/components/brand/CategoryIcon";
-import { DeviceIcon } from "@/components/brand/DeviceIcon";
 
 // Skip SSR — useSession from better-auth is browser-only.
 const UserButton = dynamic(
@@ -26,50 +23,24 @@ export type MenuCollection = {
   icon: string | null;
   accentColor: string | null;
   count: number;
-  /** Representative product photo (preferred over the kawaii icon). */
-  thumb?: string | null;
   children: MenuCollection[];
 };
 
 /**
- * CollectionThumb — a real product photo for a collection (premium look-book
- * style), falling back to the brand's kawaii icon when no photo exists.
+ * Case-compatibility facets for the mobile drawer.
+ *
+ * These are catalog QUERIES, not collections: "Non-MagSafe" has no collection
+ * row to link to — it's the negation of the `magsafe` product tag, expressed
+ * through the tri-state `magsafe` facet on `/products` (see `ProductQuery`).
  */
-function CollectionThumb({
-  item,
-  className,
-}: {
-  item: MenuCollection;
-  className?: string;
-}) {
-  if (item.thumb) {
-    return (
-      <span
-        className={`relative shrink-0 overflow-hidden rounded-xl border border-white shadow-sm ${className ?? ""}`}
-      >
-        <Image
-          src={item.thumb}
-          alt={item.name}
-          fill
-          sizes="48px"
-          className="object-cover"
-        />
-      </span>
-    );
-  }
-  return (
-    <span
-      className={`grid shrink-0 place-items-center rounded-xl bg-[var(--muted)] ${className ?? ""}`}
-    >
-      <CategoryIcon
-        slug={item.slug}
-        color={item.accentColor}
-        kind={item.kind}
-        className="h-3/5 w-3/5"
-      />
-    </span>
-  );
-}
+const COMPATIBILITY_FACETS = [
+  { label: "MagSafe", href: "/products?magsafe=true", color: "var(--primary)" },
+  {
+    label: "Non-MagSafe",
+    href: "/products?magsafe=false",
+    color: "var(--accent)",
+  },
+] as const;
 
 type Panel = "devices" | "collections" | null;
 
@@ -210,9 +181,7 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
       )}
 
       {/* Mobile drawer */}
-      {mobileOpen && (
-        <MobileMenu brands={brands} genres={genres} />
-      )}
+      {mobileOpen && <MobileMenu brands={brands} />}
     </header>
   );
 }
@@ -258,28 +227,31 @@ function PanelShell({ children }: { children: React.ReactNode }) {
 function DevicesPanel({ onNavigate }: { onNavigate: () => void }) {
   return (
     <PanelShell>
-      <div className="grid grid-cols-2 gap-x-8 gap-y-6 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-10 gap-y-8 lg:grid-cols-4">
         {DEVICE_FAMILIES.map((family) => (
           <div key={family.id}>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
+            <p className="mb-3 border-b border-[var(--border)] pb-2.5 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
               {family.label}
             </p>
-            <ul className="space-y-1">
+            <ul>
               {family.devices.map((device) => (
                 <li key={device.id}>
                   <Link
                     href={`/products?device=${device.id}`}
                     onClick={onNavigate}
-                    className="group flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm font-semibold hover:bg-[var(--muted)]"
+                    className="group flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[15px] font-bold text-[var(--foreground)]/75 transition hover:bg-[var(--muted)] hover:text-[var(--primary)]"
                   >
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white shadow-sm ring-1 ring-[var(--border)] transition group-hover:ring-[var(--primary)]/40">
-                      <DeviceIcon id={device.id} className="h-7 w-7" />
-                    </span>
-                    <span className="group-hover:text-[var(--primary)]">
-                      {device.label}
+                    <span className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--primary)] opacity-0 transition duration-200 group-hover:opacity-100"
+                      />
+                      <span className="transition-transform duration-200 group-hover:translate-x-0.5">
+                        {device.label}
+                      </span>
                     </span>
                     {device.comingSoon && (
-                      <span className="ml-auto rounded-full bg-[var(--muted)] px-2 py-0.5 text-[10px] font-bold uppercase text-[var(--foreground)]/40">
+                      <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/45 transition group-hover:bg-white">
                         Soon
                       </span>
                     )}
@@ -311,33 +283,44 @@ function CollectionsPanel({
           Collections are being curated — check back soon.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_1fr]">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[2fr_1fr]">
           <div>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
-              Characters & Brands
+            <p className="mb-4 border-b border-[var(--border)] pb-2.5 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
+              Characters &amp; Brands
             </p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-6 sm:grid-cols-3">
               {brands.map((brand) => (
                 <div key={brand.slug}>
                   <Link
                     href={`/collections/${brand.slug}`}
                     onClick={onNavigate}
-                    className="flex items-center gap-2.5 font-bold hover:text-[var(--primary)]"
+                    className="group inline-flex items-baseline gap-2 text-[15px] font-extrabold text-[var(--foreground)] transition hover:text-[var(--primary)]"
                   >
-                    <CollectionThumb item={brand} className="h-9 w-9" />
-                    {brand.name}
+                    <span className="transition-transform duration-200 group-hover:translate-x-0.5">
+                      {brand.name}
+                    </span>
+                    {brand.count > 0 && (
+                      <span className="text-[11px] font-bold tabular-nums text-[var(--foreground)]/35">
+                        {brand.count}
+                      </span>
+                    )}
                   </Link>
                   {brand.children.length > 0 && (
-                    <ul className="mt-2 space-y-1.5">
+                    <ul className="mt-2.5 space-y-0.5">
                       {brand.children.slice(0, 6).map((child) => (
                         <li key={child.slug}>
                           <Link
                             href={`/collections/${child.slug}`}
                             onClick={onNavigate}
-                            className="flex items-center gap-2 text-sm text-[var(--foreground)]/70 transition hover:text-[var(--primary)]"
+                            className="group flex items-center gap-2 rounded-lg py-1 text-sm font-semibold text-[var(--foreground)]/65 transition hover:text-[var(--primary)]"
                           >
-                            <CollectionThumb item={child} className="h-7 w-7" />
-                            {child.name}
+                            <span
+                              aria-hidden
+                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--primary)] opacity-0 transition duration-200 group-hover:opacity-100"
+                            />
+                            <span className="transition-transform duration-200 group-hover:translate-x-0.5">
+                              {child.name}
+                            </span>
                           </Link>
                         </li>
                       ))}
@@ -349,7 +332,7 @@ function CollectionsPanel({
           </div>
 
           <div>
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
+            <p className="mb-4 border-b border-[var(--border)] pb-2.5 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
               Shop by category
             </p>
             <div className="flex flex-wrap gap-2">
@@ -358,9 +341,13 @@ function CollectionsPanel({
                   key={genre.slug}
                   href={`/collections/${genre.slug}`}
                   onClick={onNavigate}
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] py-1 pl-1 pr-4 text-sm font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-1.5 text-sm font-semibold text-[var(--foreground)]/80 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
-                  <CollectionThumb item={genre} className="h-7 w-7 !rounded-full" />
+                  <span
+                    aria-hidden
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: genre.accentColor ?? "var(--primary)" }}
+                  />
                   {genre.name}
                 </Link>
               ))}
@@ -368,7 +355,7 @@ function CollectionsPanel({
             <Link
               href="/collections"
               onClick={onNavigate}
-              className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[var(--primary)]"
+              className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
             >
               Browse all collections →
             </Link>
@@ -379,13 +366,19 @@ function CollectionsPanel({
   );
 }
 
-function MobileMenu({
-  brands,
-  genres,
-}: {
-  brands: MenuCollection[];
-  genres: MenuCollection[];
-}) {
+function MobileMenu({ brands }: { brands: MenuCollection[] }) {
+  // Flatten brand → characters so Hello Kitty, Kuromi, My Melody … are all one
+  // tap away instead of being buried a level deep (the desktop mega-panel shows
+  // them as sub-lists; the drawer has no room for that nesting).
+  //
+  // Children are filtered to STOCKED collections so the drawer never dead-ends
+  // on an empty page. Roots are left alone so they keep honouring the header's
+  // "stocked or featured" rule.
+  const brandLinks = brands.flatMap((brand) => [
+    brand,
+    ...brand.children.filter((child) => child.count > 0),
+  ]);
+
   return (
     <div className="max-h-[70vh] overflow-y-auto border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 md:hidden">
       <MobileSection title="Devices">
@@ -394,48 +387,58 @@ function MobileMenu({
             <Link
               key={d.id}
               href={`/products?device=${d.id}`}
-              className="flex items-center gap-2 rounded-xl bg-[var(--card)] px-3 py-2 text-sm font-semibold"
+              className="flex items-center justify-between gap-2 rounded-xl bg-[var(--card)] px-3.5 py-2.5 text-sm font-bold"
             >
-              <DeviceIcon id={d.id} className="h-7 w-7 shrink-0" />
               {d.label}
+              {d.comingSoon && (
+                <span className="rounded-full bg-[var(--muted)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
+                  Soon
+                </span>
+              )}
             </Link>
           ))}
         </div>
       </MobileSection>
 
-      {brands.length > 0 && (
+      {brandLinks.length > 0 && (
         <MobileSection title="Characters & Brands">
           <div className="flex flex-wrap gap-2">
-            {brands.map((b) => (
+            {brandLinks.map((c) => (
               <Link
-                key={b.slug}
-                href={`/collections/${b.slug}`}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] py-1 pl-1 pr-3.5 text-sm font-semibold"
+                key={c.slug}
+                href={`/collections/${c.slug}`}
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold"
               >
-                <CollectionThumb item={b} className="h-7 w-7 !rounded-full" />
-                {b.name}
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: c.accentColor ?? "var(--primary)" }}
+                />
+                {c.name}
               </Link>
             ))}
           </div>
         </MobileSection>
       )}
 
-      {genres.length > 0 && (
-        <MobileSection title="Shop by category">
-          <div className="flex flex-wrap gap-2">
-            {genres.map((g) => (
-              <Link
-                key={g.slug}
-                href={`/collections/${g.slug}`}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] py-1 pl-1 pr-3.5 text-sm font-semibold"
-              >
-                <CollectionThumb item={g} className="h-7 w-7 !rounded-full" />
-                {g.name}
-              </Link>
-            ))}
-          </div>
-        </MobileSection>
-      )}
+      <MobileSection title="Shop by compatibility">
+        <div className="flex flex-wrap gap-2">
+          {COMPATIBILITY_FACETS.map((facet) => (
+            <Link
+              key={facet.href}
+              href={facet.href}
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold"
+            >
+              <span
+                aria-hidden
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: facet.color }}
+              />
+              {facet.label}
+            </Link>
+          ))}
+        </div>
+      </MobileSection>
 
       <Link
         href="/products"
