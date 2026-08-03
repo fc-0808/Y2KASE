@@ -8,9 +8,14 @@
  * Never import from a client component — this runs Node-only code.
  */
 import sharp from "sharp";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products, thumbnailProposals } from "@/lib/db/schema";
+import { productScopeFilter } from "./thumbnails";
+import {
+  DEFAULT_THUMBNAIL_SCOPE,
+  type ThumbnailScope,
+} from "./thumbnail-scope";
 import { classifyThumbnailSuitability, type ThumbnailScore } from "@/lib/ai";
 import { normalizeThumbnail } from "@/lib/catalog/normalize-thumbnail";
 import { removeHandsOnWhite, removeBackgroundKie } from "@/lib/catalog/ai-cleanup";
@@ -29,8 +34,11 @@ const CONCURRENCY = (() => {
 /** Normalize a product into a final square thumbnail buffer: Nano Banana Pro
  *  (KIE) removes background/hands → white using ALL provided images as design
  *  references (first = primary), then Sharp trims and centers. No Photoroom. */
-async function buildThumbnail(imageUrls: string[]): Promise<Buffer> {
-  const cleaned = await removeHandsOnWhite(imageUrls);
+async function buildThumbnail(
+  imageUrls: string[],
+  mode: "hand" | "artifact" = "hand",
+): Promise<Buffer> {
+  const cleaned = await removeHandsOnWhite(imageUrls, mode);
   return normalizeThumbnail(cleaned);
 }
 
@@ -163,6 +171,7 @@ async function processProduct(
 
     const normalized = await buildThumbnail(
       orderedImageUrls(product.images, best.id),
+      "hand",
     );
 
     const key = `products/${sanitise(product.slug)}/thumbnail-proposal-${Date.now()}.webp`;
@@ -187,13 +196,20 @@ async function processProduct(
 }
 
 /**
- * Process the next `limit` products that still need a thumbnail — those with no
- * proposal yet, plus any previously "flagged" (retried, since Nano Banana Pro
- * can now remove hands). Runs up to CONCURRENCY products in parallel. Each
- * product is independent — one failure flags that product; the run continues.
+ * Process the next `limit` products in `scope` that still need a thumbnail —
+ * those with no proposal yet, plus any previously "flagged" (retried, since
+ * Nano Banana Pro can now remove hands). Runs up to CONCURRENCY products in
+ * parallel. Each product is independent — one failure flags that product; the
+ * run continues.
+ *
+ * Never-attempted products are ordered ahead of flagged retries. A flagged
+ * product stays a candidate forever, so ordering by id alone let a permanently
+ * failing product sit at the head of the queue and consume the same slot on
+ * every batch, starving everything behind it.
  */
 export async function generateProposalsForPending(
   limit: number,
+  scope: ThumbnailScope = DEFAULT_THUMBNAIL_SCOPE,
 ): Promise<GenerateResult> {
   const candidates = await db
     .select({ id: products.id })
@@ -201,14 +217,18 @@ export async function generateProposalsForPending(
     .leftJoin(thumbnailProposals, eq(thumbnailProposals.productId, products.id))
     .where(
       and(
-        eq(products.status, "active"),
+        productScopeFilter(scope),
         or(
           isNull(thumbnailProposals.id),
           eq(thumbnailProposals.status, "flagged"),
         ),
       ),
     )
-    .orderBy(asc(products.id))
+    .orderBy(
+      // `false` sorts before `true`, so products with no proposal row go first.
+      sql`(${thumbnailProposals.id} is not null) asc`,
+      asc(products.id),
+    )
     .limit(Math.max(1, Math.min(limit, 50)));
 
   const ids = candidates.map((c) => c.id);
@@ -237,6 +257,7 @@ export async function generateProposalsForPending(
  */
 export async function regenerateProposalWithAiCleanup(
   productId: number,
+  mode: "hand" | "artifact" = "hand",
 ): Promise<{ ok: boolean; message: string }> {
   const product = await db.query.products.findFirst({
     where: eq(products.id, productId),
@@ -267,6 +288,7 @@ export async function regenerateProposalWithAiCleanup(
   // Sharp trims + centers for consistent framing. No Photoroom.
   const normalized = await buildThumbnail(
     orderedImageUrls(product.images, source.id),
+    mode,
   );
 
   const r2 = makeR2Client();

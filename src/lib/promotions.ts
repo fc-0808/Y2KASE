@@ -45,8 +45,29 @@ export type LocalCoupon = {
  * Add or retire codes here — the cart preview and checkout both read this map.
  */
 export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
-  /** The store's one and only advertised code. */
+  /**
+   * PUBLIC. Advertised in the announcement bar on every page, so it is
+   * effectively ungated — anyone can read it without giving us anything.
+   * That is deliberate, and it is also why it can never be the reward for
+   * handing over an email address: there is no trade in swapping an address
+   * for something already printed at the top of the screen.
+   */
   BESTIE10: { code: "BESTIE10", percentOff: 10, label: "10% off" },
+
+  /**
+   * SUBSCRIBER-ONLY scratch-card prizes. Never advertised anywhere on the
+   * storefront — the only way to be told one is to win it and hand over an
+   * email address. Each one beats the public 10%, which is the entire reason
+   * the exchange is worth making.
+   *
+   * Odds live in `src/lib/scratch.ts`; this map only says what each code is
+   * worth. Retiring a tier is a two-step job: drop it from the prize table
+   * first so it stops being issued, and leave it redeemable here until the
+   * subscribers who already have it have lapsed.
+   */
+  BESTIE15: { code: "BESTIE15", percentOff: 15, label: "15% off" },
+  BESTIE20: { code: "BESTIE20", percentOff: 20, label: "20% off" },
+  BESTIE25: { code: "BESTIE25", percentOff: 25, label: "25% off" },
 
   /**
    * RETIRED — do not advertise, do not issue.

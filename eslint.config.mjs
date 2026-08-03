@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local scratch space for visual diffing generated art. Throwaway scripts,
+    // never shipped, and not worth holding to the app's lint rules.
+    ".tmp-preview/**",
   ]),
 ]);
 

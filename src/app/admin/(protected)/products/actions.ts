@@ -13,6 +13,31 @@ import {
   collections,
 } from "@/lib/db/schema";
 import { applyMagSafeCopy, removeMagSafeCopy } from "@/lib/catalog/magsafe";
+import { applyCollectionTaxonomy } from "@/lib/catalog/taxonomy-sync";
+import { refileProduct } from "@/lib/catalog/collection-filing";
+import { auditCatalogClassification } from "@/lib/catalog/classification-health-service";
+import {
+  classifyBrandContext,
+  listBrandOptions,
+  resolveBrandAssignment,
+  type BrandOption,
+} from "@/lib/catalog/brands";
+import { ensureBrandRegistry } from "@/lib/catalog/brand-registry";
+import {
+  createBrandEntry,
+  deleteBrandEntry,
+  parseAliases,
+  productsClassifiedAs,
+  updateBrandEntry,
+  type BrandDeleteResult,
+  type BrandWriteResult,
+} from "@/lib/catalog/brand-admin";
+import { repairListingTitle } from "@/lib/catalog/listing-title";
+import {
+  loadProductTitleState,
+  rewriteTitleKeepingBrand,
+} from "@/lib/catalog/listing-title-service";
+import { updateProductBrand, updateProductTitle } from "./[id]/actions";
 import { requireAdmin } from "@/lib/auth";
 import {
   MODEL_OPTION_NAME,
@@ -24,6 +49,8 @@ import {
   stylesForAddons,
   defaultStyleFor,
   getStylePrice,
+  normalizeImageStyleTags,
+  imageStyleTagsAreCanonical,
 } from "@/lib/pricing";
 import { saveProductVariations } from "@/lib/admin/product-variations";
 import {
@@ -40,6 +67,11 @@ import {
   removeBackgroundProposal,
   type CropRect,
 } from "@/lib/admin/thumbnails-generate";
+import {
+  parseThumbnailScope,
+  DEFAULT_THUMBNAIL_SCOPE,
+  type ThumbnailScope,
+} from "@/lib/admin/thumbnail-scope";
 import {
   makeR2Client,
   deleteObjectsFromR2,
@@ -105,6 +137,41 @@ export async function assignProductsToCollection(
     message: `Added ${ids.length} product${ids.length === 1 ? "" : "s"} to collection.`,
     changed: ids.length,
   };
+}
+
+/**
+ * Push the config taxonomy into the `collections` table.
+ *
+ * The browse tree is config-as-code, but every picker and filter reads the
+ * table — so a brand added in source control is invisible until it is synced.
+ * That gap is what hid "Rilakkuma" from the collection dropdown while it sat in
+ * `collections-config.ts`. Exposing the sync as a button means the operator who
+ * notices the gap can close it, instead of filing it with whoever has a shell.
+ *
+ * Idempotent, and never touches product membership.
+ */
+export async function syncCollectionTaxonomy(): Promise<CollectionAssignResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  try {
+    const { inserted, updated, total } = await applyCollectionTaxonomy();
+    revalidateCatalog();
+    return {
+      ok: true,
+      message:
+        inserted > 0
+          ? `Synced ${total} collections — ${inserted} added.`
+          : `Synced ${total} collections — ${updated} refreshed.`,
+      changed: inserted,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Taxonomy sync failed.",
+      changed: 0,
+    };
+  }
 }
 
 export async function removeProductsFromCollection(
@@ -308,6 +375,508 @@ export async function bulkSetMagsafe(
     ok: true,
     message: `${magsafe ? "Marked" : "Unmarked"} ${rows.length} product${rows.length === 1 ? "" : "s"} ${magsafe ? "as" : "from"} MagSafe.`,
     changed: rows.length,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Classification CRUD, from the list
+//
+// Correcting one product's identity used to mean opening it, changing the
+// brand, going back, and losing your place — for a catalogue where a third of
+// the rows were misclassified. These actions do the same writes as the product
+// page, addressed by row, so the work can be done in the list where the
+// mistakes are visible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The brand vocabulary itself
+//
+// Until now the set of brands the catalogue could recognise was a hard-coded
+// array: meeting a new IP — a Sumikko Gurashi case — meant editing source,
+// opening a PR and deploying before the product could even be classified. These
+// actions move that to runtime. Each one writes a browse node, so a brand
+// created here is classifiable, filable and browsable in the same breath.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Expire the cached vocabulary and every surface that renders it.
+ *
+ * `revalidateCatalog` already drops the `collections` cache tag, which is the
+ * one the vocabulary snapshot is stored under — so a brand added here is
+ * visible to the next classification without waiting out the hourly window.
+ */
+function revalidateVocabulary(): void {
+  revalidateCatalog();
+  revalidatePath("/admin/collections");
+}
+
+export async function createBrand(input: {
+  name: string;
+  aliases: string;
+  parentBrandId?: string | null;
+  icon?: string | null;
+}): Promise<BrandWriteResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  // The registry has to be current before the duplicate check runs, or a brand
+  // added a minute ago would look free and two rows would answer to one name.
+  await ensureBrandRegistry();
+
+  const res = await createBrandEntry({
+    name: input.name,
+    aliases: parseAliases(input.aliases),
+    parentBrandId: input.parentBrandId ?? null,
+    icon: input.icon ?? null,
+  });
+  if (res.ok) revalidateVocabulary();
+  return res;
+}
+
+export async function updateBrand(input: {
+  slug: string;
+  name: string;
+  aliases: string;
+  icon?: string | null;
+}): Promise<BrandWriteResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  const res = await updateBrandEntry({
+    slug: input.slug,
+    name: input.name,
+    aliases: parseAliases(input.aliases),
+    icon: input.icon ?? null,
+  });
+  if (res.ok) revalidateVocabulary();
+  return res;
+}
+
+export async function deleteBrand(
+  slug: string,
+  unfile = false,
+): Promise<BrandDeleteResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  const res = await deleteBrandEntry(slug, unfile);
+  if (res.ok) revalidateVocabulary();
+  return res;
+}
+
+/** The vocabulary as the manager UI renders it, with usage counts. */
+export async function listBrandVocabulary(): Promise<{
+  brands: BrandOption[];
+  counts: Record<string, number>;
+}> {
+  if (!(await requireAdmin(await headers()))) {
+    return { brands: [], counts: {} };
+  }
+  await ensureBrandRegistry();
+  const brands = listBrandOptions();
+  const slugs = brands.flatMap((brand) => [
+    brand.id,
+    ...brand.characters.map((character) => character.id),
+  ]);
+  return {
+    brands,
+    counts: Object.fromEntries(await productsClassifiedAs(slugs)),
+  };
+}
+
+export type RowClassificationResult = {
+  ok: boolean;
+  message: string;
+  /** The regenerated title, when the reclassification produced one. */
+  title?: string | null;
+};
+
+/**
+ * Set (or clear) one product's brand and character from the list row, and bring
+ * its title along.
+ *
+ * Delegates to the same server action the product page uses, so the operator's
+ * decision is stamped with the same provenance marker and reconciled through
+ * the same filing path. That marker matters beyond the audit trail: it is what
+ * lets the listing-title contract write a confirmed IP into the title even when
+ * the product's own text never mentions it.
+ *
+ * When `retitle` is on, the title is rebuilt from the product photos — not a
+ * string swap of the character name. Swapping alone is how a catalogue ends up
+ * with sixteen "Miffy Clear Glitter Phone Case" near-duplicates; the vision
+ * descriptor is what makes each listing distinguishable. The brand the operator
+ * just confirmed is held fixed: the model is only allowed to invent the
+ * descriptive phrase. If photos are missing or the model fails, we fall back to
+ * the deterministic IP/device repair so the classification still lands cleanly.
+ */
+export async function setProductClassification(
+  productId: number,
+  brandId: string | null,
+  characterId: string | null,
+  retitle: boolean = true,
+): Promise<RowClassificationResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+
+  const res = await updateProductBrand(productId, brandId, characterId);
+  if (!res.ok) return { ok: false, message: res.message };
+
+  let note = "";
+  let title: string | null = null;
+
+  if (retitle) {
+    // Read back *after* the brand write: the rewrite has to see the new
+    // classification and the operator-confirmed provenance it just gained.
+    try {
+      const rewritten = await rewriteTitleKeepingBrand(productId);
+      if (rewritten.title) {
+        const applied = await updateProductTitle(productId, rewritten.title);
+        if (applied.ok && applied.title) {
+          title = applied.title;
+          const how =
+            rewritten.source === "vision"
+              ? "from the photos"
+              : "with the deterministic fix";
+          note = ` Title rewritten ${how}: “${applied.title}”.`;
+        } else if (!applied.ok) {
+          note = ` The title could not be saved: ${applied.message}`;
+        }
+      } else if (!rewritten.ok) {
+        note = ` The title could not be regenerated: ${rewritten.message}`;
+      }
+    } catch (err) {
+      note = ` The title could not be regenerated: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  }
+
+  revalidateCatalog(productId);
+  return { ok: true, message: `${res.message}${note}`, title };
+}
+
+/**
+ * Add or remove a single collection for a single product.
+ *
+ * Deliberately narrower than the bulk assign action: this is the escape hatch
+ * for a membership the automatic filing got wrong, and it must be able to
+ * remove a brand collection that filing itself would refuse to touch.
+ */
+export async function setProductCollection(
+  productId: number,
+  collectionId: number,
+  member: boolean,
+): Promise<RowClassificationResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  const collection = await db.query.collections.findFirst({
+    where: eq(collections.id, collectionId),
+    columns: { id: true, name: true },
+  });
+  if (!collection) return { ok: false, message: "Collection not found." };
+
+  if (member) {
+    await db
+      .insert(productCollections)
+      .values({ productId, collectionId })
+      .onConflictDoNothing();
+  } else {
+    await db
+      .delete(productCollections)
+      .where(
+        and(
+          eq(productCollections.productId, productId),
+          eq(productCollections.collectionId, collectionId),
+        ),
+      );
+  }
+
+  revalidateCatalog(productId);
+  return {
+    ok: true,
+    message: member
+      ? `Added to ${collection.name}.`
+      : `Removed from ${collection.name}.`,
+  };
+}
+
+/**
+ * Reclassify products to the IP their own title names.
+ *
+ * Two thirds of this catalogue arrived with the supplier's shop name ("Y2CASE",
+ * "JOYNOVA") in the brand column, and another 22 rows carry a blanket "Hello
+ * Kitty" from an early classifier — on cases whose titles plainly say Miffy,
+ * Tamagotchi or Monchhichi. In every one of those the correct answer is already
+ * written on the product; it just was not in the field that filing reads.
+ *
+ * Applying it is safe by construction: the title is the corroboration, so the
+ * result is a classification the audit will then rate as supported. It is
+ * stamped with the operator marker because a human chose this selection and
+ * pressed the button — which also lets the title contract treat the IP as
+ * confirmed, and lets filing act authoritatively again.
+ *
+ * Products whose title names nothing in the registry are skipped, not guessed.
+ */
+export async function adoptTitleBrand(
+  productIds: number[],
+): Promise<{ ok: boolean; message: string; changed: number }> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  const ids = Array.from(new Set(productIds)).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) {
+    return { ok: false, message: "No products selected.", changed: 0 };
+  }
+
+  const rows = await db.query.products.findMany({
+    where: inArray(products.id, ids),
+    columns: {
+      id: true,
+      title: true,
+      brandName: true,
+      characterName: true,
+    },
+  });
+
+  let changed = 0;
+  let noSignal = 0;
+  let alreadyRight = 0;
+
+  for (const row of rows) {
+    const fromTitle = classifyBrandContext([row.title]);
+    if (!fromTitle.brandId) {
+      noSignal += 1;
+      continue;
+    }
+
+    const current = resolveBrandAssignment(row.brandName, row.characterName);
+    if (
+      current.ok &&
+      current.brand.id === fromTitle.brandId &&
+      (current.character?.id ?? null) === fromTitle.characterId
+    ) {
+      alreadyRight += 1;
+      continue;
+    }
+
+    const res = await updateProductBrand(
+      row.id,
+      fromTitle.brandId,
+      fromTitle.characterId,
+    );
+    if (res.ok) changed += 1;
+  }
+
+  revalidateCatalog();
+  const skipped = [
+    noSignal > 0 ? `${noSignal} name no known IP` : null,
+    alreadyRight > 0 ? `${alreadyRight} already correct` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    ok: true,
+    message: changed
+      ? `Reclassified ${changed} product${changed === 1 ? "" : "s"} from their titles.${skipped ? ` Skipped: ${skipped}.` : ""}`
+      : `Nothing to change.${skipped ? ` ${skipped}.` : ""}`,
+    changed,
+  };
+}
+
+/**
+ * Drop every brand collection a product's own classification and title fail to
+ * support, for a whole selection.
+ *
+ * The counterpart to "Fix titles": filing can add a membership from evidence,
+ * but it deliberately never removes one on a disputed classification, so
+ * leftovers from an earlier, wrong classifier need an explicit instruction to
+ * clear. Genre and feature memberships are curated by hand and are never
+ * touched here.
+ */
+export async function purgeUnsupportedCollections(
+  productIds: number[],
+): Promise<{ ok: boolean; message: string; changed: number }> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  const ids = Array.from(new Set(productIds)).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) {
+    return { ok: false, message: "No products selected.", changed: 0 };
+  }
+
+  const health = await auditCatalogClassification();
+  const slugToId = new Map(
+    (
+      await db
+        .select({ id: collections.id, slug: collections.slug })
+        .from(collections)
+    ).map((row) => [row.slug, row.id]),
+  );
+
+  let changed = 0;
+  let removed = 0;
+  for (const id of ids) {
+    const unsupported = health.get(id)?.unsupportedSlugs ?? [];
+    const collectionIds = unsupported
+      .map((slug) => slugToId.get(slug))
+      .filter((n): n is number => n !== undefined);
+    if (collectionIds.length === 0) continue;
+
+    await db
+      .delete(productCollections)
+      .where(
+        and(
+          eq(productCollections.productId, id),
+          inArray(productCollections.collectionId, collectionIds),
+        ),
+      );
+    changed += 1;
+    removed += collectionIds.length;
+  }
+
+  revalidateCatalog();
+  return {
+    ok: true,
+    message: changed
+      ? `Removed ${removed} unsupported collection${removed === 1 ? "" : "s"} from ${changed} product${changed === 1 ? "" : "s"}.`
+      : "Nothing to remove — every brand collection here is supported.",
+    changed,
+  };
+}
+
+/**
+ * Rebuild many titles from product photos via vision AI.
+ *
+ * Unlike {@link bulkRepairTitles}, this always has work to do: even a
+ * contract-clean title can be generic ("Clear Glitter Phone Case"), and the
+ * operator selecting rows is asking for a fresh descriptive phrase under the
+ * current brand. Brand is held fixed — the model only invents the descriptor.
+ *
+ * Sequential on purpose: each call spends a vision request, and firing them in
+ * parallel would burn the rate limit for no latency win on a handful of rows.
+ */
+export async function bulkRewriteTitles(
+  productIds: number[],
+): Promise<{ ok: boolean; message: string; changed: number }> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  const ids = Array.from(new Set(productIds)).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) {
+    return { ok: false, message: "No products selected.", changed: 0 };
+  }
+
+  let changed = 0;
+  let vision = 0;
+  let fallback = 0;
+  let failed = 0;
+
+  for (const id of ids) {
+    try {
+      const rewritten = await rewriteTitleKeepingBrand(id);
+      if (!rewritten.ok || !rewritten.title) {
+        failed += 1;
+        continue;
+      }
+      const applied = await updateProductTitle(id, rewritten.title);
+      if (!applied.ok || !applied.title) {
+        failed += 1;
+        continue;
+      }
+      // Skip a no-op write that somehow survived — still count as success only
+      // when the stored title actually moved.
+      changed += 1;
+      if (rewritten.source === "vision") vision += 1;
+      else fallback += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  revalidateCatalog();
+
+  if (changed === 0) {
+    return {
+      ok: failed === 0,
+      message:
+        failed > 0
+          ? `Could not regenerate any of the ${ids.length} title${ids.length === 1 ? "" : "s"}.`
+          : "Nothing to regenerate.",
+      changed: 0,
+    };
+  }
+
+  const parts = [
+    `Regenerated ${changed} title${changed === 1 ? "" : "s"}`,
+    vision > 0 ? `${vision} from photos` : null,
+    fallback > 0 ? `${fallback} with the deterministic fallback` : null,
+    failed > 0 ? `${failed} failed` : null,
+  ].filter(Boolean);
+
+  return { ok: true, message: `${parts.join(" · ")}.`, changed };
+}
+
+/**
+ * Rebuild many titles from the products' own data, in one action.
+ *
+ * This is the deterministic repair, not the AI rewrite: it keeps each title's
+ * prose and re-emits only the segments the contract owns — the character
+ * prefix, the device coverage, the MagSafe suffix. That makes it safe to run
+ * over a whole selection unattended, and free.
+ *
+ * Titles whose only fault is a brand the title itself contradicts are left
+ * alone and counted separately. Repair cannot settle who is on the case; saying
+ * so is more useful than silently rewriting around a classification that may be
+ * the thing that's wrong.
+ */
+export async function bulkRepairTitles(
+  productIds: number[],
+): Promise<{ ok: boolean; message: string; changed: number }> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  const ids = Array.from(new Set(productIds)).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) {
+    return { ok: false, message: "No products selected.", changed: 0 };
+  }
+
+  let changed = 0;
+  let needsHuman = 0;
+
+  for (const id of ids) {
+    const state = await loadProductTitleState(id);
+    if (!state) continue;
+
+    const repaired = repairListingTitle(state.title, state.facts);
+    if (!repaired.changed) {
+      if (state.issues.length > 0) needsHuman += 1;
+      continue;
+    }
+
+    await db
+      .update(products)
+      .set({ title: repaired.title, updatedAt: new Date() })
+      .where(eq(products.id, id));
+    // A title is the input to genre and feature filing, so a rename can move
+    // the product. Re-file in the same pass or the browse tree goes stale.
+    await refileProduct(id);
+    changed += 1;
+  }
+
+  revalidateCatalog();
+  const remainder =
+    needsHuman > 0
+      ? ` ${needsHuman} still need${needsHuman === 1 ? "s" : ""} a human — open the product and use “Rewrite with AI”.`
+      : "";
+  return {
+    ok: true,
+    message: changed
+      ? `Rebuilt ${changed} title${changed === 1 ? "" : "s"} from product data.${remainder}`
+      : `No title could be repaired automatically.${remainder}`,
+    changed,
   };
 }
 
@@ -574,7 +1143,6 @@ export async function bulkUpdateProducts(
     }
 
     if (isIphoneCase && wantsStyles && targetStyles) {
-      const allowed = new Set(targetStyles);
       await upsertOption(
         product.id,
         STYLE_OPTION_NAME,
@@ -592,15 +1160,19 @@ export async function bulkUpdateProducts(
           updatedAt: new Date(),
         })
         .where(eq(products.id, product.id));
-      // Drop any per-image style tags that are no longer offered.
+      // Re-point per-image tags at the new offered set. This also collapses any
+      // image still carrying several tags, so applying styles in bulk repairs
+      // legacy rows on the way past.
       await Promise.all(
         product.images
-          .filter((img) => (img.styleTags ?? []).some((s) => !allowed.has(s)))
+          .filter(
+            (img) => !imageStyleTagsAreCanonical(img.styleTags, targetStyles),
+          )
           .map((img) =>
             db
               .update(productImages)
               .set({
-                styleTags: (img.styleTags ?? []).filter((s) => allowed.has(s)),
+                styleTags: normalizeImageStyleTags(img.styleTags, targetStyles),
               })
               .where(eq(productImages.id, img.id)),
           ),
@@ -805,19 +1377,28 @@ export async function bulkSaveProducts(
 export type ActionResult = { ok: boolean; message: string };
 
 /**
- * Generate normalization proposals for the next batch of pending products.
- * Bounded + synchronous so the admin can click, wait, and review the results;
- * each product is processed independently so one bad image can't abort the run.
+ * Generate normalization proposals for the next batch of pending products in
+ * `scope`. Bounded + synchronous so the admin can click, wait, and review the
+ * results; each product is processed independently so one bad image can't abort
+ * the run.
+ *
+ * `proposed` is what the client's "Generate all" loop watches: the candidate
+ * pool only shrinks when a product yields a proposal (failures are re-flagged
+ * and stay eligible), so a batch that proposes nothing means no further
+ * progress is possible.
  */
 export async function generateThumbnailProposals(
   limit = 5,
-): Promise<ActionResult & { changed: number }> {
+  scope: ThumbnailScope = DEFAULT_THUMBNAIL_SCOPE,
+): Promise<ActionResult & { changed: number; proposed: number }> {
   if (!(await requireAdmin(await headers()))) {
-    return { ok: false, message: "Not authorized.", changed: 0 };
+    return { ok: false, message: "Not authorized.", changed: 0, proposed: 0 };
   }
   try {
-    const { processed, proposed, flagged } =
-      await generateProposalsForPending(limit);
+    const { processed, proposed, flagged } = await generateProposalsForPending(
+      limit,
+      parseThumbnailScope(scope),
+    );
     revalidatePath("/admin/products/thumbnails");
     revalidatePath("/admin/products");
     return {
@@ -827,12 +1408,14 @@ export async function generateThumbnailProposals(
           ? "Nothing left to process — the queue is clear."
           : `Processed ${processed} · ${proposed} proposed · ${flagged} flagged.`,
       changed: processed,
+      proposed,
     };
   } catch (err) {
     return {
       ok: false,
       message: err instanceof Error ? err.message : "Generation failed.",
       changed: 0,
+      proposed: 0,
     };
   }
 }
@@ -883,6 +1466,25 @@ export async function aiCleanupThumbnail(
     return {
       ok: false,
       message: err instanceof Error ? err.message : "AI cleanup failed.",
+    };
+  }
+}
+
+/** Dedicated cleanup for the recurring top-left physical tag artifact. */
+export async function aiRemoveThumbnailArtifact(
+  productId: number,
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  try {
+    const res = await regenerateProposalWithAiCleanup(productId, "artifact");
+    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    return res;
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Tag removal failed.",
     };
   }
 }

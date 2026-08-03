@@ -29,8 +29,10 @@ import {
   orderModels,
   modelsForGenerationRange,
   summarizeModels,
+  normalizeImageStyleTags,
 } from "@/lib/pricing";
 import { compareFilenamesNatural } from "@/lib/utils";
+import { StyleTagPicker, StyleCoverageHint } from "./StyleTagPicker";
 import {
   bulkUpdateProducts,
   getBulkEditProducts,
@@ -427,15 +429,18 @@ function IndividualWorkspace({
                       <StyleVariationPicker
                         styles={active.styles}
                         onChange={(styles) => {
-                          const allowed = new Set(styles);
+                          // Re-normalize rather than filter: an image assigned
+                          // to a style that's no longer offered falls back to
+                          // universal instead of keeping a dangling tag.
                           updateActive({
                             styles,
                             media: active.media.map((m) =>
                               m.kind === "image"
                                 ? {
                                     ...m,
-                                    styleTags: m.styleTags.filter((s) =>
-                                      allowed.has(s),
+                                    styleTags: normalizeImageStyleTags(
+                                      m.styleTags,
+                                      styles,
                                     ),
                                   }
                                 : m,
@@ -728,31 +733,38 @@ function MediaOrderEditor({
     if (videoIdx >= 0) out.splice(Math.min(videoIdx, out.length), 0, media[videoIdx]);
     onChange(out);
   }
-  function toggleTag(imageId: number, style: string) {
+  /** Single-select: assigning a style replaces the image's previous one. */
+  function setImageStyle(imageId: number, styleTags: string[]) {
     onChange(
-      media.map((m) => {
-        if (m.kind !== "image" || m.id !== imageId) return m;
-        const has = m.styleTags.includes(style);
-        return {
-          ...m,
-          styleTags: has
-            ? m.styleTags.filter((s) => s !== style)
-            : orderStyles([...m.styleTags, style]),
-        };
-      }),
+      media.map((m) =>
+        m.kind === "image" && m.id === imageId ? { ...m, styleTags } : m,
+      ),
     );
   }
 
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-sm font-bold">
-          <Images className="h-4 w-4" /> Media order &amp; per-image styles
-        </p>
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm font-bold">
+            <Images className="h-4 w-4" /> Media order &amp; per-image styles
+          </p>
+          {styles.length > 0 && (
+            <StyleCoverageHint
+              styles={styles}
+              tagsByImage={media
+                .filter(
+                  (m): m is Extract<MediaItem, { kind: "image" }> =>
+                    m.kind === "image",
+                )
+                .map((m) => m.styleTags)}
+            />
+          )}
+        </div>
         <button
           type="button"
           onClick={sortByFilename}
-          className="flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:border-[var(--primary)]"
+          className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:border-[var(--primary)]"
         >
           <ArrowDownAZ className="h-3.5 w-3.5" /> Sort
         </button>
@@ -842,31 +854,18 @@ function MediaOrderEditor({
                     <p className="truncate text-[11px] text-[var(--foreground)]/50">
                       {item.filename ?? `image #${item.id}`}
                     </p>
-                    {styles.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {styles.map((style) => {
-                          const active = item.styleTags.includes(style);
-                          return (
-                            <button
-                              key={style}
-                              type="button"
-                              onClick={() => toggleTag(item.id, style)}
-                              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold transition ${
-                                active
-                                  ? "border-[var(--primary)] bg-[var(--primary)] text-white"
-                                  : "border-[var(--border)] hover:border-[var(--primary)]"
-                              }`}
-                            >
-                              {style}
-                            </button>
-                          );
-                        })}
+                    {styles.length > 0 && (
+                      <div className="mt-1">
+                        <StyleTagPicker
+                          size="sm"
+                          styles={styles}
+                          value={item.styleTags}
+                          label={item.filename ?? `image #${item.id}`}
+                          onChange={(styleTags) =>
+                            setImageStyle(item.id, styleTags)
+                          }
+                        />
                       </div>
-                    ) : null}
-                    {styles.length > 0 && item.styleTags.length === 0 && (
-                      <p className="mt-1 text-[10px] text-[var(--foreground)]/50">
-                        Universal — shown for every style.
-                      </p>
                     )}
                   </>
                 )}
@@ -1001,12 +1000,19 @@ function Toggle({
 // Draft helpers
 // ─────────────────────────────────────────────────────────────────────────────
 function draftFromProduct(p: BulkEditProduct): Draft {
+  const styles = orderStyles(
+    p.availableStyles.length ? p.availableStyles : ["Case Only"],
+  );
+  // Legacy rows can carry several tags per image (the classifier used to tag
+  // inclusively). Collapse on the way in so the control never renders two
+  // active pills; the baseline is taken from the normalized draft below, so
+  // this doesn't flag every such product as unsaved the moment it loads.
   const imgs: MediaItem[] = p.images.map((i) => ({
     kind: "image",
     id: i.id,
     url: i.url,
     filename: i.filename,
-    styleTags: i.styleTags,
+    styleTags: normalizeImageStyleTags(i.styleTags, styles),
   }));
   let media = imgs;
   if (p.videoUrl) {
@@ -1021,9 +1027,7 @@ function draftFromProduct(p: BulkEditProduct): Draft {
     isIphoneCase: p.productType === "iphone_case",
     videoUrl: p.videoUrl,
     media,
-    styles: orderStyles(
-      p.availableStyles.length ? p.availableStyles : ["Case Only"],
-    ),
+    styles,
     models: p.availableModels,
   };
 }

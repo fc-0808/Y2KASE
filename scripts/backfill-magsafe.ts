@@ -1,47 +1,58 @@
 /**
- * Backfill MagSafe classification across the EXISTING catalogue, without
- * re-uploading any images.
+ * Backfill / audit MagSafe classification across the EXISTING catalogue,
+ * without re-uploading any images.
  *
- *   npm run backfill:magsafe -- --preview   # preview, writes nothing
- *   npm run backfill:magsafe                # apply changes
+ *   npm run backfill:magsafe             # preview: classify unclassified products
+ *   npm run backfill:magsafe:apply       # …and write the result
+ *   npm run magsafe:revalidate           # preview: audit what is already tagged
+ *   npm run magsafe:revalidate:apply     # …and correct it
  *
- * (Use --preview, not --dry-run: npm reserves --dry-run and would swallow it.)
+ * Previewing is the default and writing needs `--apply`, because `npm run x --
+ * --flag` does not reliably forward flags — see scripts/lib/cli.ts.
  *
- * For each phone-case product it re-runs the focused MagSafe vision check on the
- * product's existing R2 photos (skipping ones already flagged, to save cost),
- * and for MagSafe products idempotently: ensures "MagSafe" is in the title +
- * description, adds the `magsafe` tag, and links the MagSafe collection. Safe to
- * re-run — nothing already-correct is touched.
+ * Default mode classifies phone cases that are not yet marked MagSafe, using the
+ * strict temperature-0 verifier on their existing R2 photos.
+ *
+ * `--revalidate` re-inspects products that ARE tagged MagSafe and routes each to
+ * its correct terminal state: keep, queue for review, or demote. Use it after a
+ * bad ingest run — a catalogue classified before the verifier existed can be
+ * ~80% false positives, and queueing all of them for manual review is not a
+ * remediation. Demotion only strips the markers this pipeline added
+ * (see `removeMagSafeCopy`) and is reversible from the admin bulk action.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../src/lib/db";
 import {
   products,
   productCollections,
   collections,
 } from "../src/lib/db/schema";
-import { detectMagSafe } from "../src/lib/ai";
+import { verifyMagSafe } from "../src/lib/ai";
 import { mapWithConcurrency } from "../src/lib/catalog/concurrency";
 import {
   decideMagSafe,
   hasTextualMagSafe,
   applyMagSafeCopy,
+  removeMagSafeCopy,
+  MAGSAFE_TAG,
+  type MagSafeVerdict,
 } from "../src/lib/catalog/magsafe";
+import { hasFlag, resolveRunMode } from "./lib/cli";
 
 // MagSafe only applies to phone cases.
 const CANDIDATE_TYPES = new Set(["iphone_case", "samsung_case", "pixel_case"]);
 
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set.");
-  const dryRun =
-    process.argv.includes("--preview") || process.argv.includes("--dry-run");
-  // Re-check products ALREADY classified as MagSafe with strict high-confidence
-  // vision, and queue any that no longer pass for human review. Useful to audit
-  // a looser earlier run.
-  const revalidate = process.argv.includes("--revalidate");
+  // Re-inspect products ALREADY classified as MagSafe and correct them.
+  const revalidate = hasFlag("revalidate");
+  const mode = resolveRunMode(
+    revalidate ? "MagSafe re-validation" : "MagSafe backfill",
+  );
+  const dryRun = mode.preview;
   const concurrency = Math.max(1, Number(process.env.INGEST_CONCURRENCY) || 4);
 
   const magCol = await db.query.collections.findFirst({
@@ -78,24 +89,31 @@ async function main() {
   // ── Revalidation mode: audit already-tagged MagSafe products ──────────────
   if (revalidate) {
     const tagged = rows.filter(
-      (p) => p.tags.includes("magsafe") && p.images.length > 0,
+      (p) => p.tags.includes(MAGSAFE_TAG) && p.images.length > 0,
     );
     console.log(
-      `\n${dryRun ? "[DRY RUN] " : ""}Re-validating ${tagged.length} MagSafe-tagged product(s) at high confidence.\n`,
+      `Re-validating ${tagged.length} MagSafe-tagged product(s) against the strict verifier. Concurrency ${concurrency}.\n`,
     );
     let kept = 0;
     let queued = 0;
+    let demoted = 0;
     let failed = 0;
+
     await mapWithConcurrency(tagged, concurrency, async (p) => {
-      let verdict;
-      try {
-        verdict = await detectMagSafe(p.images.map((i) => i.url));
-      } catch {
+      const verdict = await verifyMagSafe(p.images.map((i) => i.url));
+      if (!verdict) {
+        // Could not verify — leave the product exactly as it is rather than
+        // demoting a possibly-correct listing on the strength of an outage.
         failed++;
+        console.log(`  ? #${p.id} verification unavailable — left unchanged`);
         return;
       }
-      const strong = verdict.magsafe && verdict.confidence === "high";
-      if (strong) {
+
+      // The existing title/tag cannot corroborate anything here: they were very
+      // likely written by the same classifier we are auditing.
+      const decision = decideMagSafe({ human: false, verifier: verdict });
+
+      if (decision === "confirmed") {
         kept++;
         if (p.needsMagsafeReview && !dryRun) {
           await db
@@ -105,23 +123,64 @@ async function main() {
         }
         return;
       }
-      queued++;
-      console.log(
-        `  ${dryRun ? "would queue" : "⟳ queued"} #${p.id} ${p.title.slice(0, 54)}`,
-      );
-      if (!dryRun && !p.needsMagsafeReview) {
-        await db
-          .update(products)
-          .set({ needsMagsafeReview: true, updatedAt: new Date() })
-          .where(eq(products.id, p.id));
-      }
+
+      // ── Unconfirmed → take the badge down ─────────────────────────────────
+      // Both remaining outcomes strip the MagSafe claim, because these products
+      // are already PUBLISHED with it: leaving an unverified badge up while a
+      // human gets round to it is the exact failure we are fixing. They differ
+      // only in whether we ask anyone about it — `review` keeps the product in
+      // /admin/products/magsafe-review (that page keys off `needsMagsafeReview`,
+      // not the tag), and confirming there restores the badge in full.
+      const forReview = decision === "review";
+      if (forReview) queued++;
+      else demoted++;
+
+      const stripped = removeMagSafeCopy({
+        title: p.title,
+        description: p.description,
+        tags: p.tags,
+      });
+      const verb = forReview
+        ? dryRun
+          ? "would unbadge + queue"
+          : "⟳ unbadged + queued"
+        : dryRun
+          ? "would demote"
+          : "✗ demoted";
+      console.log(`  ${verb} #${p.id} ${stripped.title.slice(0, 54)}`);
+      if (dryRun) return;
+
+      await db
+        .update(products)
+        .set({
+          title: stripped.title,
+          description: stripped.description,
+          tags: stripped.tags,
+          needsMagsafeReview: forReview,
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, p.id));
+      await db
+        .delete(productCollections)
+        .where(
+          and(
+            eq(productCollections.productId, p.id),
+            eq(productCollections.collectionId, magCol.id),
+          ),
+        );
     });
+
     console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ${dryRun ? "DRY RUN — no changes written" : "Done."}
-  High-confidence kept: ${kept}   Queued for review: ${queued}   Failed: ${failed}
+  ${dryRun ? "PREVIEW — no changes written" : "Done."}
+  Verified — badge kept     : ${kept}
+  Unconfirmed — badge down, queued for review: ${queued}
+  Rejected — badge down    : ${demoted}
+  Unverifiable — untouched : ${failed}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`);
+  Queued items are at /admin/products/magsafe-review — confirming one restores
+  its badge, title, description, tag and collection in full.
+${dryRun ? "\n  Re-run with `npm run magsafe:revalidate:apply` to commit.\n" : ""}`);
     process.exit(0);
   }
 
@@ -129,7 +188,7 @@ async function main() {
     (p) => CANDIDATE_TYPES.has(p.productType) && p.images.length > 0,
   );
   console.log(
-    `\n${dryRun ? "[DRY RUN] " : ""}Scanning ${candidates.length} phone-case product(s) for MagSafe ` +
+    `Scanning ${candidates.length} phone-case product(s) for MagSafe ` +
       `(of ${rows.length} total). Concurrency ${concurrency}.\n`,
   );
 
@@ -140,28 +199,23 @@ async function main() {
   let failed = 0;
 
   await mapWithConcurrency(candidates, concurrency, async (p) => {
-    // A textual mention (title / existing tag) is one signal; otherwise pay for
-    // one vision check to get the second.
-    const textual = hasTextualMagSafe(p.title) || p.tags.includes("magsafe");
+    // An existing MagSafe mention is treated as a human assertion here: the rows
+    // this mode touches are ones a person or a manifest labelled, and anything
+    // the classifier itself wrote is handled by --revalidate instead.
+    const human = hasTextualMagSafe(p.title) || p.tags.includes(MAGSAFE_TAG);
 
-    let vision = false;
-    let confidence: "high" | "low" | "none" = "none";
-    if (!textual) {
+    let verifier: MagSafeVerdict | undefined;
+    if (!human) {
       visionCalls++;
-      try {
-        const verdict = await detectMagSafe(p.images.map((i) => i.url));
-        vision = verdict.magsafe;
-        confidence = verdict.magsafe ? verdict.confidence : "none";
-      } catch (e) {
+      verifier = (await verifyMagSafe(p.images.map((i) => i.url))) ?? undefined;
+      if (!verifier) {
         failed++;
-        console.error(
-          `  ✗ #${p.id} detection failed: ${e instanceof Error ? e.message : e}`,
-        );
+        console.error(`  ✗ #${p.id} verification unavailable — skipped`);
         return;
       }
     }
 
-    const decision = decideMagSafe({ vision, confidence, textual });
+    const decision = decideMagSafe({ human, verifier });
     if (decision === "none") return;
 
     // ── Low-confidence lone guess → review queue (don't touch live copy) ──
@@ -225,12 +279,12 @@ async function main() {
 
   console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ${dryRun ? "DRY RUN — no changes written" : "Done."}
+  ${dryRun ? "PREVIEW — no changes written" : "Done."}
   Vision checks: ${visionCalls}
   Confirmed MagSafe: ${confirmed}   Queued for review: ${queued}
   ${dryRun ? "Would write" : "Wrote"}: ${updated}   Failed: ${failed}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`);
+${dryRun ? "\n  Re-run with `npm run backfill:magsafe:apply` to commit.\n" : ""}`);
   process.exit(0);
 }
 

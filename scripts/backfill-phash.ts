@@ -7,54 +7,60 @@
  * Downloads each image from its public R2 URL, computes a dHash, and stores it.
  * Idempotent + resumable: only rows where phash IS NULL are processed, so
  * re-running picks up where it left off (e.g. after a transient network error).
+ *
+ * The same core lives in `src/lib/catalog/phash-backfill.ts` and powers the
+ * admin "Find duplicates" button — keep behaviour in sync.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { eq, isNull } from "drizzle-orm";
-import { db } from "../src/lib/db";
-import { productImages } from "../src/lib/db/schema";
-import { dhashFromBuffer } from "../src/lib/catalog/phash";
+import {
+  backfillMissingPhashes,
+  getPhashCoverage,
+} from "../src/lib/catalog/phash-backfill";
+import { PHASH_BACKFILL_BATCH_SIZE } from "../src/lib/catalog/phash-types";
 
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set.");
 
-  const rows = await db.query.productImages.findMany({
-    where: isNull(productImages.phash),
-    columns: { id: true, url: true },
-  });
+  const coverage = await getPhashCoverage();
+  console.log(
+    `\nFound ${coverage.missingImages} image(s) without a perceptual hash` +
+      ` (${coverage.unscannedProducts} product(s) unscanned).\n`,
+  );
 
-  console.log(`\nFound ${rows.length} image(s) without a perceptual hash.\n`);
+  if (coverage.missingImages === 0) {
+    console.log("Nothing to do — every image already has a hash.\n");
+    process.exit(0);
+  }
 
   let hashed = 0;
   let failed = 0;
-  for (const [i, row] of rows.entries()) {
-    const label = `[${i + 1}/${rows.length}] #${row.id}`;
-    try {
-      const res = await fetch(row.url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = Buffer.from(await res.arrayBuffer());
-      const hash = await dhashFromBuffer(buf);
-      if (!hash) throw new Error("could not decode image");
+  let batch = 0;
 
-      await db
-        .update(productImages)
-        .set({ phash: hash })
-        .where(eq(productImages.id, row.id));
-      hashed++;
-      if (i % 25 === 0) console.log(`${label} — ${hash}`);
-    } catch (err) {
-      failed++;
+  for (;;) {
+    batch++;
+    const res = await backfillMissingPhashes(PHASH_BACKFILL_BATCH_SIZE);
+    hashed += res.hashed;
+    failed += res.failed;
+    console.log(
+      `Batch ${batch}: hashed ${res.hashed}, failed ${res.failed}, remaining ${res.remaining}`,
+    );
+    // No progress and nothing left, or a full batch of failures with work
+    // still queued — stop so we don't spin forever on permanently broken URLs.
+    if (res.remaining === 0) break;
+    if (res.hashed === 0) {
       console.error(
-        `${label} — FAILED: ${err instanceof Error ? err.message : err}`,
+        "No images hashed in this batch — remaining URLs may be unreachable. Aborting.",
       );
+      break;
     }
   }
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  Done.  Hashed: ${hashed}  Failed: ${failed}`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-  process.exit(0);
+  process.exit(failed > 0 && hashed === 0 ? 1 : 0);
 }
 
 main().catch((err) => {

@@ -49,6 +49,15 @@ function requireEnv(name: string): string {
   return v;
 }
 
+/** Require at least one of a set of interchangeable env vars. */
+function requireAnyEnv(...names: string[]): string {
+  for (const name of names) {
+    const v = process.env[name];
+    if (v) return v;
+  }
+  throw new Error(`Missing required env var: one of ${names.join(" / ")}`);
+}
+
 function parseArgs(): { dir: string; type: string } {
   const args = process.argv.slice(2);
   let dir =
@@ -124,7 +133,9 @@ function initCatalogDb(dbPath: string): Database.Database {
 
 async function main() {
   requireEnv("DATABASE_URL");
-  requireEnv("OPENAI_API_KEY");
+  // The vision client prefers VISION_API_KEY (OpenRouter et al.) and falls back
+  // to OPENAI_API_KEY — accept either, so an OpenRouter-only setup can run.
+  requireAnyEnv("VISION_API_KEY", "OPENAI_API_KEY");
   const bucket = requireEnv("R2_BUCKET_NAME");
   requireEnv("R2_ACCOUNT_ID");
   requireEnv("R2_ACCESS_KEY_ID");

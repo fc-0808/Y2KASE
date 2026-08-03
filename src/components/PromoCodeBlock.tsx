@@ -24,11 +24,18 @@ type CopyState = "idle" | "copied" | "manual";
 export function PromoCodeBlock({
   code,
   note,
+  onCopy,
 }: {
   /** The customer-facing code, e.g. "BESTIE10". */
   code: string;
   /** Fine print under the block, e.g. "10% off · Enter at checkout". */
   note: string;
+  /**
+   * Fired once per copy attempt, including the keyboard fallback — taking the
+   * code is the same intent either way, so an unavailable clipboard must not
+   * silently drop the signal.
+   */
+  onCopy?: () => void;
 }) {
   const [state, setState] = useState<CopyState>("idle");
   const codeRef = useRef<HTMLSpanElement>(null);
@@ -68,6 +75,7 @@ export function PromoCodeBlock({
       selectCode();
       flash("manual");
     }
+    onCopy?.();
   }
 
   const copied = state === "copied";

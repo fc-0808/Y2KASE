@@ -2,7 +2,8 @@ name: CI
 
 # Gate every push and pull request on the same checks we run locally, so a
 # regression can never reach a deploy. Mirrors the "lint → typecheck → build"
-# pipeline a production DTC team runs on each commit.
+# pipeline a production DTC team runs on each commit, plus an assertion pass
+# over the pure catalog guards (English-only copy, MagSafe decision table).
 
 on:
   push:
@@ -36,6 +37,10 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      # Pure, offline assertions — no database, no model, no secrets.
+      - name: Catalog copy + MagSafe guards
+        run: npm run check:guards
 
       - name: Build
         run: npm run build

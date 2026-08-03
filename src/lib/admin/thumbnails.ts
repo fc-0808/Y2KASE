@@ -6,7 +6,7 @@
  *
  * Never import from a client component — this runs Node-only code.
  */
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   products,
@@ -15,6 +15,20 @@ import {
   NORMALIZED_THUMBNAIL_SOURCE as NORMALIZED_SOURCE,
 } from "@/lib/db/schema";
 import { makeR2Client, deleteObjectsFromR2, r2KeyFromUrl } from "@/lib/catalog/r2";
+import {
+  SCOPE_STATUSES,
+  DEFAULT_THUMBNAIL_SCOPE,
+  type ThumbnailScope,
+} from "./thumbnail-scope";
+
+/**
+ * The `products` predicate for a scope. Every query that feeds the review page
+ * — counters, lists and the batch generator — goes through this, so the number
+ * on the "Generate all" button always matches the rows underneath it.
+ */
+export function productScopeFilter(scope: ThumbnailScope): SQL {
+  return inArray(products.status, [...SCOPE_STATUSES[scope]]);
+}
 
 /**
  * Promote an approved proposal to the live gallery: shift existing images down
@@ -138,20 +152,23 @@ export type PendingProduct = {
   productId: number;
   slug: string;
   title: string;
+  /** `active` | `draft` — drives the Draft badge on the card. */
+  productStatus: string;
   currentUrl: string | null;
 };
 
-/** Active products that don't have a proposal yet (the "not started" queue),
+/** In-scope products that don't have a proposal yet (the "not started" queue),
  *  with their current thumbnail — so the review page can list them and let the
  *  admin generate individually. */
 export async function getPendingProducts(
   limit = 48,
+  scope: ThumbnailScope = DEFAULT_THUMBNAIL_SCOPE,
 ): Promise<PendingProduct[]> {
   const rows = await db
     .select({ id: products.id })
     .from(products)
     .leftJoin(thumbnailProposals, eq(thumbnailProposals.productId, products.id))
-    .where(and(eq(products.status, "active"), isNull(thumbnailProposals.id)))
+    .where(and(productScopeFilter(scope), isNull(thumbnailProposals.id)))
     .orderBy(asc(products.id))
     .limit(limit);
 
@@ -160,7 +177,7 @@ export async function getPendingProducts(
 
   const withImages = await db.query.products.findMany({
     where: inArray(products.id, ids),
-    columns: { id: true, slug: true, title: true },
+    columns: { id: true, slug: true, title: true, status: true },
     with: {
       images: {
         columns: { url: true },
@@ -178,7 +195,99 @@ export async function getPendingProducts(
       productId: p.id,
       slug: p.slug,
       title: p.title,
+      productStatus: p.status,
       currentUrl: p.images[0]?.url ?? null,
+    }));
+}
+
+/** One row of the To review / Needs attention / Approved lists. */
+export type ProposalQueueItem = {
+  productId: number;
+  slug: string;
+  title: string;
+  /** `active` | `draft` — an approved thumbnail on a draft isn't live yet. */
+  productStatus: string;
+  currentUrl: string | null;
+  proposalUrl: string | null;
+  score: number | null;
+  category: string | null;
+  reason: string | null;
+};
+
+/**
+ * Hard ceiling for a single status bucket on the review page.
+ *
+ * The page must list every in-scope row up to this cap so section counts stay
+ * honest against `getThumbnailQueueStats`. Below the cap we load the full
+ * bucket (no silent truncation). Above it the UI discloses "showing first N".
+ * Sized for catalog-scale admin use (hundreds–low thousands), not storefront
+ * pagination.
+ */
+export const THUMBNAIL_QUEUE_LIST_CAP = 500;
+
+/**
+ * Read one status bucket of the proposal queue, restricted to products in
+ * scope. The scope is applied as a subquery on `products` because Drizzle's
+ * relational API can't filter on a joined table — doing it in JS would apply
+ * `limit` before the filter and silently drop rows.
+ *
+ * Omit `limit` (or pass the shared cap) when rendering a section that claims
+ * to show the full bucket — never use a low hard-coded limit that disagrees
+ * with the header stats.
+ */
+export async function getProposalQueue({
+  status,
+  scope,
+  limit = THUMBNAIL_QUEUE_LIST_CAP,
+  order,
+}: {
+  status: "proposed" | "flagged" | "approved" | "skipped";
+  scope: ThumbnailScope;
+  /** Max rows to return. Defaults to {@link THUMBNAIL_QUEUE_LIST_CAP}. */
+  limit?: number;
+  /** "score" ranks the best candidates first; "recent" is most-recently-touched. */
+  order: "score" | "recent";
+}): Promise<ProposalQueueItem[]> {
+  const safeLimit = Math.max(1, Math.min(limit, THUMBNAIL_QUEUE_LIST_CAP));
+  const rows = await db.query.thumbnailProposals.findMany({
+    where: and(
+      eq(thumbnailProposals.status, status),
+      inArray(
+        thumbnailProposals.productId,
+        db
+          .select({ id: products.id })
+          .from(products)
+          .where(productScopeFilter(scope)),
+      ),
+    ),
+    with: {
+      product: {
+        columns: { id: true, slug: true, title: true, status: true },
+        with: {
+          images: {
+            columns: { url: true },
+            orderBy: (img, { asc: a }) => a(img.position),
+            limit: 1,
+          },
+        },
+      },
+    },
+    orderBy: (t, { desc }) => (order === "score" ? desc(t.score) : desc(t.updatedAt)),
+    limit: safeLimit,
+  });
+
+  return rows
+    .filter((r) => r.product)
+    .map((r) => ({
+      productId: r.productId,
+      slug: r.product!.slug,
+      title: r.product!.title,
+      productStatus: r.product!.status,
+      currentUrl: r.product!.images[0]?.url ?? null,
+      proposalUrl: r.proposalUrl,
+      score: r.score != null ? Number(r.score) : null,
+      category: r.category,
+      reason: r.reason,
     }));
 }
 
@@ -250,7 +359,9 @@ export type ThumbnailQueueStats = {
 };
 
 /** Queue counters for the review page header and the Products nav badge. */
-export async function getThumbnailQueueStats(): Promise<ThumbnailQueueStats> {
+export async function getThumbnailQueueStats(
+  scope: ThumbnailScope = DEFAULT_THUMBNAIL_SCOPE,
+): Promise<ThumbnailQueueStats> {
   const [statusRows, pendingRow] = await Promise.all([
     db
       .select({
@@ -258,6 +369,8 @@ export async function getThumbnailQueueStats(): Promise<ThumbnailQueueStats> {
         count: sql<number>`count(*)::int`,
       })
       .from(thumbnailProposals)
+      .innerJoin(products, eq(products.id, thumbnailProposals.productId))
+      .where(productScopeFilter(scope))
       .groupBy(thumbnailProposals.status),
     db
       .select({ count: sql<number>`count(*)::int` })
@@ -266,7 +379,7 @@ export async function getThumbnailQueueStats(): Promise<ThumbnailQueueStats> {
         thumbnailProposals,
         eq(thumbnailProposals.productId, products.id),
       )
-      .where(and(eq(products.status, "active"), isNull(thumbnailProposals.id))),
+      .where(and(productScopeFilter(scope), isNull(thumbnailProposals.id))),
   ]);
 
   const by = Object.fromEntries(statusRows.map((r) => [r.status, r.count]));
@@ -277,4 +390,18 @@ export async function getThumbnailQueueStats(): Promise<ThumbnailQueueStats> {
     flagged: by["flagged"] ?? 0,
     skipped: by["skipped"] ?? 0,
   };
+}
+
+/** How many products each scope covers, for the scope selector's counts. */
+export async function getScopeCounts(): Promise<Record<ThumbnailScope, number>> {
+  const rows = await db
+    .select({ status: products.status, count: sql<number>`count(*)::int` })
+    .from(products)
+    .where(productScopeFilter("all"))
+    .groupBy(products.status);
+
+  const by = Object.fromEntries(rows.map((r) => [r.status, r.count]));
+  const active = by["active"] ?? 0;
+  const draft = by["draft"] ?? 0;
+  return { all: active + draft, active, draft };
 }

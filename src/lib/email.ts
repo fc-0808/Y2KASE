@@ -20,10 +20,21 @@ import { ShipmentEmail } from "@/emails/ShipmentEmail";
 import { AbandonedCartEmail } from "@/emails/AbandonedCartEmail";
 import { ReviewRequestEmail } from "@/emails/ReviewRequestEmail";
 import { trackingLink } from "@/lib/carriers";
+import { SUPPORT_EMAIL } from "@/lib/support/constants";
 
 let _resend: Resend | null = null;
 
-function getResend(): Resend | null {
+/**
+ * The shared Resend client. Exported so every sender in the app goes through
+ * one construction path — a route that builds its own client also ends up with
+ * its own idea of what the `from` address is, which is precisely how the
+ * subscribe route came to send from the sandbox domain while everything else
+ * used the verified one.
+ *
+ * Lazily constructed so a missing key can't crash the module at import time
+ * (which would 500 the whole route instead of degrading gracefully).
+ */
+export function getResend(): Resend | null {
   if (!process.env.RESEND_API_KEY) return null;
   if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
   return _resend;
@@ -31,8 +42,76 @@ function getResend(): Resend | null {
 
 export const isEmailConfigured = () => Boolean(process.env.RESEND_API_KEY);
 
-const FROM =
-  process.env.EMAIL_FROM ?? "Y2KASE <orders@y2kase.com>";
+/**
+ * Which reputation pool an email belongs to.
+ *
+ * WHY THE SPLIT EXISTS
+ * Mailbox providers score senders on complaint rate. Marketing mail earns
+ * complaints and unsubscribes as a matter of course; transactional mail must
+ * arrive no matter what, because it carries order confirmations and sign-in
+ * links. Sharing one identity means a single bad promo can degrade delivery of
+ * the receipt for a payment someone already made — a support problem, and a
+ * legal one if a customer never learns their order shipped.
+ *
+ * WHERE THE LINE IS DRAWN
+ * An email is marketing if it carries a `List-Unsubscribe` header. That is not
+ * a coincidence: legally, anything a recipient may opt out of is solicitation,
+ * and anything they may not is transactional. Using the header as the test
+ * keeps the classification honest and impossible to drift from the law.
+ *
+ *   transactional — order confirmation, shipment notice, magic-link sign-in
+ *   marketing     — welcome/scratch code, abandoned cart, review request
+ */
+export type MailStream = "transactional" | "marketing";
+
+/**
+ * Transactional sender. SINGLE SOURCE OF TRUTH.
+ *
+ * The fallback is `send.y2kase.com` because that is the subdomain actually
+ * verified in Resend. The apex `y2kase.com` is NOT verified and has no DKIM
+ * records, so Resend rejects it with a 403 — a fallback pointing there would
+ * fail every send the moment the env var went missing, which is the opposite
+ * of what a fallback is for.
+ *
+ * Do NOT fall back to `onboarding@resend.dev`: that shared sandbox sender only
+ * delivers to the Resend account owner's own address and 403s for every real
+ * shopper, which is a failure mode that looks like success from the outside.
+ */
+export const EMAIL_FROM =
+  process.env.EMAIL_FROM ?? "Y2KASE <orders@send.y2kase.com>";
+
+/**
+ * Marketing sender.
+ *
+ * Falls back to the transactional address so an unset variable degrades to
+ * exactly today's behaviour rather than to a broken one.
+ *
+ * CURRENT STATE: a distinct mailbox on the same verified domain. That buys a
+ * separate sender identity in the inbox — recipients and filters can tell a
+ * promo from a receipt, and Gmail will stop threading them together — but NOT
+ * separate domain reputation, which is the part that actually protects
+ * deliverability.
+ *
+ * FULL ISOLATION is one env var away: verify a second subdomain in Resend
+ * (`news.y2kase.com`) and set EMAIL_FROM_MARKETING to an address on it. No code
+ * changes. That is blocked today only because the Resend free plan allows a
+ * single domain.
+ */
+export const EMAIL_FROM_MARKETING =
+  process.env.EMAIL_FROM_MARKETING ?? EMAIL_FROM;
+
+/**
+ * Replies land with a human.
+ *
+ * `send.y2kase.com` has receiving disabled, so a reply to `orders@` or `club@`
+ * would vanish silently. Every send sets Reply-To to the real support inbox.
+ */
+export const EMAIL_REPLY_TO = SUPPORT_EMAIL;
+
+/** The From address for a given stream. */
+export function senderFor(stream: MailStream): string {
+  return stream === "marketing" ? EMAIL_FROM_MARKETING : EMAIL_FROM;
+}
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
@@ -97,7 +176,8 @@ export async function sendOrderConfirmationOnce(
     ]);
 
     await resend.emails.send({
-      from: FROM,
+      from: senderFor("transactional"),
+      replyTo: EMAIL_REPLY_TO,
       to: order.email,
       subject: `Your Y2KASE order #${order.id} is confirmed ✨`,
       html,
@@ -166,7 +246,8 @@ export async function sendShipmentNotificationOnce(
     ]);
 
     await resend.emails.send({
-      from: FROM,
+      from: senderFor("transactional"),
+      replyTo: EMAIL_REPLY_TO,
       to: order.email,
       subject: `Your Y2KASE order #${order.id} has shipped 📦✨`,
       html,
@@ -209,7 +290,10 @@ export async function sendMagicLinkEmail(params: {
   ]);
 
   await resend.emails.send({
-    from: FROM,
+    // Always transactional, and the stream that matters most: if a sign-in link
+    // lands in spam the shopper cannot get into their account at all.
+    from: senderFor("transactional"),
+    replyTo: EMAIL_REPLY_TO,
     to: params.email,
     subject: "Your Y2KASE sign-in link ✨",
     html,
@@ -245,7 +329,8 @@ export async function sendAbandonedCartEmail(params: {
     ]);
 
     await resend.emails.send({
-      from: FROM,
+      from: senderFor("marketing"),
+      replyTo: EMAIL_REPLY_TO,
       to: params.to,
       subject: "You left something cute in your bag 🥺✨",
       html,
@@ -293,7 +378,8 @@ export async function sendReviewRequestEmail(params: {
     ]);
 
     await resend.emails.send({
-      from: FROM,
+      from: senderFor("marketing"),
+      replyTo: EMAIL_REPLY_TO,
       to: params.to,
       subject: "How are you loving your Y2KASE order? ⭐",
       html,

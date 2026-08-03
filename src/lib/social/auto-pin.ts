@@ -56,6 +56,10 @@ import {
   isPinterestConfigured,
   type PinterestBoard,
 } from "@/lib/social/pinterest";
+import {
+  ensurePinterestAccessToken,
+  isPinterestAuthError,
+} from "@/lib/social/pinterest-auth";
 import { PRODUCT_PHOTO_PRESET } from "@/lib/social/product-photos";
 import { resolveBoardForProduct } from "@/lib/social/board-router";
 
@@ -729,13 +733,76 @@ async function claimVideoForPin(
   return rows<{ id: number }>(inserted)[0]?.id ?? null;
 }
 
-/** Park a failed asset as rejected and bump its retry counter (poison-pill). */
-async function parkFailedCreative(id: number): Promise<void> {
-  await db.execute(sql`
+/**
+ * Park a failed asset as rejected. Auth failures do **not** increment
+ * `attempts` — they are systemic (token), not asset-specific, and must not
+ * burn the poison-pill budget during an outage.
+ */
+async function parkFailedCreative(
+  id: number,
+  opts: { countAttempt?: boolean } = {},
+): Promise<void> {
+  const countAttempt = opts.countAttempt !== false;
+  if (countAttempt) {
+    await db.execute(sql`
+      UPDATE social_creatives
+      SET status = 'rejected', attempts = attempts + 1, updated_at = now()
+      WHERE id = ${id}
+    `);
+  } else {
+    await db.execute(sql`
+      UPDATE social_creatives
+      SET status = 'rejected', updated_at = now()
+      WHERE id = ${id}
+    `);
+  }
+}
+
+/**
+ * After a successful token refresh, reopen auto-pin rows that were rejected
+ * solely because of auth failures (including ones that hit the attempt cap).
+ * Resets `attempts` so the drip can finish the listings that stalled during
+ * the outage instead of permanently skipping them.
+ */
+export async function recoverAuthFailedAutoPins(): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const res = await db.execute<{ id: number }>(sql`
     UPDATE social_creatives
-    SET status = 'rejected', attempts = attempts + 1, updated_at = now()
-    WHERE id = ${id}
+    SET attempts = 0, last_error = NULL, updated_at = now()
+    WHERE platform = 'pinterest'
+      AND model = ${AUTO_PIN_MODEL}
+      AND status = 'rejected'
+      AND (
+        last_error ILIKE '%Authentication failed%'
+        OR last_error ILIKE '%API 401%'
+        OR last_error ILIKE '%unauthorized%'
+        OR last_error ILIKE '%invalid access token%'
+      )
+    RETURNING id
   `);
+  return rows<{ id: number }>(res).length;
+}
+
+/**
+ * Reclaim auto-pin rows left in `draft` / `approved` by a mid-run timeout or
+ * crash. Those statuses are treated as "spoken for", so without this a killed
+ * Vercel invocation permanently blocks the listing. Park them as rejected
+ * (without burning an attempt) so the next run can reuse the claim.
+ */
+async function reclaimStaleAutoPinClaims(): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const res = await db.execute<{ id: number }>(sql`
+    UPDATE social_creatives
+    SET status = 'rejected',
+        last_error = coalesce(last_error, 'Reclaimed after stale claim (run interrupted).'),
+        updated_at = now()
+    WHERE platform = 'pinterest'
+      AND model = ${AUTO_PIN_MODEL}
+      AND status IN ('draft', 'approved')
+      AND updated_at < now() - interval '30 minutes'
+    RETURNING id
+  `);
+  return rows<{ id: number }>(res).length;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -804,6 +871,52 @@ export async function runAutoPin(
   if (!isDbConfigured()) return { ...result, ok: false, reason: "no-db" };
   if (!isPinterestConfigured()) {
     return { ...result, ok: false, reason: "no-pinterest-token" };
+  }
+
+  // Ensure a live access token *before* claiming assets. Without this gate,
+  // an expired token claims every photo in a listing, burns retries on 401s,
+  // and permanently parks healthy media as "stuck".
+  const token = await ensurePinterestAccessToken();
+  if (!token.ok) {
+    return {
+      ...result,
+      ok: false,
+      reason: "auth-failed",
+      errors: [token.message],
+    };
+  }
+  if (token.refreshed) {
+    // Token just came back — reopen assets poisoned by the prior 401 outage
+    // so catalog coverage resumes instead of skipping exhausted listings.
+    try {
+      const recovered = await recoverAuthFailedAutoPins();
+      if (recovered > 0) {
+        console.info(
+          `[auto-pin] Recovered ${recovered} auth-failed creative(s) after token refresh.`,
+        );
+      }
+    } catch (err) {
+      console.error("[auto-pin] auth recovery failed:", err);
+    }
+  } else {
+    // Even without a refresh this run, clear residual auth rejects when the
+    // token is healthy again (e.g. refreshed by the daily cron moments earlier).
+    try {
+      await recoverAuthFailedAutoPins();
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  try {
+    const reclaimed = await reclaimStaleAutoPinClaims();
+    if (reclaimed > 0) {
+      console.info(
+        `[auto-pin] Reclaimed ${reclaimed} stale draft/approved claim(s).`,
+      );
+    }
+  } catch (err) {
+    console.error("[auto-pin] stale claim reclaim failed:", err);
   }
 
   // Enforce the per-day cap across all runs (cron slots + manual triggers): if
@@ -963,12 +1076,21 @@ export async function runAutoPin(
         const label =
           job.kind === "image" ? `image ${job.image.imageId}` : "video";
         result.errors.push(`${listing.productTitle} — ${label}: ${outcome.error}`);
-        // Park as rejected + bump the retry counter so the asset retries next
-        // run, until the poison-pill cap is hit (then it's left alone).
+        const authFail = isPinterestAuthError(outcome.error);
+        // Park as rejected. Auth failures do not bump attempts (systemic).
+        // Asset-specific failures increment toward the poison-pill cap.
         try {
-          await parkFailedCreative(creativeId);
+          await parkFailedCreative(creativeId, { countAttempt: !authFail });
         } catch {
           /* publish error already recorded on the row */
+        }
+        if (authFail) {
+          // Abort the rest of the run — every subsequent pin would 401 too,
+          // and claiming them would only create more rejected rows.
+          result.listings.push(summary);
+          result.ok = false;
+          result.reason = "auth-failed";
+          return result;
         }
       }
 

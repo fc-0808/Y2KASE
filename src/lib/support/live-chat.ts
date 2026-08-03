@@ -21,6 +21,22 @@
  * to page load. `resumeLiveChat()` is the single exception and is reachable
  * only for someone who already started a conversation in this browser.
  *
+ * APPEARANCE
+ * The conversation window is a cross-origin iframe, so none of our CSS or
+ * design tokens reach inside it and the JS API exposes no theming beyond
+ * z-index. Its colours live in tawk → Administration → Chat Widget → Widget
+ * Appearance → Advanced, and must be kept in step with globals.css by hand:
+ *
+ *   Header / widget background  #d62f88  (--primary pressed; the lighter
+ *                                        #ff3ea5 only clears 3.2:1 on white,
+ *                                        which fails AA for message text)
+ *   Header text                 #ffffff
+ *   Agent message / text        #ffd9ee / #34203b   (--primary-soft on plum)
+ *   Visitor message / text      #34203b / #ffffff   (--foreground)
+ *
+ * Dashboard changes go live without a deploy — unlike the ids below, which
+ * are inlined at build time.
+ *
  * SWAPPING PROVIDERS
  * Everything below the exported API is tawk-specific. Moving to Crisp,
  * Intercom or Gorgias is a rewrite of this file alone; no component changes.
@@ -39,6 +55,15 @@ const EMBED_ORIGIN = "https://embed.tawk.to";
 const PRECONNECT_ORIGINS = [EMBED_ORIGIN, "https://va.tawk.to"];
 /** Generous enough for a bad 3G connection, short enough to not hang the UI. */
 const LOAD_TIMEOUT_MS = 20_000;
+
+/**
+ * Where the vendor's window sits in our stacking order. tawk defaults to
+ * 2000000000, which parks the chat over the cookie banner (z-60) — the one
+ * surface nothing may cover. Above the sticky header (z-40), below the z-50
+ * overlay group, so the vendor obeys the same "stand down" rule the launcher
+ * follows in `SupportWidget`.
+ */
+const CHAT_Z_INDEX = 45;
 
 /** Remembers that this browser has an open conversation. See `hasRecentChat`. */
 const RECENT_CHAT_KEY = "y2k_support_chat_at";
@@ -69,6 +94,8 @@ export type LiveChatEvent = "opened" | "closed" | "agent-message";
 
 type TawkApi = {
   visitor?: LiveChatVisitor;
+  /** Read once at boot; assigning after the embed loads does nothing. */
+  customStyle?: { zIndex?: number };
   onBeforeLoad?: () => void;
   onLoad?: () => void;
   onChatMaximized?: () => void;
@@ -84,6 +111,47 @@ type TawkApi = {
     callback?: (error?: unknown) => void,
   ) => void;
 };
+
+const MAX_ATTRIBUTE_KEY_LENGTH = 48;
+const MAX_ATTRIBUTE_VALUE_LENGTH = 180;
+
+function normalizeAttributeKey(key: string): string | null {
+  const normalized = key
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!normalized) return null;
+  return normalized.slice(0, MAX_ATTRIBUTE_KEY_LENGTH);
+}
+
+function normalizeAttributeValue(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, MAX_ATTRIBUTE_VALUE_LENGTH);
+}
+
+function normalizeAttributes(
+  attributes: LiveChatAttributes | undefined,
+): LiveChatAttributes {
+  if (!attributes) return {};
+  const normalized: LiveChatAttributes = {};
+  for (const [key, value] of Object.entries(attributes)) {
+    const normalizedKey = normalizeAttributeKey(key);
+    if (!normalizedKey) continue;
+    const normalizedValue = normalizeAttributeValue(value);
+    if (!normalizedValue) continue;
+    normalized[normalizedKey] = normalizedValue;
+  }
+  return normalized;
+}
+
+function buildVisitor(visitor: LiveChatVisitor): LiveChatVisitor | undefined {
+  if (!visitor.email) return undefined;
+  return {
+    ...(visitor.name ? { name: normalizeAttributeValue(visitor.name) } : {}),
+    email: visitor.email.trim().toLowerCase(),
+    ...(visitor.hash ? { hash: visitor.hash } : {}),
+  };
+}
 
 declare global {
   interface Window {
@@ -195,17 +263,8 @@ function loadSdk(visitor: LiveChatVisitor): Promise<TawkApi> {
     }
 
     const api: TawkApi = (window.Tawk_API = window.Tawk_API ?? {});
-
-    // tawk reads `visitor` while booting. Assigning it after the script has
-    // downloaded is a no-op, so identity has to be in place before injection —
-    // this is also what makes secure mode work.
-    if (visitor.email) {
-      api.visitor = {
-        ...(visitor.name ? { name: visitor.name } : {}),
-        email: visitor.email,
-        ...(visitor.hash ? { hash: visitor.hash } : {}),
-      };
-    }
+    api.visitor = buildVisitor(visitor);
+    api.customStyle = { zIndex: CHAT_Z_INDEX };
     window.Tawk_LoadStart = new Date();
 
     let settled = false;
@@ -288,13 +347,13 @@ export async function openLiveChat(
   // Attributes only enrich the agent's view — a rejected payload must never
   // stop a shopper from reaching a human, so this is strictly best-effort.
   try {
-    const attributes: LiveChatAttributes = { ...options.attributes };
+    const attributes: LiveChatAttributes = normalizeAttributes(options.attributes);
     // Name/email may only travel through setAttributes under secure mode; sent
     // unsigned, tawk rejects the entire call.
     if (visitor.hash && visitor.email) {
       attributes.hash = visitor.hash;
-      attributes.email = visitor.email;
-      if (visitor.name) attributes.name = visitor.name;
+      attributes.email = visitor.email.trim().toLowerCase();
+      if (visitor.name) attributes.name = normalizeAttributeValue(visitor.name);
     }
     if (Object.keys(attributes).length > 0) {
       api.setAttributes?.(attributes, () => {});
@@ -307,6 +366,41 @@ export async function openLiveChat(
   api.maximize?.();
   rememberChat();
   emit("opened");
+}
+
+export async function setLiveChatAttributes(
+  attributes: LiveChatAttributes,
+): Promise<void> {
+  if (!LIVE_CHAT_ENABLED) return;
+  const api = await loadSdk({});
+  try {
+    const normalized = normalizeAttributes(attributes);
+    if (Object.keys(normalized).length > 0) {
+      api.setAttributes?.(normalized, () => {});
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
+export function closeLiveChat(): void {
+  if (!LIVE_CHAT_ENABLED || typeof window === "undefined") return;
+  const api = window.Tawk_API;
+  api?.minimize?.();
+  api?.hideWidget?.();
+  emit("closed");
+}
+
+export function getLiveChatState(): {
+  enabled: boolean;
+  propertyId: string | null;
+  widgetId: string | null;
+} {
+  return {
+    enabled: LIVE_CHAT_ENABLED,
+    propertyId: LIVE_CHAT_ENABLED ? PROPERTY_ID : null,
+    widgetId: LIVE_CHAT_ENABLED ? WIDGET_ID : null,
+  };
 }
 
 /**

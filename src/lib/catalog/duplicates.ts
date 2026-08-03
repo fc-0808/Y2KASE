@@ -126,8 +126,9 @@ function makeUnionFind(n: number) {
 
 /**
  * Find clusters of near-duplicate products. Only products whose primary image
- * has a perceptual hash participate (run `npm run backfill:phash` to populate
- * older rows). Returns clusters of 2+ products, most-confident match first.
+ * has a perceptual hash participate (use the admin "Find duplicates" button,
+ * or `npm run backfill:phash`, to populate older rows). Returns clusters of
+ * 2+ products, most-confident match first.
  */
 export async function findDuplicateClusters(
   threshold: number = DUPLICATE_THRESHOLD,

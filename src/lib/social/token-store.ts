@@ -10,6 +10,8 @@ import { db } from "@/lib/db";
 import { socialTokens, type SocialToken } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
+export type { SocialToken };
+
 export type TokenUpsert = {
   accessToken: string;
   refreshToken?: string | null;

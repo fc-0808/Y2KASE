@@ -8,9 +8,9 @@
  * bespoke popover) so it stays fully keyboard- and touch-accessible and gets
  * the platform picker on mobile — the pattern every premium store uses.
  *
- * It composes with the rest of the URL state: changing the sort preserves the
- * active search / tag / device / collection filters and resets pagination to
- * page 1 (a re-sorted list invalidates the old page offset).
+ * It composes with the rest of the URL state: changing the sort preserves every
+ * active facet — search / tag / device / collection / MagSafe — and resets
+ * pagination to page 1 (a re-sorted list invalidates the old page offset).
  */
 import { useRouter } from "next/navigation";
 import { ArrowDownUp, ChevronDown } from "lucide-react";
@@ -29,6 +29,8 @@ export type SortParams = {
   tag?: string;
   device?: string;
   collection?: string;
+  /** Tri-state MagSafe facet, already normalised to "true" / "false". */
+  magsafe?: string;
 };
 
 export function SortMenu({
@@ -46,6 +48,7 @@ export function SortMenu({
     if (params.tag) search.set("tag", params.tag);
     if (params.device) search.set("device", params.device);
     if (params.collection) search.set("collection", params.collection);
+    if (params.magsafe) search.set("magsafe", params.magsafe);
     // "newest" is the default — keep it out of the URL for clean, canonical links.
     if (next !== "newest") search.set("sort", next);
     const qs = search.toString();

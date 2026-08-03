@@ -16,23 +16,32 @@ import { matchCollectionSlugs } from "@/lib/catalog/collections-config";
 import {
   generateProductCopy,
   classifyImageStyles,
+  copyModelName,
   slugify,
+  verifyMagSafe,
   type CopyTypeHint,
 } from "@/lib/ai";
 import {
+  compatibilityAxisFor,
   getProductType,
   inferProductTypeId,
 } from "@/lib/catalog/product-types";
+import { listingIp, repairListingTitle } from "@/lib/catalog/listing-title";
 import { dhashFromBuffer } from "@/lib/catalog/phash";
+import { sanitizeTag } from "@/lib/catalog/copy-schema";
 import {
   decideMagSafe,
   hasTextualMagSafe,
   MAGSAFE_LINE,
+  MAGSAFE_TAG,
+  MAGSAFE_TITLE_SUFFIX,
+  type MagSafeVerdict,
 } from "@/lib/catalog/magsafe";
 import {
   findNearestDuplicate,
   type NearestDuplicate,
 } from "@/lib/catalog/duplicates";
+import { classifyBrandContext } from "@/lib/catalog/brands";
 import { mapWithConcurrency } from "@/lib/catalog/concurrency";
 import { uploadWebpToR2, uploadVideoToR2 } from "@/lib/catalog/r2";
 import {
@@ -218,11 +227,17 @@ export async function ingestProductFolder(
         id: pinnedType.id,
         label: pinnedType.label,
         noun: pinnedType.noun,
-        isPhoneCase: pinnedType.id === "iphone_case",
       }
     : undefined;
+  const brandClassification = classifyBrandContext([
+    folder.folderPath,
+    folder.categoryHint,
+    overrides.title,
+    overrides.description,
+    ...(overrides.tags ?? []),
+  ]);
   const copy = needsCopy
-    ? await generateProductCopy(dataUrls, folder.categoryHint, typeHint)
+    ? await generateProductCopy(dataUrls, folder.categoryHint, typeHint, log)
     : null;
   if (copy) log(`AI title: ${copy.title}`);
 
@@ -247,20 +262,41 @@ export async function ingestProductFolder(
   const materials = overrides.materials ?? copy?.materials ?? null;
   if (!needsCopy) log(`manifest title: ${title}`);
 
-  // MagSafe routing: auto-apply only with two corroborating signals or a clear
-  // visual; a lone low-confidence guess is queued for human review instead of
-  // editing live copy. Manifest-pinned copy is never overwritten. The "magsafe"
-  // tag (added below when confirmed) also drives collection classification.
+  // ── MagSafe routing ───────────────────────────────────────────────────────
+  // Two stages. The copy pass is a cheap recall filter that runs for free
+  // alongside the title; only when it flags a candidate do we pay for the
+  // strict temperature-0 verifier, which is the signal that can actually
+  // confirm. Nothing model-authored is ever read back as corroboration — see
+  // the note in ./magsafe on the circular-signal bug this replaced.
+  const humanMagsafe =
+    hasTextualMagSafe(overrides.title, folder.folderPath) ||
+    (overrides.tags ?? []).includes(MAGSAFE_TAG);
+  const provisionalMagsafe = copy?.magsafe === true;
+
+  let verifier: MagSafeVerdict | null = null;
+  if (!humanMagsafe && provisionalMagsafe) {
+    log(
+      `MagSafe candidate (${copy?.magsafeEvidence}, ${copy?.magsafeConfidence}) → verifying`,
+    );
+    verifier = await verifyMagSafe(dataUrls);
+    log(
+      verifier
+        ? `MagSafe verifier: ${verifier.magsafe ? `yes (${verifier.evidence}, ${verifier.confidence})` : "no"}`
+        : "MagSafe verifier unavailable",
+    );
+  }
+
   const magDecision = decideMagSafe({
-    vision: copy?.magsafe === true,
-    confidence: copy?.magsafeConfidence ?? "none",
-    textual: hasTextualMagSafe(overrides.title, copy?.title, folder.folderPath),
+    human: humanMagsafe,
+    verifier: verifier ?? undefined,
+    provisional: provisionalMagsafe,
   });
   const confirmMagsafe = magDecision === "confirmed";
   const needsMagsafeReview = magDecision === "review";
   if (confirmMagsafe) {
+    // Manifest-pinned copy is authoritative and never rewritten.
     if (!overrides.title && !/magsafe/i.test(title)) {
-      title = `${title} — MagSafe`;
+      title = `${title}${MAGSAFE_TITLE_SUFFIX}`;
     }
     if (!overrides.description && !/magsafe/i.test(description)) {
       description = description
@@ -270,6 +306,30 @@ export async function ingestProductFolder(
     log("MagSafe confirmed → tagged + copy updated");
   } else if (needsMagsafeReview) {
     log("MagSafe uncertain → queued for review");
+  }
+
+  // ── Title contract ────────────────────────────────────────────────────────
+  // The model writes the prose; the device coverage, the character prefix and
+  // the MagSafe suffix are re-emitted from this product's own data. The copy
+  // prompt asks every phone case for the same hard-coded model list, so left
+  // alone the model both repeats a claim it cannot verify and embellishes it —
+  // that is where "for iPhone 13-18 Pro Max" came from. A manifest title is a
+  // human assertion and is never rewritten.
+  if (!overrides.title) {
+    const rebuilt = repairListingTitle(title, {
+      ip: listingIp(brandClassification.brand, brandClassification.character),
+      // At ingest the classification IS the folder reading, so it corroborates
+      // itself by construction; the evidence is passed for the same reason it
+      // is elsewhere — one code path, one rule.
+      ipEvidence: [folder.folderPath, folder.categoryHint],
+      productTypeId: type.id,
+      models: compatibilityAxisFor(type.id)?.values ?? [],
+      magsafe: confirmMagsafe,
+    });
+    if (rebuilt.changed) {
+      log(`title rebuilt to contract: ${rebuilt.title}`);
+      title = rebuilt.title;
+    }
   }
 
   let styleMap: Record<string, string[]> = {};
@@ -346,14 +406,21 @@ export async function ingestProductFolder(
   const slug = await uniqueSlug(
     overrides.sku ? slugify(overrides.sku) : slugify(title),
   );
-  const collectionTag = folder.categoryHint.split(" / ")[0]?.toLowerCase();
+  // Tags come from three places with different levels of trust:
+  //  - AI tags are already sanitised by the copy contract (English, no reserved
+  //    `magsafe`, no device-model dumps);
+  //  - the source-folder name is supplier-authored and can be a Chinese
+  //    inventory string, so it gets the same treatment before becoming a tag;
+  //  - manifest tags are a human assertion and pass through untouched.
+  // `magsafe` is appended only by a confirmed decision, never inherited.
+  const collectionTag = sanitizeTag(folder.categoryHint.split(" / ")[0]);
   const tags = Array.from(
     new Set(
       [
         ...(copy?.tags ?? []),
         ...(overrides.tags ?? []),
         collectionTag,
-        ...(confirmMagsafe ? ["magsafe"] : []),
+        ...(confirmMagsafe ? [MAGSAFE_TAG] : []),
       ].filter(Boolean) as string[],
     ),
   );
@@ -380,7 +447,13 @@ export async function ingestProductFolder(
       videoPosition,
       sourceFolder: folder.folderPath,
       needsMagsafeReview,
-      aiModel: process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini",
+      brandName: brandClassification.brand,
+      characterName: brandClassification.character,
+      brandConfidence: brandClassification.confidence,
+      brandEvidence: brandClassification.evidence,
+      // The model that authored the copy — this column is how we audited which
+      // ingest run produced which listing.
+      aiModel: copyModelName(),
     })
     .returning({ id: products.id });
 

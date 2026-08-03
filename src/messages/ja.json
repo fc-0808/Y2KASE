@@ -1,0 +1,49 @@
+{
+  "popup": {
+    "eyebrowScratch": "特別限定",
+    "eyebrowPrize": "おめでとう",
+    "eyebrowClaim": "あと一歩",
+    "headingScratch": "けずってシークレット特典をチェック 🎁",
+    "headingPrize": "シークレット特典をご用意しました 🎉",
+    "headingClaim": "どちらにお送りしますか？",
+    "scratchMe": "スクラッチ ✨",
+    "revealInstead": "スクラッチせずに進む",
+    "teaser": "あなただけの特典…",
+    "claimButton": "今すぐ受け取る ✨",
+    "bundle": "{count}点で{label}",
+    "perksList": "会員セール · 先行公開",
+    "emailLabel": "メールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "submit": "割引を確認する ✨",
+    "submitting": "確認中…",
+    "privacy": "迷惑メールは送りません。配信停止はいつでも可能です。",
+    "invalidEmail": "有効なメールアドレスを入力してください。",
+    "genericError": "エラーが発生しました。もう一度お試しください。",
+    "connectionError": "接続エラーです。もう一度お試しください。",
+    "successNew": "{percent}%オフを獲得！🎉",
+    "successReturning": "おかえりなさい！💕",
+    "successBodyNew": "こちらがコードです。メールでもお送りしました。💌",
+    "successBodyReturning": "すでにVIPリストに登録済みです。お送りしたコードはこちら。💌",
+    "shopNow": "お買い物へ ✨",
+    "close": "閉じる"
+  },
+  "promoCode": {
+    "yourCode": "クーポンコード",
+    "copy": "コピー",
+    "copied": "コピーしました！",
+    "copyAria": "クーポンコード {code} をコピー",
+    "manualHint": "⌘/Ctrl + C でコピーできます",
+    "copiedAnnounce": "クーポンコード {code} をクリップボードにコピーしました。",
+    "manualAnnounce": "クリップボードが使用できません。コードを選択しました — キーボードでコピーしてください。"
+  },
+  "offer": {
+    "appliedToBag": "カートに適用済み ✨",
+    "enterAtCheckout": "ご購入手続きで入力",
+    "percentOff": "{percent}%オフ"
+  },
+  "localeBanner": {
+    "message": "{country}からのアクセスですか？{language}で表示できます。",
+    "switch": "{language}に切り替える",
+    "dismiss": "閉じる"
+  }
+}

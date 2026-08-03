@@ -17,8 +17,14 @@ import {
   stylesForAddons,
   addonsFromStyles,
   orderStyles,
+  normalizeImageStyleTags,
 } from "@/lib/pricing";
 import { compareFilenamesNatural } from "@/lib/utils";
+import type { BrandOption } from "@/lib/catalog/brands";
+import type { TitleIssue } from "@/lib/catalog/listing-title";
+import { StyleTagPicker, StyleCoverageHint } from "../StyleTagPicker";
+import { BrandReassignmentCard, type BrandState } from "./BrandReassignmentCard";
+import { ListingTitleEditor } from "./ListingTitleEditor";
 import { saveProduct, type SaveProductPayload } from "./actions";
 
 type ImageInput = {
@@ -41,43 +47,58 @@ type MediaItem =
 export function ProductEditor({
   productId,
   title,
+  titleIssues,
   slug,
   status,
   isIphoneCase,
   videoUrl,
   videoPosition,
+  brand,
+  brandOptions,
+  filedIn,
   images,
   availableStyles: initialStyles,
 }: {
   productId: number;
   title: string;
+  /** Audit of the stored title against the product's own data. */
+  titleIssues: TitleIssue[];
   slug: string;
   status: string;
   isIphoneCase: boolean;
   videoUrl: string | null;
   videoPosition: number | null;
+  brand: BrandState;
+  brandOptions: BrandOption[];
+  filedIn: string[];
   images: ImageInput[];
   availableStyles: string[];
 }) {
+  // ── Available styles: stored as a set, edited via grip/charm toggles ───────
+  // Declared first because the offered set decides which per-image tags below
+  // are still valid.
+  const [styles, setStyles] = useState<string[]>(() =>
+    orderStyles(initialStyles.length ? initialStyles : ["Case Only"]),
+  );
+  const addons = useMemo(() => addonsFromStyles(styles), [styles]);
+  // Only phone cases have a Style axis; everything else is media-order only.
+  const tagStyles = isIphoneCase ? styles : [];
+
   // ── Media list: images in saved order with the video spliced into its slot ──
   const [media, setMedia] = useState<MediaItem[]>(() => {
+    // Legacy rows can carry several tags per image; collapse to the single
+    // configuration the photo shows so the control never renders two actives.
     const imgs: MediaItem[] = images.map((i) => ({
       kind: "image",
       id: i.id,
       url: i.url,
       filename: i.filename,
-      styleTags: i.styleTags,
+      styleTags: normalizeImageStyleTags(i.styleTags, styles),
     }));
     if (!videoUrl) return imgs;
     const slot = Math.max(0, Math.min(videoPosition ?? 1, imgs.length));
     return [...imgs.slice(0, slot), { kind: "video", url: videoUrl }, ...imgs.slice(slot)];
   });
-
-  // ── Available styles: stored as a set, edited via grip/charm toggles ───────
-  const [styles, setStyles] = useState<string[]>(() =>
-    orderStyles(initialStyles.length ? initialStyles : ["Case Only"]),
-  );
-  const addons = useMemo(() => addonsFromStyles(styles), [styles]);
   const [advanced, setAdvanced] = useState(false);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -118,34 +139,34 @@ export function ProductEditor({
   }
 
   // ── Per-image style tagging ────────────────────────────────────────────────
-  function toggleTag(imageId: number, style: string) {
+  /** Single-select: assigning a style replaces the image's previous one. */
+  function setImageStyle(imageId: number, styleTags: string[]) {
     setMedia((prev) =>
-      prev.map((m) => {
-        if (m.kind !== "image" || m.id !== imageId) return m;
-        const has = m.styleTags.includes(style);
-        return {
-          ...m,
-          styleTags: has
-            ? m.styleTags.filter((s) => s !== style)
-            : orderStyles([...m.styleTags, style]),
-        };
-      }),
+      prev.map((m) =>
+        m.kind === "image" && m.id === imageId ? { ...m, styleTags } : m,
+      ),
+    );
+  }
+
+  /**
+   * Re-point every image at the new offered set. Normalizing rather than
+   * filtering means an image assigned to a style that's no longer sold falls
+   * back to universal instead of keeping a dangling tag.
+   */
+  function applyStyles(nextStyles: string[]) {
+    setStyles(nextStyles);
+    setMedia((prev) =>
+      prev.map((m) =>
+        m.kind === "image"
+          ? { ...m, styleTags: normalizeImageStyleTags(m.styleTags, nextStyles) }
+          : m,
+      ),
     );
   }
 
   // ── Variations (available styles) ──────────────────────────────────────────
   function setAddons(next: { hasGrip: boolean; hasCharm: boolean }) {
-    const nextStyles = stylesForAddons(next);
-    setStyles(nextStyles);
-    // Drop any per-image tags that are no longer offered.
-    const allowed = new Set<string>(nextStyles);
-    setMedia((prev) =>
-      prev.map((m) =>
-        m.kind === "image"
-          ? { ...m, styleTags: m.styleTags.filter((s) => allowed.has(s)) }
-          : m,
-      ),
-    );
+    applyStyles(stylesForAddons(next));
   }
 
   function toggleStyleManual(style: string) {
@@ -153,17 +174,8 @@ export function ProductEditor({
       ? styles.filter((s) => s !== style)
       : orderStyles([...styles, style]);
     // "Case Only" is mandatory — every product has a bare case.
-    const withCase = next.includes("Case Only")
-      ? next
-      : orderStyles([...next, "Case Only"]);
-    setStyles(withCase);
-    const allowed = new Set<string>(withCase);
-    setMedia((prev) =>
-      prev.map((m) =>
-        m.kind === "image"
-          ? { ...m, styleTags: m.styleTags.filter((s) => allowed.has(s)) }
-          : m,
-      ),
+    applyStyles(
+      next.includes("Case Only") ? next : orderStyles([...next, "Case Only"]),
     );
   }
 
@@ -204,12 +216,23 @@ export function ProductEditor({
       {/* ── Media manager ─────────────────────────────────────────────────── */}
       <section>
         <div className="mb-4 flex items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-lg font-bold">Media order</h2>
             <p className="text-sm text-[var(--foreground)]/60">
-              Drag to reorder. The first image is the listing thumbnail. Tag each
-              photo with the styles it shows.
+              Drag to reorder. The first image is the listing thumbnail. Assign
+              each photo to the one style it shows.
             </p>
+            {tagStyles.length > 0 && (
+              <StyleCoverageHint
+                styles={tagStyles}
+                tagsByImage={media
+                  .filter(
+                    (m): m is Extract<MediaItem, { kind: "image" }> =>
+                      m.kind === "image",
+                  )
+                  .map((m) => m.styleTags)}
+              />
+            )}
           </div>
           <button
             onClick={sortImagesByFilename}
@@ -300,29 +323,17 @@ export function ProductEditor({
                       <p className="truncate text-xs text-[var(--foreground)]/50">
                         {item.filename ?? `image #${item.id}`}
                       </p>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {styles.map((style) => {
-                          const active = item.styleTags.includes(style);
-                          return (
-                            <button
-                              key={style}
-                              type="button"
-                              onClick={() => toggleTag(item.id, style)}
-                              className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold transition ${
-                                active
-                                  ? "border-[var(--primary)] bg-[var(--primary)] text-white"
-                                  : "border-[var(--border)] hover:border-[var(--primary)]"
-                              }`}
-                            >
-                              {style}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {item.styleTags.length === 0 && (
-                        <p className="mt-1 text-[11px] text-[var(--foreground)]/50">
-                          Universal — shown for every style.
-                        </p>
+                      {tagStyles.length > 0 && (
+                        <div className="mt-1.5">
+                          <StyleTagPicker
+                            styles={tagStyles}
+                            value={item.styleTags}
+                            label={item.filename ?? `image #${item.id}`}
+                            onChange={(styleTags) =>
+                              setImageStyle(item.id, styleTags)
+                            }
+                          />
+                        </div>
                       )}
                     </>
                   )}
@@ -339,7 +350,11 @@ export function ProductEditor({
           <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
             {status}
           </p>
-          <h1 className="mt-1 text-lg font-black break-words">{title}</h1>
+          <ListingTitleEditor
+            productId={productId}
+            title={title}
+            issues={titleIssues}
+          />
           <p className="mt-1 text-sm text-[var(--foreground)]/50">
             {imageCount} image{imageCount === 1 ? "" : "s"}
             {videoUrl ? " · 1 video" : ""}
@@ -352,6 +367,13 @@ export function ProductEditor({
             View on store <ExternalLink className="h-3.5 w-3.5" />
           </Link>
         </div>
+
+        <BrandReassignmentCard
+          productId={productId}
+          current={brand}
+          options={brandOptions}
+          filedIn={filedIn}
+        />
 
         {isIphoneCase && (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">

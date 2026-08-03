@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { eq } from "drizzle-orm";
-import { db, isDbConfigured } from "@/lib/db";
-import { thumbnailProposals } from "@/lib/db/schema";
+import { isDbConfigured } from "@/lib/db";
 import {
   getThumbnailQueueStats,
   getPendingProducts,
+  getProposalQueue,
+  getScopeCounts,
+  THUMBNAIL_QUEUE_LIST_CAP,
 } from "@/lib/admin/thumbnails";
+import { parseThumbnailScope } from "@/lib/admin/thumbnail-scope";
 import { ThumbnailsReview } from "./ThumbnailsReview";
 
 export const metadata: Metadata = { title: "Admin · Thumbnail review" };
@@ -16,7 +18,13 @@ export const dynamic = "force-dynamic";
 // allow generous headroom for a batch on serverless.
 export const maxDuration = 300;
 
-export default async function ThumbnailReviewPage() {
+export default async function ThumbnailReviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ scope?: string | string[] }>;
+}) {
+  const scope = parseThumbnailScope((await searchParams).scope);
+
   if (!isDbConfigured()) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16 text-center">
@@ -28,96 +36,38 @@ export default async function ThumbnailReviewPage() {
     );
   }
 
-  const [proposedRows, flaggedRows, approvedRows, stats, pending] =
+  // Load each status bucket up to the shared cap so section lists stay in
+  // lockstep with header stats (the old hard-coded 60 silently hid live rows).
+  const [proposedRows, flagged, approved, stats, pending, scopeCounts] =
     await Promise.all([
-    db.query.thumbnailProposals.findMany({
-      where: eq(thumbnailProposals.status, "proposed"),
-      with: {
-        product: {
-          columns: { id: true, slug: true, title: true },
-          with: {
-            images: {
-              columns: { url: true },
-              orderBy: (img, { asc }) => asc(img.position),
-              limit: 1,
-            },
-          },
-        },
-      },
-      orderBy: (t, { desc }) => desc(t.score),
-      limit: 100,
-    }),
-    db.query.thumbnailProposals.findMany({
-      where: eq(thumbnailProposals.status, "flagged"),
-      with: {
-        product: {
-          columns: { id: true, slug: true, title: true },
-          with: {
-            images: {
-              columns: { url: true },
-              orderBy: (img, { asc }) => asc(img.position),
-              limit: 1,
-            },
-          },
-        },
-      },
-      orderBy: (t, { desc }) => desc(t.updatedAt),
-      limit: 60,
-    }),
-    db.query.thumbnailProposals.findMany({
-      where: eq(thumbnailProposals.status, "approved"),
-      with: {
-        product: {
-          columns: { id: true, slug: true, title: true },
-          with: {
-            images: {
-              columns: { url: true },
-              orderBy: (img, { asc }) => asc(img.position),
-              limit: 1,
-            },
-          },
-        },
-      },
-      orderBy: (t, { desc }) => desc(t.updatedAt),
-      limit: 60,
-    }),
-    getThumbnailQueueStats(),
-    getPendingProducts(48),
-  ]);
+      getProposalQueue({
+        status: "proposed",
+        scope,
+        limit: THUMBNAIL_QUEUE_LIST_CAP,
+        order: "score",
+      }),
+      getProposalQueue({
+        status: "flagged",
+        scope,
+        limit: THUMBNAIL_QUEUE_LIST_CAP,
+        order: "recent",
+      }),
+      getProposalQueue({
+        status: "approved",
+        scope,
+        limit: THUMBNAIL_QUEUE_LIST_CAP,
+        order: "recent",
+      }),
+      getThumbnailQueueStats(scope),
+      getPendingProducts(48, scope),
+      getScopeCounts(),
+    ]);
 
+  // A "proposed" row without a preview can't be reviewed — treat it as absent
+  // rather than rendering a broken card.
   const items = proposedRows
-    .filter((r) => r.product && r.proposalUrl)
-    .map((r) => ({
-      productId: r.productId,
-      slug: r.product!.slug,
-      title: r.product!.title,
-      currentUrl: r.product!.images[0]?.url ?? null,
-      proposalUrl: r.proposalUrl!,
-      score: r.score != null ? Number(r.score) : null,
-      category: r.category,
-      reason: r.reason,
-    }));
-
-  const flagged = flaggedRows
-    .filter((r) => r.product)
-    .map((r) => ({
-      productId: r.productId,
-      slug: r.product!.slug,
-      title: r.product!.title,
-      currentUrl: r.product!.images[0]?.url ?? null,
-      score: r.score != null ? Number(r.score) : null,
-      category: r.category,
-      reason: r.reason,
-    }));
-
-  const approved = approvedRows
-    .filter((r) => r.product)
-    .map((r) => ({
-      productId: r.productId,
-      slug: r.product!.slug,
-      title: r.product!.title,
-      currentUrl: r.product!.images[0]?.url ?? null,
-    }));
+    .filter((r) => r.proposalUrl)
+    .map((r) => ({ ...r, proposalUrl: r.proposalUrl! }));
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
@@ -130,13 +80,15 @@ export default async function ThumbnailReviewPage() {
       <h1 className="text-3xl font-black">Thumbnail review</h1>
       <p className="mt-1 max-w-2xl text-sm text-[var(--foreground)]/60">
         AI selects each product&apos;s cleanest photo, removes its background and
-        centers it on a uniform white surface. Approve to make it the live
+        centers it on a uniform white surface. Approve to make it the product&apos;s
         thumbnail, flag products that need a better source photo, or skip. The
         real product is never altered — only isolated.
       </p>
 
       <div className="mt-6">
         <ThumbnailsReview
+          scope={scope}
+          scopeCounts={scopeCounts}
           items={items}
           flagged={flagged}
           approved={approved}

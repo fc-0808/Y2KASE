@@ -44,9 +44,17 @@ next-env.d.ts
 # local catalog database (contains product data, keep out of git)
 /data/
 
+# Raw generative-model output, kept so post-processing can be re-tuned without
+# paying for a new generation (see scripts/generate-collection-card-art.ts
+# --reprocess). Derived assets are committed under public/brand/; these are not.
+/.cache/
+
 # Local-only thumbnail normalization review output (before/after previews +
 # contact sheet). Regenerated on demand; never shipped.
 /normalized-thumbnails/
+
+# Scratch space for eyeballing generated art side by side. Throwaway.
+/.tmp-preview/
 
 # Local-only ingest assets — NOT needed by the deployed app (it reads from
 # Neon + Cloudflare R2). Keep these multi-GB folders out of the repo.

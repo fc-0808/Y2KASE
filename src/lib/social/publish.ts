@@ -40,21 +40,42 @@ export type PublishOutcome =
   | { ok: true; externalId: string; externalUrl: string }
   | { ok: false; error: string };
 
-function siteUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://y2kase.com"
-  );
+/**
+ * Canonical public storefront URL for outbound social destination links.
+ * Pinterest (and most social APIs) reject localhost / non-HTTPS destinations,
+ * so local `.env` values like `http://localhost:3000` must never reach the API.
+ */
+function publicSiteUrl(): string {
+  const fallback = "https://y2kase.com";
+  const raw =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "") || fallback;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase();
+    if (
+      u.protocol !== "https:" ||
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".local")
+    ) {
+      return fallback;
+    }
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return fallback;
+  }
 }
 
 function productLink(
   creative: SocialCreative,
   platform: "pinterest" | "tiktok" | string,
 ): string {
+  const base = publicSiteUrl();
   const utm = `utm_source=${platform}&utm_medium=social&utm_campaign=auto_post`;
   if (creative.productSlug) {
-    return `${siteUrl()}/products/${creative.productSlug}?${utm}`;
+    return `${base}/products/${creative.productSlug}?${utm}`;
   }
-  return `${siteUrl()}/products?${utm}`;
+  return `${base}/products?${utm}`;
 }
 
 /**
@@ -62,7 +83,7 @@ function productLink(
  * Uses our verified y2kase.com domain so TikTok accepts the request.
  */
 function tiktokVideoUrl(productId: number): string {
-  return `${siteUrl()}/api/video/${productId}`;
+  return `${publicSiteUrl()}/api/video/${productId}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

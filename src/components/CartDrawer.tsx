@@ -11,12 +11,14 @@ import {
   lineKey,
   type CartItem,
 } from "@/lib/store/cart";
+import { useSavedPromoCode } from "@/lib/store/promo";
 import { shippingQuote } from "@/lib/pricing";
 import { BUNDLE, computePromotions } from "@/lib/promotions";
 import { formatPrice } from "@/lib/utils";
 
 export function CartDrawer() {
   const { items, isOpen, close, removeItem, updateQuantity } = useCart();
+  const savedCode = useSavedPromoCode();
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   // Hydration guard: cart state lives in a persisted client store.
@@ -38,12 +40,15 @@ export function CartDrawer() {
 
   // Reflect promotions live with the SAME engine the cart page + checkout use,
   // so the drawer shows the true amount payable — never the pre-discount price.
-  // (Coupon codes are entered on /cart; the automatic bundle is what applies here.)
+  // The saved code has to be fed in for that to hold: the welcome pop-up banks
+  // one before the shopper ever reaches /cart, and a drawer that ignored it
+  // would quote a subtotal the next screen immediately contradicts.
   const promo = computePromotions(
     items.map((i) => ({
       unitCents: Math.round(i.price * 100),
       quantity: i.quantity,
     })),
+    savedCode,
   );
   const discount = promo.discountCents / 100;
   const discountedSubtotal = promo.totalAfterDiscountCents / 100;

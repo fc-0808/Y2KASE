@@ -1,0 +1,49 @@
+{
+  "popup": {
+    "eyebrowScratch": "Exclusief",
+    "eyebrowPrize": "Goed gekrast",
+    "eyebrowClaim": "Laatste stap",
+    "headingScratch": "Kras en ontdek een geheime aanbieding 🎁",
+    "headingPrize": "Je geheime aanbieding staat klaar 🎉",
+    "headingClaim": "Waar mogen we het naartoe sturen?",
+    "scratchMe": "KRAS HIER ✨",
+    "revealInstead": "Krassen overslaan",
+    "teaser": "Jouw exclusieve aanbieding…",
+    "claimButton": "Nu claimen ✨",
+    "bundle": "{label} vanaf {count} items",
+    "perksList": "Ledenacties · Eerste toegang",
+    "emailLabel": "Je e-mailadres",
+    "emailPlaceholder": "jij@voorbeeld.nl",
+    "submit": "Toon mijn korting ✨",
+    "submitting": "Ophalen…",
+    "privacy": "Geen spam. Altijd afmelden mogelijk.",
+    "invalidEmail": "Voer een geldig e-mailadres in.",
+    "genericError": "Er ging iets mis. Probeer het opnieuw.",
+    "connectionError": "Verbindingsfout. Probeer het opnieuw.",
+    "successNew": "{percent}% korting is voor jou! 🎉",
+    "successReturning": "Welkom terug! 💕",
+    "successBodyNew": "Hier is je code — we hebben hem ook gemaild. 💌",
+    "successBodyReturning": "Je staat al op de VIP-lijst — hier is je code. 💌",
+    "shopNow": "Nu shoppen ✨",
+    "close": "Sluiten"
+  },
+  "promoCode": {
+    "yourCode": "Je code",
+    "copy": "Kopiëren",
+    "copied": "Gekopieerd!",
+    "copyAria": "Kortingscode {code} kopiëren",
+    "manualHint": "Druk op ⌘/Ctrl + C om te kopiëren",
+    "copiedAnnounce": "Kortingscode {code} gekopieerd naar het klembord.",
+    "manualAnnounce": "Klembord niet beschikbaar. De code is geselecteerd — kopieer hem met je toetsenbord."
+  },
+  "offer": {
+    "appliedToBag": "Toegepast in je tas ✨",
+    "enterAtCheckout": "Invoeren bij het afrekenen",
+    "percentOff": "{percent}% korting"
+  },
+  "localeBanner": {
+    "message": "Bezoek je ons vanuit {country}? Deze site is ook in het {language} beschikbaar.",
+    "switch": "Wissel naar {language}",
+    "dismiss": "Nee, bedankt"
+  }
+}

@@ -28,6 +28,7 @@ import { IMAGE_MODEL } from "@/lib/social/image-gen";
 import { THUMBNAIL_ASPECT } from "@/lib/catalog/normalize-thumbnail";
 
 export type CleanupProvider = "kie" | "gemini" | "openai";
+export type CleanupMode = "hand" | "artifact";
 
 /** Max reference images to send (KIE / Nano Banana Pro accept up to 8). */
 const MAX_REFERENCE_IMAGES = 8;
@@ -42,13 +43,20 @@ export function activeCleanupProvider(): CleanupProvider {
   return "openai";
 }
 
-const HAND_REMOVAL_INSTRUCTION = `You are given one or more photos of the SAME physical phone case, shot from different angles or settings. The FIRST image is the primary reference for framing and proportions; the others are additional references of the same product.
+function buildCleanupInstruction(mode: CleanupMode): string {
+  const artifactLine =
+    mode === "artifact"
+      ? "- Remove the small physical brand tag/sticker that appears in the top-left area of some phone-case photos when it is not part of the actual design. Do not leave a visible circle, logo, badge, or sticker remnant there. That corner must be clean white unless the real product itself has a design element that truly belongs there.\n"
+      : "";
+
+  return `You are given one or more photos of the SAME physical phone case, shot from different angles or settings. The FIRST image is the primary reference for framing and proportions; the others are additional references of the same product.
 
 Produce ONE clean product thumbnail:
 - Show ONLY the phone case and everything mounted ON it (pop-grip/griptok, charms, 3D decorations, glitter). Remove the human hand, fingers, arm; the background and any surfaces; cards, packaging, and any separate dangling beaded strap or chain.
-- Keep the design 100% ACCURATE to the real product. Use ALL provided images together to reproduce its exact shape, colors, printed characters, artwork, patterns, and 3D details faithfully. Do NOT invent, restyle, or reinterpret the design.
+${artifactLine}- Keep the design 100% ACCURATE to the real product. Use ALL provided images together to reproduce its exact shape, colors, printed characters, artwork, patterns, and 3D details faithfully. Do NOT invent, restyle, or reinterpret the design.
 - Present the case straight-on and upright, rendered LARGE and prominent so it fills most of the frame (like a premium e-commerce hero shot), fully visible and never cropped, centered on a plain solid pure white (#ffffff) background with only small even margins.
 Ignore anything in the images that is not this product.`;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -131,13 +139,16 @@ async function kiePollResult(apiKey: string, taskId: string): Promise<string> {
 }
 
 /** Nano Banana Pro via KIE — subject-preserving edit (removes hand/background). */
-async function cleanupWithKie(imageUrls: string[]): Promise<Buffer> {
+async function cleanupWithKie(
+  imageUrls: string[],
+  mode: CleanupMode,
+): Promise<Buffer> {
   const apiKey = process.env.KIE_API_KEY;
   if (!apiKey) throw new Error("KIE_API_KEY is not set.");
   const taskId = await kieCreateTask(apiKey, {
     model: "nano-banana-pro",
     input: {
-      prompt: HAND_REMOVAL_INSTRUCTION,
+      prompt: buildCleanupInstruction(mode),
       image_input: imageUrls,
       aspect_ratio: THUMBNAIL_ASPECT,
       resolution: "2K",
@@ -166,7 +177,10 @@ export async function removeBackgroundKie(imageUrl: string): Promise<Buffer> {
 }
 
 /** Nano Banana Pro via Google direct (multi-image subject-preserving edit). */
-async function cleanupWithGemini(imageUrls: string[]): Promise<Buffer> {
+async function cleanupWithGemini(
+  imageUrls: string[],
+  mode: CleanupMode,
+): Promise<Buffer> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set.");
 
@@ -183,7 +197,7 @@ async function cleanupWithGemini(imageUrls: string[]): Promise<Buffer> {
           ...buffers.map((b) => ({
             inlineData: { mimeType: "image/webp", data: b.toString("base64") },
           })),
-          { text: HAND_REMOVAL_INSTRUCTION },
+          { text: buildCleanupInstruction(mode) },
         ],
       },
     ],
@@ -216,7 +230,7 @@ async function cleanupWithOpenAI(imageUrls: string[]): Promise<Buffer> {
   const res = await client.images.edit({
     model: IMAGE_MODEL,
     image: files,
-    prompt: HAND_REMOVAL_INSTRUCTION,
+    prompt: buildCleanupInstruction("hand"),
     size: "1024x1024",
     quality: "high",
     n: 1,
@@ -232,13 +246,16 @@ async function cleanupWithOpenAI(imageUrls: string[]): Promise<Buffer> {
  * first being the primary) and re-render it on plain white. Multiple references
  * improve design fidelity. Returns the edited image bytes.
  */
-export async function removeHandsOnWhite(imageUrls: string[]): Promise<Buffer> {
+export async function removeHandsOnWhite(
+  imageUrls: string[],
+  mode: CleanupMode = "hand",
+): Promise<Buffer> {
   const urls = refUrls(imageUrls);
   switch (activeCleanupProvider()) {
     case "kie":
-      return cleanupWithKie(urls);
+      return cleanupWithKie(urls, mode);
     case "gemini":
-      return cleanupWithGemini(urls);
+      return cleanupWithGemini(urls, mode);
     default:
       return cleanupWithOpenAI(urls);
   }

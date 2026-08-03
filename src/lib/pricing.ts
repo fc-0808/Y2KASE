@@ -209,6 +209,70 @@ export function defaultStyleFor(styles: readonly string[]): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-image style tagging
+//
+// A photograph shows exactly one physical configuration of the product, so an
+// image carries AT MOST ONE style tag. `product_images.style_tags` stays an
+// array because the empty case is meaningful — "universal": a lifestyle, detail
+// or packaging shot that doesn't represent any single variation.
+//
+// The storefront resolves a style to its photo with `find(img =>
+// img.styleTags.includes(style))`, so a photo tagged with several styles
+// quietly becomes the representative shot for all of them. The vision
+// classifier used to be prompted to tag inclusively, which is how multi-tagged
+// rows got into the catalogue in the first place. Every reader and writer now
+// funnels through `normalizeImageStyleTags`, so legacy rows and new writes both
+// collapse to the one configuration the photo actually depicts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Collapse arbitrary tag input to the canonical at-most-one-tag form.
+ *
+ * Unrecognized values are dropped, and when `offered` is supplied so are styles
+ * the product no longer sells. If more than one valid tag survives, the most
+ * complete wins — {@link STYLES} is ordered most → least complete, so for a
+ * photo tagged `["Case + Grip + Charm", "Case + Grip"]` that picks the bundle
+ * genuinely on camera rather than the subset it also happens to illustrate.
+ *
+ * @returns `[]` (universal) or a single-element array. Never longer.
+ */
+export function normalizeImageStyleTags(
+  tags: readonly string[] | null | undefined,
+  offered?: readonly string[],
+): Style[] {
+  if (!tags || tags.length === 0) return [];
+  const allowed = offered ? new Set<string>(offered) : null;
+  const ranked = orderStyles(tags).filter((s) => !allowed || allowed.has(s));
+  return ranked.length > 0 ? [ranked[0]] : [];
+}
+
+/** The single style a photo represents, or `null` when it's universal. */
+export function imageStyleTag(
+  tags: readonly string[] | null | undefined,
+  offered?: readonly string[],
+): Style | null {
+  return normalizeImageStyleTags(tags, offered)[0] ?? null;
+}
+
+/** The canonical stored form for a single-select choice (`null` = universal). */
+export function styleTagsFor(style: string | null | undefined): Style[] {
+  return style ? normalizeImageStyleTags([style]) : [];
+}
+
+/**
+ * Whether `tags` is already canonical, so callers can skip a no-op write.
+ * Compares element-wise: normalization is both a cardinality cap and a filter,
+ * so a same-length list can still differ (an unoffered tag became universal).
+ */
+export function imageStyleTagsAreCanonical(
+  tags: readonly string[] | null | undefined,
+  offered?: readonly string[],
+): boolean {
+  const next = normalizeImageStyleTags(tags, offered);
+  return next.length === (tags?.length ?? 0) && next[0] === tags?.[0];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Per-product iPhone model availability
 //
 // Every phone-case product is sold for a *subset* of the master model list —

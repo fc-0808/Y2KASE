@@ -26,6 +26,7 @@ import {
   approveThumbnailProposal,
   decideThumbnailProposal,
   aiCleanupThumbnail,
+  aiRemoveThumbnailArtifact,
   bulkApproveThumbnails,
   bulkDecideThumbnails,
   bulkRegenerateThumbnails,
@@ -33,31 +34,49 @@ import {
   removeThumbnailBackground,
 } from "../actions";
 import type { ThumbnailQueueStats } from "@/lib/admin/thumbnails";
+import {
+  THUMBNAIL_SCOPES,
+  SCOPE_LABELS,
+  DEFAULT_THUMBNAIL_SCOPE,
+  type ThumbnailScope,
+} from "@/lib/admin/thumbnail-scope";
 import { ThumbnailCropModal } from "./ThumbnailCropModal";
 
 type Item = {
   productId: number;
   slug: string;
   title: string;
+  /** `active` | `draft`. Drafts aren't on the storefront yet. */
+  productStatus: string;
   currentUrl: string | null;
   proposalUrl: string;
   score: number | null;
   category: string | null;
   reason: string | null;
 };
-type FlaggedItem = Omit<Item, "proposalUrl">;
-type BasicItem = Pick<Item, "productId" | "slug" | "title" | "currentUrl">;
+type FlaggedItem = Omit<Item, "proposalUrl"> & { proposalUrl: string | null };
+type BasicItem = Pick<
+  Item,
+  "productId" | "slug" | "title" | "productStatus" | "currentUrl"
+>;
 
 type ActionResult = { ok: boolean; message: string };
 type BulkResult = ActionResult & { processed: number };
 
+const isDraft = (item: { productStatus: string }) =>
+  item.productStatus === "draft";
+
 export function ThumbnailsReview({
+  scope,
+  scopeCounts,
   items,
   flagged,
   approved,
   pending,
   stats,
 }: {
+  scope: ThumbnailScope;
+  scopeCounts: Record<ThumbnailScope, number>;
   items: Item[];
   flagged: FlaggedItem[];
   approved: BasicItem[];
@@ -71,6 +90,10 @@ export function ThumbnailsReview({
   const [batch, setBatch] = useState(5);
   const [toast, setToast] = useState<ActionResult | null>(null);
   const [adjust, setAdjust] = useState<Item | null>(null);
+  const [activeAction, setActiveAction] = useState<{
+    productId: number;
+    label: string;
+  } | null>(null);
 
   const stopRef = useRef(false);
   const [auto, setAuto] = useState({ running: false, done: 0, total: 0 });
@@ -82,6 +105,22 @@ export function ThumbnailsReview({
     setToast(result);
     if (result.ok) setTimeout(() => setToast(null), 3500);
   }
+
+  function startAction(productId: number, label: string) {
+    setActiveAction({ productId, label });
+  }
+
+  function finishAction(productId: number) {
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      next.delete(productId);
+      return next;
+    });
+    setActiveAction((current) =>
+      current?.productId === productId ? null : current,
+    );
+  }
+
 
   // ── Selection helpers ──────────────────────────────────────────────────
   const proposedIds = useMemo(() => new Set(items.map((i) => i.productId)), [items]);
@@ -110,21 +149,30 @@ export function ThumbnailsReview({
   const sel = useMemo(() => [...selected], [selected]);
   const regenIds = sel;
   const approveIds = sel.filter((id) => proposedIds.has(id));
-  const flagIds = sel.filter((id) => proposedIds.has(id));
+  const flagIds = sel.filter((id) => proposedIds.has(id) || flaggedIds.has(id));
   const skipIds = sel.filter((id) => proposedIds.has(id) || flaggedIds.has(id));
 
   // ── Single-item action (per-item busy; does NOT lock other cards) ──────
-  function run(productId: number, fn: () => Promise<ActionResult>) {
+  function run(
+    productId: number,
+    label: string,
+    fn: () => Promise<ActionResult>,
+  ) {
     setBusyIds((prev) => new Set(prev).add(productId));
+    startAction(productId, label);
     startTransition(async () => {
-      const res = await fn();
-      flash(res);
-      setBusyIds((prev) => {
-        const next = new Set(prev);
-        next.delete(productId);
-        return next;
-      });
-      router.refresh();
+      try {
+        const res = await fn();
+        flash(res);
+        if (res.ok) {
+          setToast({ ok: true, message: `${label} complete.` });
+          setTimeout(() => router.refresh(), 0);
+        } else {
+          router.refresh();
+        }
+      } finally {
+        finishAction(productId);
+      }
     });
   }
   const busy = (id: number) => busyIds.has(id);
@@ -157,30 +205,35 @@ export function ThumbnailsReview({
   }
 
   // ── Generate the pending queue (client-orchestrated batches) ───────────
+  const remaining = stats.pending + stats.flagged;
+
   function generateOnce() {
     startTransition(async () => {
-      const res = await generateThumbnailProposals(batch);
+      const res = await generateThumbnailProposals(batch, scope);
       flash(res);
       router.refresh();
     });
   }
   async function generateAll() {
     stopRef.current = false;
-    const total = stats.pending + stats.flagged;
-    if (total === 0) return;
-    setAuto({ running: true, done: 0, total });
+    if (remaining === 0) return;
+    setAuto({ running: true, done: 0, total: remaining });
     let done = 0;
     try {
       while (!stopRef.current) {
-        const res = await generateThumbnailProposals(batch);
+        const res = await generateThumbnailProposals(batch, scope);
         if (!res.ok) {
           flash(res);
           break;
         }
-        if (res.changed === 0) break;
         done += res.changed;
-        setAuto({ running: true, done, total: Math.max(total, done) });
+        setAuto({ running: true, done, total: Math.max(remaining, done) });
         router.refresh();
+        // The candidate pool only shrinks when a product yields a proposal —
+        // failures are re-flagged and stay eligible — so a batch that proposed
+        // nothing means the rest can't succeed either. Without this the loop
+        // would retry the same failing products forever.
+        if (res.proposed === 0) break;
       }
       flash({
         ok: true,
@@ -240,13 +293,7 @@ export function ThumbnailsReview({
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       <div className="sticky top-3 z-20 rounded-2xl border border-[var(--border)] bg-[var(--card)]/95 p-3 shadow-[0_10px_30px_-24px_rgba(120,60,120,0.5)] backdrop-blur sm:p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
-            <StatPill label="Not started" value={stats.pending} tone="muted" />
-            <StatPill label="To review" value={stats.proposed} tone="primary" />
-            <StatPill label="Live" value={stats.approved} tone="green" />
-            <StatPill label="Flagged" value={stats.flagged} tone="amber" />
-            <StatPill label="Skipped" value={stats.skipped} tone="muted" />
-          </div>
+          <ScopeTabs scope={scope} counts={scopeCounts} disabled={globalBusy} />
 
           {auto.running ? (
             <ProgressControl
@@ -270,7 +317,7 @@ export function ThumbnailsReview({
               </label>
               <button
                 onClick={generateOnce}
-                disabled={transitionPending || globalBusy || stats.pending + stats.flagged === 0}
+                disabled={transitionPending || globalBusy || remaining === 0}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--primary)] px-4 py-2 text-sm font-bold text-[var(--primary)] transition hover:bg-[var(--primary)]/5 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {transitionPending ? (
@@ -282,20 +329,37 @@ export function ThumbnailsReview({
               </button>
               <button
                 onClick={generateAll}
-                disabled={transitionPending || globalBusy || stats.pending + stats.flagged === 0}
+                disabled={transitionPending || globalBusy || remaining === 0}
                 className="inline-flex items-center gap-2 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white shadow-[0_4px_0_#d62f88] transition active:translate-y-0.5 active:shadow-[0_1px_0_#d62f88] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Rocket className="h-4 w-4" /> Generate all (
-                {stats.pending + stats.flagged})
+                <Rocket className="h-4 w-4" /> Generate all ({remaining})
               </button>
             </div>
           )}
         </div>
+
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-sm font-semibold">
+          <StatPill label="Not started" value={stats.pending} tone="muted" />
+          <StatPill label="To review" value={stats.proposed} tone="primary" />
+          <StatPill label="Approved" value={stats.approved} tone="green" />
+          <StatPill label="Flagged" value={stats.flagged} tone="amber" />
+          <StatPill label="Skipped" value={stats.skipped} tone="muted" />
+        </div>
+
         <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--foreground)]/45">
           <Clock className="h-3.5 w-3.5" />
-          Generated with Nano Banana Pro (~45s each, in parallel). Select cards to
-          bulk approve/regenerate. Nothing goes live until you approve it.
+          Generated with Nano Banana Pro (~45s each, in parallel). Counts and
+          actions follow the selected scope. Nothing is published until you
+          approve it — and drafts can be reviewed before they go live. The AI
+          cleanup path also removes the small top-left physical tag when present.
         </p>
+        {activeAction && (
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-[var(--primary)]/20 bg-[var(--primary)]/8 px-3 py-1.5 text-xs font-semibold text-[var(--primary)]">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {activeAction.label} in progress for product #{activeAction.productId}
+            — refreshing when complete.
+          </div>
+        )}
       </div>
 
       {empty && (
@@ -314,8 +378,12 @@ export function ThumbnailsReview({
         <section>
           <SectionHeader
             title="To review"
-            count={items.length}
-            subtitle="Compare the proposed thumbnail against the current one, then approve, regenerate, flag, or skip. Tick cards to act in bulk."
+            count={stats.proposed}
+            subtitle={`Compare the proposed thumbnail against the current one, then approve, regenerate, flag, or skip. Tick cards to act in bulk.${
+              stats.proposed > items.length
+                ? ` Showing the first ${items.length} of ${stats.proposed}.`
+                : ""
+            }`}
             allSelected={items.every((i) => selected.has(i.productId))}
             onToggleAll={(on) => setSection(items.map((i) => i.productId), on)}
             disabled={globalBusy}
@@ -326,26 +394,29 @@ export function ThumbnailsReview({
                 key={item.productId}
                 item={item}
                 busy={busy(item.productId)}
-                disabled={globalBusy || busy(item.productId)}
+                disabled={globalBusy}
                 checked={selected.has(item.productId)}
                 onSelect={() => toggleSelect(item.productId)}
                 selectDisabled={globalBusy}
                 onApprove={() =>
-                  run(item.productId, () => approveThumbnailProposal(item.productId))
+                  run(item.productId, "Approve", () => approveThumbnailProposal(item.productId))
                 }
                 onCleanup={() =>
-                  run(item.productId, () => aiCleanupThumbnail(item.productId))
+                  run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
                 }
                 onFlag={() =>
-                  run(item.productId, () => decideThumbnailProposal(item.productId, "flagged"))
+                  run(item.productId, "Flag", () => decideThumbnailProposal(item.productId, "flagged"))
                 }
                 onSkip={() =>
-                  run(item.productId, () => decideThumbnailProposal(item.productId, "skipped"))
+                  run(item.productId, "Skip", () => decideThumbnailProposal(item.productId, "skipped"))
                 }
                 onUpload={(f) => uploadThumbnail(item.productId, f)}
                 onAdjust={() => setAdjust(item)}
                 onRemoveBg={() =>
-                  run(item.productId, () => removeThumbnailBackground(item.productId))
+                  run(item.productId, "Remove BG", () => removeThumbnailBackground(item.productId))
+                }
+                onRemoveTag={() =>
+                  run(item.productId, "Remove Tag", () => aiRemoveThumbnailArtifact(item.productId))
                 }
               />
             ))}
@@ -358,8 +429,12 @@ export function ThumbnailsReview({
         <section>
           <SectionHeader
             title="Needs attention"
-            count={flagged.length}
-            subtitle="Generation didn't produce a usable result (no images, or an error). Retry with Remove hand (AI), or open the product to add a better photo."
+            count={stats.flagged}
+            subtitle={`Generation didn't produce a usable result (no images, or an error). Retry with the AI cleanup flow, or open the product to add a better photo.${
+              stats.flagged > flagged.length
+                ? ` Showing the first ${flagged.length} of ${stats.flagged}.`
+                : ""
+            }`}
             allSelected={flagged.every((i) => selected.has(i.productId))}
             onToggleAll={(on) => setSection(flagged.map((i) => i.productId), on)}
             disabled={globalBusy}
@@ -370,15 +445,15 @@ export function ThumbnailsReview({
                 key={item.productId}
                 item={item}
                 busy={busy(item.productId)}
-                disabled={globalBusy || busy(item.productId)}
+                disabled={globalBusy}
                 checked={selected.has(item.productId)}
                 onSelect={() => toggleSelect(item.productId)}
                 selectDisabled={globalBusy}
                 onCleanup={() =>
-                  run(item.productId, () => aiCleanupThumbnail(item.productId))
+                  run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
                 }
                 onSkip={() =>
-                  run(item.productId, () => decideThumbnailProposal(item.productId, "skipped"))
+                  run(item.productId, "Skip", () => decideThumbnailProposal(item.productId, "skipped"))
                 }
                 onUpload={(f) => uploadThumbnail(item.productId, f)}
               />
@@ -392,8 +467,12 @@ export function ThumbnailsReview({
         <section>
           <SectionHeader
             title="Live thumbnails"
-            count={approved.length}
-            subtitle="Already live on the storefront. Regenerate to rebuild — the new version goes to “To review” before it replaces the live image."
+            count={stats.approved}
+            subtitle={`Already live on the storefront. Regenerate to rebuild — the new version goes to “To review” before it replaces the live image.${
+              stats.approved > approved.length
+                ? ` Showing the first ${approved.length} of ${stats.approved}.`
+                : ""
+            }`}
             allSelected={approved.every((i) => selected.has(i.productId))}
             onToggleAll={(on) => setSection(approved.map((i) => i.productId), on)}
             disabled={globalBusy}
@@ -412,11 +491,14 @@ export function ThumbnailsReview({
                 actionLabel="Regenerate"
                 actionIcon={<RefreshCw className="h-3.5 w-3.5" />}
                 onAction={() =>
-                  run(item.productId, () => aiCleanupThumbnail(item.productId))
+                  run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
                 }
                 onUpload={(f) => uploadThumbnail(item.productId, f)}
                 onRemoveBg={() =>
-                  run(item.productId, () => removeThumbnailBackground(item.productId))
+                  run(item.productId, "Remove BG", () => removeThumbnailBackground(item.productId))
+                }
+                onRemoveTag={() =>
+                  run(item.productId, "Remove Tag", () => aiRemoveThumbnailArtifact(item.productId))
                 }
               />
             ))}
@@ -453,7 +535,7 @@ export function ThumbnailsReview({
                 actionLabel="Generate"
                 actionIcon={<Sparkles className="h-3.5 w-3.5" />}
                 onAction={() =>
-                  run(item.productId, () => aiCleanupThumbnail(item.productId))
+                  run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
                 }
                 onUpload={(f) => uploadThumbnail(item.productId, f)}
               />
@@ -540,7 +622,7 @@ export function ThumbnailsReview({
           onApply={(rect) => {
             const id = adjust.productId;
             setAdjust(null);
-            run(id, () => adjustThumbnailCrop(id, rect));
+            run(id, "Adjust", () => adjustThumbnailCrop(id, rect));
           }}
         />
       )}
@@ -555,6 +637,87 @@ export function ThumbnailsReview({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Which slice of the catalogue the queue is working on. Rendered as links so
+ * the scope lives in the URL — shareable, restored by the back button, and
+ * preserved across the `router.refresh()` that follows every action.
+ */
+function ScopeTabs({
+  scope,
+  counts,
+  disabled,
+}: {
+  scope: ThumbnailScope;
+  counts: Record<ThumbnailScope, number>;
+  disabled: boolean;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Product scope"
+      className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] p-1"
+    >
+      {THUMBNAIL_SCOPES.map((value) => {
+        const active = value === scope;
+        const className = `flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold transition ${
+          active
+            ? "bg-[var(--primary)] text-white"
+            : "text-[var(--foreground)]/70 hover:bg-[var(--card)]"
+        } ${disabled && !active ? "pointer-events-none opacity-40" : ""}`;
+        const body = (
+          <>
+            {SCOPE_LABELS[value]}
+            <span
+              className={`text-xs font-semibold ${
+                active ? "text-white/70" : "text-[var(--foreground)]/40"
+              }`}
+            >
+              {counts[value]}
+            </span>
+          </>
+        );
+
+        // The current scope is not a link (nothing to navigate to), and while a
+        // batch is running switching scope mid-flight would orphan it.
+        return active || disabled ? (
+          <span
+            key={value}
+            aria-current={active ? "page" : undefined}
+            className={className}
+          >
+            {body}
+          </span>
+        ) : (
+          <Link
+            key={value}
+            href={
+              value === DEFAULT_THUMBNAIL_SCOPE
+                ? "/admin/products/thumbnails"
+                : `/admin/products/thumbnails?scope=${value}`
+            }
+            scroll={false}
+            className={className}
+          >
+            {body}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Marks a product that isn't on the storefront yet. */
+function DraftChip({ className }: { className?: string }) {
+  return (
+    <span
+      title="Draft — not on the storefront yet. Its thumbnail goes live when you publish the product."
+      className={`shrink-0 rounded-full bg-[var(--foreground)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/55 ${className ?? ""}`}
+    >
+      Draft
+    </span>
   );
 }
 
@@ -657,6 +820,7 @@ function ProposalCard({
   onUpload,
   onAdjust,
   onRemoveBg,
+  onRemoveTag,
 }: {
   item: Item;
   busy: boolean;
@@ -671,6 +835,7 @@ function ProposalCard({
   onUpload: (file: File) => void;
   onAdjust: () => void;
   onRemoveBg: () => void;
+  onRemoveTag: () => void;
 }) {
   return (
     <div
@@ -680,13 +845,18 @@ function ProposalCard({
     >
       <SelectBox checked={checked} onChange={onSelect} disabled={selectDisabled} />
       <div className="flex items-start justify-between gap-2 p-3 pr-10">
-        <Link
-          href={`/products/${item.slug}`}
-          target="_blank"
-          className="line-clamp-2 text-sm font-bold hover:text-[var(--primary)]"
-        >
-          {item.title}
-        </Link>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Link
+              href={`/products/${item.slug}`}
+              target="_blank"
+              className="line-clamp-2 text-sm font-bold hover:text-[var(--primary)]"
+            >
+              {item.title}
+            </Link>
+            {isDraft(item) && <DraftChip />}
+          </div>
+        </div>
         {item.score != null && (
           <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">
             {item.score.toFixed(2)} · {item.category}
@@ -716,6 +886,9 @@ function ProposalCard({
         <div className="flex flex-wrap items-center gap-1.5">
           <GhostButton onClick={onRemoveBg} disabled={disabled} accent>
             <Eraser className="h-3.5 w-3.5" /> Remove BG
+          </GhostButton>
+          <GhostButton onClick={onRemoveTag} disabled={disabled} accent>
+            <Sparkles className="h-3.5 w-3.5" /> Remove Tag
           </GhostButton>
           <GhostButton onClick={onAdjust} disabled={disabled} accent>
             <Crop className="h-3.5 w-3.5" /> Adjust
@@ -821,6 +994,7 @@ function SimpleCard({
   onAction,
   onUpload,
   onRemoveBg,
+  onRemoveTag,
 }: {
   item: BasicItem;
   badge: string;
@@ -834,6 +1008,7 @@ function SimpleCard({
   onAction: () => void;
   onUpload: (file: File) => void;
   onRemoveBg?: () => void;
+  onRemoveTag?: () => void;
 }) {
   return (
     <div
@@ -865,6 +1040,17 @@ function SimpleCard({
                 className="flex-1"
               >
                 <Eraser className="h-3.5 w-3.5" />
+              </GhostButton>
+            )}
+            {onRemoveTag && (
+              <GhostButton
+                onClick={onRemoveTag}
+                disabled={disabled}
+                accent
+                title="Remove tag"
+                className="flex-1"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
               </GhostButton>
             )}
             <UploadButton

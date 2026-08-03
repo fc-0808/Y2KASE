@@ -236,6 +236,14 @@ export const products = pgTable(
     legacyShopifyId: text("legacy_shopify_id"),
     /** GPT model used to generate copy, for auditing AI-authored content. */
     aiModel: text("ai_model"),
+    /** Canonical brand inferred from the listing photos/context. */
+    brandName: text("brand_name"),
+    /** Canonical character inferred within the brand family, when present. */
+    characterName: text("character_name"),
+    /** Confidence reported by the brand classifier. */
+    brandConfidence: text("brand_confidence"),
+    /** Evidence snippets that justified the brand classifier verdict. */
+    brandEvidence: jsonb("brand_evidence").$type<string[]>().notNull().default([]),
     /**
      * Product line for options/pricing. e.g. iphone_case | samsung_case |
      * airpod_case | kindle_case | watch_band
@@ -268,6 +276,7 @@ export const products = pgTable(
     uniqueIndex("products_slug_idx").on(t.slug),
     index("products_status_idx").on(t.status),
     index("products_featured_idx").on(t.featured),
+    index("products_brand_idx").on(t.brandName),
   ],
 );
 
@@ -429,6 +438,22 @@ export const collections = pgTable(
      * "feature" = a merchandising shelf (New, Best Sellers).
      */
     kind: text("kind").notNull().default("character"),
+    /**
+     * Extra spellings that should classify a product into this node — "hellokitty",
+     * "kitty white". The display name always matches and is not repeated here.
+     *
+     * Brand and character nodes double as the classification vocabulary, so this
+     * is what lets an operator teach the catalogue a new IP without a deploy.
+     * Empty for genre/feature nodes, which are curated by hand.
+     */
+    aliases: text("aliases").array().notNull().default([]),
+    /**
+     * `config` — mirrors a node in `collections-config.ts`, owned by source
+     * control and re-asserted by every taxonomy sync.
+     * `custom` — created by an operator at runtime. Never written by the sync,
+     * and the only kind that may be deleted from the admin.
+     */
+    source: text("source").notNull().default("config"),
     /** Self-referential parent for hierarchy. Null = top-level node. */
     parentId: integer("parent_id"),
     /** Manual sort order within a parent (ascending). */

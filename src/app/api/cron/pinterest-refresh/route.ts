@@ -1,24 +1,20 @@
 /**
- * /api/cron/pinterest-refresh — auto-rotate the Pinterest OAuth token.
+ * /api/cron/pinterest-refresh — keep the Pinterest OAuth access token alive.
  *
- * Pinterest access tokens expire every 30 days. This cron runs every 20 days
- * to refresh the token before it expires, using the stored refresh token
- * (pinr_ prefix). Each refresh also returns a new refresh token, so the
- * pipeline stays alive indefinitely as long as it runs on schedule.
+ * Pinterest access tokens expire every ~30 days; refresh tokens ~60 days.
+ * This cron runs **daily** and refreshes whenever the access token is expired
+ * or within 7 days of expiry. Running daily (instead of every ~20 days) closes
+ * the scheduling gap that previously let the token die while the refresh token
+ * was still valid — which halted auto-pin with wall-to-wall 401s.
  *
- * Schedule: "0 6 * /20 * *" — daily at 6 AM UTC every 20 days.
+ * Schedule: "0 6 * * *" — 06:00 UTC every day (see vercel.json).
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getToken,
-  upsertToken,
-  canRefresh,
-  expiresWithin,
-} from "@/lib/social/token-store";
+import { refreshPinterestTokenIfDue } from "@/lib/social/pinterest-auth";
 
-const APP_ID = process.env.PINTEREST_APP_ID ?? "";
-const APP_SECRET = process.env.PINTEREST_APP_SECRET ?? "";
+export const runtime = "nodejs";
+export const maxDuration = 30;
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const secret = req.headers.get("authorization")?.replace("Bearer ", "");
@@ -26,91 +22,29 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const row = await getToken("pinterest");
-  if (!row) {
-    return NextResponse.json({
-      ok: false,
-      reason: "no-token",
-      message: "No Pinterest token in DB. Connect via /admin/social first.",
-    });
-  }
+  const result = await refreshPinterestTokenIfDue();
 
-  // Only refresh if the access token expires within 7 days.
-  if (!expiresWithin(row, 7 * 24 * 60 * 60 * 1000)) {
-    return NextResponse.json({
-      ok: true,
-      reason: "not-due",
-      message: "Access token still valid — no refresh needed.",
-    });
-  }
-
-  if (!canRefresh(row)) {
-    return NextResponse.json({
-      ok: false,
-      reason: "no-refresh-token",
-      message:
-        "Refresh token missing or expired. Please reconnect Pinterest at /admin/social.",
-    });
-  }
-
-  if (!APP_ID || !APP_SECRET) {
-    return NextResponse.json({
-      ok: false,
-      reason: "not-configured",
-      message: "PINTEREST_APP_ID / PINTEREST_APP_SECRET not set.",
-    });
-  }
-
-  try {
-    const credentials = Buffer.from(`${APP_ID}:${APP_SECRET}`).toString("base64");
-    const body = new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: row.refreshToken!,
-    });
-
-    const res = await fetch("https://api.pinterest.com/v5/oauth/token", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("[pinterest-refresh] Refresh failed:", text);
-      return NextResponse.json(
-        { ok: false, reason: "api-error", message: text },
-        { status: 502 },
-      );
-    }
-
-    const data = (await res.json()) as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in?: number;
-      refresh_token_expires_in?: number;
-      scope?: string;
-    };
-
-    await upsertToken("pinterest", {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token ?? row.refreshToken,
-      expiresIn: data.expires_in,
-      refreshExpiresIn: data.refresh_token_expires_in,
-      scopes: data.scope ?? row.scopes ?? undefined,
-      accountId: row.accountId ?? undefined,
-      accountName: row.accountName ?? undefined,
-    });
-
-    console.info("[pinterest-refresh] Token rotated successfully.");
-    return NextResponse.json({ ok: true, message: "Token refreshed." });
-  } catch (err) {
-    console.error("[pinterest-refresh] Unexpected error:", err);
+  if (!result.ok) {
+    const status =
+      result.reason === "api-error" || result.reason === "unexpected"
+        ? 502
+        : 200;
     return NextResponse.json(
-      { ok: false, reason: "unexpected", message: String(err) },
-      { status: 500 },
+      {
+        ok: false,
+        reason: result.reason,
+        message: result.message,
+      },
+      { status },
     );
   }
+
+  return NextResponse.json({
+    ok: true,
+    refreshed: result.refreshed,
+    reason: result.reason,
+    message: result.refreshed
+      ? "Token refreshed."
+      : "Access token still valid — no refresh needed.",
+  });
 }

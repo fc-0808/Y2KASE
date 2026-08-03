@@ -35,9 +35,12 @@ import {
 } from "@/lib/support/constants";
 import {
   LIVE_CHAT_ENABLED,
+  closeLiveChat,
+  getLiveChatState,
   hasRecentChat,
   openLiveChat,
   resumeLiveChat,
+  setLiveChatAttributes,
   subscribeToLiveChat,
   warmUpLiveChat,
   type LiveChatAttributes,
@@ -109,6 +112,7 @@ export function SupportWidget() {
 
   const cartOpen = useCart((state) => state.isOpen);
   const overlayActive = useHasBlockingOverlay();
+  const state = getLiveChatState();
 
   const launcherRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -120,7 +124,7 @@ export function SupportWidget() {
 
   // Stand down whenever something else owns the bottom of the screen. The open
   // state survives so the panel comes back where the shopper left it.
-  const suppressed = overlayActive || cartOpen || chatOpen;
+  const suppressed = overlayActive || cartOpen || chatOpen || !state.enabled;
 
   const closePanel = useCallback(() => {
     setOpen(false);
@@ -135,8 +139,13 @@ export function SupportWidget() {
     if (LIVE_CHAT_ENABLED && !identityRef.current) {
       identityRef.current = fetchIdentity();
     }
-    trackSupport("support_widget_open", { method });
-  }, []);
+    trackSupport("support_widget_open", {
+      method,
+      live_chat_enabled: state.enabled ? "true" : "false",
+      live_chat_property: state.propertyId ?? "",
+      live_chat_widget: state.widgetId ?? "",
+    });
+  }, [state.enabled, state.propertyId, state.widgetId]);
 
   // A navigation means the shopper moved on; the panel shouldn't follow them.
   useEffect(() => {
@@ -166,16 +175,28 @@ export function SupportWidget() {
     [],
   );
 
+  useEffect(() => {
+    if (!LIVE_CHAT_ENABLED) return;
+    void setLiveChatAttributes({
+      "page-path": pathname,
+      "page-section": pathname.startsWith("/admin") ? "admin" : "storefront",
+      "cart-status": cartOpen ? "open" : "closed",
+      "support-surface": suppressed ? "suppressed" : "available",
+    }).catch(() => {
+      /* best-effort */
+    });
+  }, [cartOpen, pathname, suppressed]);
+
   // Reconnect an in-flight conversation so agent replies aren't lost to the
   // facade. Scoped to browsers that already chatted, and deferred to idle.
   useEffect(() => {
-    if (!LIVE_CHAT_ENABLED || !hasRecentChat()) return;
+    if (!LIVE_CHAT_ENABLED || !hasRecentChat() || suppressed) return;
     return whenIdle(() => {
       void resumeLiveChat().catch(() => {
         // Blocked or offline — the launcher still works, just without a badge.
       });
     });
-  }, []);
+  }, [suppressed]);
 
   // Dismissal. Escape returns focus to the launcher (the user is still
   // navigating by keyboard); an outside click does not, because they've
@@ -230,6 +251,7 @@ export function SupportWidget() {
       // Ad blockers take out hosted chat widgets routinely. Say so plainly and
       // keep the email path in front of the shopper rather than a dead button.
       setChatState("error");
+      closeLiveChat();
       trackSupport("live_chat_error");
     }
   }, []);
@@ -248,7 +270,9 @@ export function SupportWidget() {
     openPanel("launcher");
   }
 
-  if (suppressed) return null;
+  if (suppressed) {
+    return null;
+  }
 
   return (
     <div

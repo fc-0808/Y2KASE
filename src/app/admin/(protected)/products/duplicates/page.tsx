@@ -3,11 +3,14 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { findDuplicateClusters } from "@/lib/catalog/duplicates";
+import { getPhashCoverage } from "@/lib/catalog/phash-backfill";
 import { DUPLICATE_THRESHOLD } from "@/lib/catalog/phash";
 import { DuplicatesReview } from "./DuplicatesReview";
 
 export const metadata: Metadata = { title: "Admin · Duplicate products" };
 export const dynamic = "force-dynamic";
+// Backfill batches download + Sharp-hash images; give headroom per round-trip.
+export const maxDuration = 120;
 
 export default async function DuplicatesPage() {
   if (!isDbConfigured()) {
@@ -21,7 +24,10 @@ export default async function DuplicatesPage() {
     );
   }
 
-  const clusters = await findDuplicateClusters();
+  const [clusters, coverage] = await Promise.all([
+    findDuplicateClusters(),
+    getPhashCoverage(),
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
@@ -43,7 +49,11 @@ export default async function DuplicatesPage() {
         </p>
       </div>
 
-      <DuplicatesReview clusters={clusters} threshold={DUPLICATE_THRESHOLD} />
+      <DuplicatesReview
+        clusters={clusters}
+        threshold={DUPLICATE_THRESHOLD}
+        coverage={coverage}
+      />
     </div>
   );
 }

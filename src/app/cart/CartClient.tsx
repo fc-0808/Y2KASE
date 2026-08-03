@@ -35,11 +35,8 @@ import {
   type CartItem,
 } from "@/lib/store/cart";
 import { shippingQuote } from "@/lib/pricing";
-import {
-  computePromotions,
-  resolveLocalCoupon,
-  BUNDLE,
-} from "@/lib/promotions";
+import { usePromoActions, useSavedPromoCode } from "@/lib/store/promo";
+import { computePromotions, BUNDLE } from "@/lib/promotions";
 import { formatPrice } from "@/lib/utils";
 import { trackBeginCheckout } from "@/lib/analytics/gtag";
 
@@ -52,11 +49,15 @@ export function CartClient() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Coupon state. `appliedCode` is the code the buyer entered (kept even while
-  // the bundle is active, so it silently re-applies if they drop below 4 items).
+  // The applied code lives in the persisted promo store, not local state: the
+  // welcome pop-up saves it there before this page ever mounts, and a code the
+  // buyer typed has to survive the reload between reviewing the bag and coming
+  // back to pay. It is kept even while the bundle is active, so it silently
+  // re-applies if they drop below 4 items.
   const [codeInput, setCodeInput] = useState("");
   const [couponError, setCouponError] = useState<string | null>(null);
-  const [appliedCode, setAppliedCode] = useState<string | null>(null);
+  const appliedCode = useSavedPromoCode();
+  const { apply: applyPromo, clear: clearPromo } = usePromoActions();
 
   // "How it works" for the bundle offer. Implemented as an inline disclosure
   // rather than an absolutely-positioned tooltip because the summary card is
@@ -116,14 +117,12 @@ export function CartClient() {
 
   /** Validate + apply a coupon locally (instant — no network round-trip). */
   function applyCoupon() {
-    const code = codeInput.trim().toUpperCase();
+    const code = codeInput.trim();
     if (!code) return;
-    const coupon = resolveLocalCoupon(code);
-    if (!coupon) {
+    if (!applyPromo(code, "manual")) {
       setCouponError("That code isn't valid.");
       return;
     }
-    setAppliedCode(coupon.code);
     setCodeInput("");
     setCouponError(null);
   }
@@ -297,7 +296,7 @@ export function CartClient() {
                       <button
                         type="button"
                         onClick={() => {
-                          setAppliedCode(null);
+                          clearPromo();
                           setCouponError(null);
                         }}
                         aria-label={`Remove promo code ${promo.appliedCode}`}

@@ -1,12 +1,14 @@
 /**
  * Pinterest API v5 client — programmatic publishing for the Social Studio.
  *
- * Token resolution order:
- *   1. social_tokens DB table (updated by OAuth callback + refresh cron).
- *   2. PINTEREST_ACCESS_TOKEN env var (manual bootstrap fallback).
+ * Token resolution:
+ *   1. Ensure a valid DB token (refresh proactively when expired / near expiry).
+ *   2. Fall back to PINTEREST_ACCESS_TOKEN env var.
+ *   3. On HTTP 401, force one refresh + retry so a just-expired token never
+ *      permanently poisons an auto-pin run.
  *
- * The DB-backed token is preferred because it auto-rotates every ~20 days
- * via /api/cron/pinterest-refresh, keeping the pipeline alive indefinitely.
+ * Daily rotation lives in /api/cron/pinterest-refresh; this client is the
+ * last line of defence when that cron misses a window.
  *
  * Docs: https://developers.pinterest.com/docs/api/v5/pins-create/
  *
@@ -16,30 +18,48 @@
 
 import sharp from "sharp";
 import { getToken } from "@/lib/social/token-store";
+import { ensurePinterestAccessToken } from "@/lib/social/pinterest-auth";
 
 const API_BASE =
   process.env.PINTEREST_API_BASE?.replace(/\/$/, "") ??
   "https://api.pinterest.com/v5";
 
+/** True when a DB token or env bootstrap token is present (not necessarily valid). */
 export function isPinterestConfigured(): boolean {
   return Boolean(process.env.PINTEREST_ACCESS_TOKEN);
 }
 
-/** Resolve the best available access token. DB row wins over env var. */
-async function resolveToken(): Promise<string> {
-  try {
-    const row = await getToken("pinterest");
-    if (row?.accessToken) return row.accessToken;
-  } catch {
-    // DB not available — fall through to env var
+/** Async: true when we can obtain a usable access token (refreshing if needed). */
+export async function isPinterestReady(): Promise<boolean> {
+  if (!isPinterestConfigured()) {
+    // OAuth-only setups store the token in DB without the env bootstrap var.
+    try {
+      const row = await getToken("pinterest");
+      if (!row?.accessToken) return false;
+    } catch {
+      return false;
+    }
   }
-  const env = process.env.PINTEREST_ACCESS_TOKEN;
-  if (!env) throw new Error("PINTEREST_ACCESS_TOKEN is not set.");
-  return env;
+  const ensured = await ensurePinterestAccessToken();
+  return ensured.ok;
 }
 
-async function authHeaders(): Promise<HeadersInit> {
-  const token = await resolveToken();
+/** Resolve a usable access token, refreshing the DB row when due. */
+async function resolveToken(opts: { forceRefresh?: boolean } = {}): Promise<string> {
+  const ensured = await ensurePinterestAccessToken({ force: opts.forceRefresh });
+  if (ensured.ok && ensured.accessToken) return ensured.accessToken;
+  throw new PinterestError(
+    ensured.ok === false
+      ? ensured.message
+      : "Pinterest access token is not available.",
+    401,
+  );
+}
+
+async function authHeaders(
+  opts: { forceRefresh?: boolean } = {},
+): Promise<HeadersInit> {
+  const token = await resolveToken(opts);
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -58,10 +78,14 @@ export class PinterestError extends Error {
 async function pinterestFetch<T>(
   path: string,
   init?: RequestInit,
+  opts: { retried?: boolean } = {},
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { ...(await authHeaders()), ...(init?.headers ?? {}) },
+    headers: {
+      ...(await authHeaders({ forceRefresh: opts.retried })),
+      ...(init?.headers ?? {}),
+    },
   });
   const text = await res.text();
   if (!res.ok) {
@@ -72,6 +96,16 @@ async function pinterestFetch<T>(
     } catch {
       // keep raw text
     }
+
+    // One forced refresh + retry on auth failure — covers the gap between
+    // token expiry and the next daily refresh cron.
+    if (res.status === 401 && !opts.retried) {
+      const refreshed = await ensurePinterestAccessToken({ force: true });
+      if (refreshed.ok) {
+        return pinterestFetch<T>(path, init, { retried: true });
+      }
+    }
+
     throw new PinterestError(
       `Pinterest API ${res.status}: ${message}`,
       res.status,

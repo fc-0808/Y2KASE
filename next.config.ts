@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
+import createNextIntlPlugin from "next-intl/plugin";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Relative, not "@/lib/routes": Next.js require()s this config before the app's
@@ -80,4 +81,9 @@ const nextConfig: NextConfig = {
 // imported as modules via the registry, never routed directly.
 const withMDX = createMDX({});
 
-export default withMDX(nextConfig);
+// Points next-intl at src/i18n/request.ts, which resolves the locale per request
+// and loads its catalogue. Inert until the routes move under `[locale]`: with no
+// locale segment to read, every request resolves to English.
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+
+export default withNextIntl(withMDX(nextConfig));

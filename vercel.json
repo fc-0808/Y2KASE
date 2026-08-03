@@ -39,7 +39,7 @@
     },
     {
       "path": "/api/cron/pinterest-refresh",
-      "schedule": "0 6 */20 * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/tiktok-refresh",

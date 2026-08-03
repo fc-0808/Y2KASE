@@ -18,15 +18,14 @@ import { products, productImages, productOptions } from "@/lib/db/schema";
 import {
   STYLE_OPTION_NAME,
   MODEL_OPTION_NAME,
-  STYLES,
   IPHONE_MODELS,
   orderStyles,
   orderModels,
   defaultStyleFor,
   getStylePrice,
+  normalizeImageStyleTags,
 } from "@/lib/pricing";
 
-const VALID_STYLES = new Set<string>(STYLES);
 const VALID_MODELS = new Set<string>(IPHONE_MODELS);
 
 export type SaveVariationsInput = {
@@ -35,7 +34,11 @@ export type SaveVariationsInput = {
   imageOrder: number[];
   /** 0-based slot the video occupies among the images. Null = no video slot. */
   videoSlot: number | null;
-  /** imageId → applicable styles. `[]` means universal (shown for every style). */
+  /**
+   * imageId → the style the photo depicts. `[]` means universal. Normalized to
+   * at most one entry on write, so a caller sending several can't create a
+   * photo that represents more than one variation.
+   */
   styleTags: Record<number, string[]>;
   /** The styles this product offers (drives the Style option + base price). */
   availableStyles: string[];
@@ -118,19 +121,21 @@ export async function saveProductVariations(
   // ── Normalize the offered styles to the canonical, price-ordered set ──────
   const availableStyles = orderStyles(input.availableStyles);
   const styles = availableStyles.length > 0 ? availableStyles : ["Case Only"];
-  const allowed = new Set<string>(styles);
 
   // ── 1. Image positions + style tags ───────────────────────────────────────
+  // Normalization is the enforcement point for "one photo, one variation": it
+  // drops unknown and no-longer-offered styles and caps the result at one, so
+  // every writer converges on the same shape regardless of what it sent.
   await Promise.all(
-    orderIds.map((id, index) => {
-      const tags = (input.styleTags[id] ?? []).filter(
-        (s) => VALID_STYLES.has(s) && allowed.has(s),
-      );
-      return db
+    orderIds.map((id, index) =>
+      db
         .update(productImages)
-        .set({ position: index, styleTags: tags })
-        .where(eq(productImages.id, id));
-    }),
+        .set({
+          position: index,
+          styleTags: normalizeImageStyleTags(input.styleTags[id], styles),
+        })
+        .where(eq(productImages.id, id)),
+    ),
   );
 
   // ── 2. Video slot (+ base "from" price for phone cases) ───────────────────

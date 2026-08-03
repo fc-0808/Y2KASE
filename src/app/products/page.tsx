@@ -205,6 +205,11 @@ export default async function ProductsPage({
             {sp.collection && (
               <input type="hidden" name="collection" value={sp.collection} />
             )}
+            {/* Carried as the PARSED value, so a malformed ?magsafe never
+                round-trips into the next URL. */}
+            {magsafe !== undefined && (
+              <input type="hidden" name="magsafe" value={String(magsafe)} />
+            )}
             {sp.sort && <input type="hidden" name="sort" value={sp.sort} />}
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--foreground)]/40" />
             <input
@@ -222,6 +227,7 @@ export default async function ProductsPage({
               tag: sp.tag,
               device: sp.device,
               collection: sp.collection,
+              magsafe: magsafe === undefined ? undefined : String(magsafe),
             }}
           />
         </div>

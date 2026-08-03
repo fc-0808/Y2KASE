@@ -1,0 +1,49 @@
+{
+  "popup": {
+    "eyebrowScratch": "Exclusive only",
+    "eyebrowPrize": "Nice scratch",
+    "eyebrowClaim": "Last step",
+    "headingScratch": "Scratch to reveal a secret offer 🎁",
+    "headingPrize": "Your secret offer is ready 🎉",
+    "headingClaim": "Where should we send it?",
+    "scratchMe": "SCRATCH ME ✨",
+    "revealInstead": "Skip the scratch",
+    "teaser": "Your exclusive offer…",
+    "claimButton": "Claim it now ✨",
+    "bundle": "{label} on any {count}",
+    "perksList": "Member promos · Early access",
+    "emailLabel": "Your email address",
+    "emailPlaceholder": "you@example.com",
+    "submit": "Reveal my discount ✨",
+    "submitting": "Revealing…",
+    "privacy": "No spam. Unsubscribe anytime.",
+    "invalidEmail": "Please enter a valid email address.",
+    "genericError": "Something went wrong. Please try again.",
+    "connectionError": "Connection error. Please try again.",
+    "successNew": "{percent}% off is yours! 🎉",
+    "successReturning": "Welcome back, bestie! 💕",
+    "successBodyNew": "Here's your code — we've emailed it to you as well. 💌",
+    "successBodyReturning": "You're already on the VIP list, so here's the code we sent you. 💌",
+    "shopNow": "Shop Now ✨",
+    "close": "Close"
+  },
+  "promoCode": {
+    "yourCode": "Your code",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "copyAria": "Copy discount code {code}",
+    "manualHint": "Press ⌘/Ctrl + C to copy",
+    "copiedAnnounce": "Discount code {code} copied to clipboard.",
+    "manualAnnounce": "Clipboard unavailable. The code is selected — copy it with your keyboard."
+  },
+  "offer": {
+    "appliedToBag": "Applied to your bag ✨",
+    "enterAtCheckout": "Enter at checkout",
+    "percentOff": "{percent}% off"
+  },
+  "localeBanner": {
+    "message": "Shopping from {country}? View this site in {language}.",
+    "switch": "Switch to {language}",
+    "dismiss": "No thanks"
+  }
+}

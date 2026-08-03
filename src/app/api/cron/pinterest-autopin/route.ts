@@ -8,8 +8,11 @@
  * Idempotent and safe to overlap: every asset is claimed atomically, so a given
  * photo/video becomes exactly one Pin (see lib/social/auto-pin).
  *
+ * Auth: runAutoPin ensures a live OAuth token (refreshing when due) before any
+ * claims, so an expired access token cannot burn the retry budget on 401s.
+ *
  * Opt-in: only runs when PINTEREST_AUTOPIN_ENABLED="true".
- * Auth: Vercel attaches `Authorization: Bearer ${CRON_SECRET}`.
+ * Auth header: Vercel attaches `Authorization: Bearer ${CRON_SECRET}`.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { isDbConfigured } from "@/lib/db";

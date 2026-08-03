@@ -23,21 +23,38 @@ import {
   FolderTree,
   CopyCheck,
   Magnet,
+  Wand2,
+  Sparkles,
+  Tags,
+  Eraser,
   Image as ImageIcon,
 } from "lucide-react";
 import { IPHONE_GENERATIONS, summarizeModels } from "@/lib/pricing";
 import type { AdminProductOverview } from "@/lib/products";
 import type { AdminCollectionOption } from "@/lib/collections";
 import { deviceOfProductType, deviceProductTypes } from "@/lib/catalog/devices";
+import type { TitleHealth } from "@/lib/catalog/listing-title-service";
+import type { BrandOption } from "@/lib/catalog/brands";
+import {
+  classificationNeedsAction,
+  type ClassificationHealth,
+} from "@/lib/catalog/classification-health";
+import { ClassificationCell } from "./ClassificationCell";
+import { BrandManager } from "./BrandManager";
 import {
   bulkUpdateProducts,
   bulkDeleteProducts,
+  bulkRepairTitles,
+  bulkRewriteTitles,
+  adoptTitleBrand,
+  purgeUnsupportedCollections,
   publishProduct,
   unpublishProduct,
   setFeatured,
   assignProductsToCollection,
   removeProductsFromCollection,
   bulkSetMagsafe,
+  syncCollectionTaxonomy,
   type BulkUpdatePayload,
 } from "./actions";
 import { BulkEditor } from "./BulkEditor";
@@ -46,10 +63,7 @@ import {
   type DeviceSelection,
   type DeviceCounts,
 } from "./ProductsDeviceNav";
-import {
-  CollectionNavBar,
-  type CollectionSelection,
-} from "./ProductsCollectionNav";
+import { CollectionNavBar } from "./ProductsCollectionNav";
 
 type StatusFilter = "all" | "draft" | "active" | "archived";
 
@@ -66,12 +80,24 @@ export function ProductsConsole({
   initialCollectionId,
   magsafeReviewCount = 0,
   thumbnailReviewCount = 0,
+  missingCollections = [],
+  titleHealth = {},
+  classification = {},
+  brandOptions = [],
 }: {
   products: AdminProductOverview[];
   collectionOptions: AdminCollectionOption[];
   initialCollectionId?: number;
   magsafeReviewCount?: number;
   thumbnailReviewCount?: number;
+  /** Taxonomy nodes defined in config but absent from the database. */
+  missingCollections?: { slug: string; name: string }[];
+  /** Keyed by product id; only products with a defective title appear. */
+  titleHealth?: Record<number, TitleHealth>;
+  /** Keyed by product id; every product has an entry. */
+  classification?: Record<number, ClassificationHealth>;
+  /** The brand registry, for the inline classification editor. */
+  brandOptions?: BrandOption[];
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -83,6 +109,9 @@ export function ProductsConsole({
       ? initialCollectionId
       : "all",
   );
+  const [titleIssuesOnly, setTitleIssuesOnly] = useState(false);
+  const [brandIssuesOnly, setBrandIssuesOnly] = useState(false);
+  const [brandManagerOpen, setBrandManagerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -150,6 +179,11 @@ export function ProductsConsole({
     const q = query.trim().toLowerCase();
     return products.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
+      if (titleIssuesOnly && !titleHealth[p.id]) return false;
+      if (brandIssuesOnly) {
+        const state = classification[p.id]?.state;
+        if (!state || !classificationNeedsAction(state)) return false;
+      }
       if (activeDeviceTypes.size > 0 && !activeDeviceTypes.has(p.productType))
         return false;
       if (
@@ -159,7 +193,36 @@ export function ProductsConsole({
         return false;
       return true;
     });
-  }, [products, statusFilter, activeDeviceTypes, query]);
+  }, [
+    products,
+    statusFilter,
+    titleIssuesOnly,
+    titleHealth,
+    brandIssuesOnly,
+    classification,
+    activeDeviceTypes,
+    query,
+  ]);
+
+  // Products whose identity is actively wrong — a contradicted brand, a
+  // supplier name in the IP field, or a leftover brand collection.
+  const brandErrorCount = useMemo(
+    () =>
+      products.filter((p) => {
+        const state = classification[p.id]?.state;
+        return state !== undefined && classificationNeedsAction(state);
+      }).length,
+    [products, classification],
+  );
+
+  // Titles making a false claim — a wrong device range or a contradicted brand.
+  // Counted over the whole catalog, not the current view, because the badge is
+  // a call to action rather than a description of what's on screen.
+  const titleErrorCount = useMemo(
+    () =>
+      products.filter((p) => titleHealth[p.id]?.severity === "error").length,
+    [products, titleHealth],
+  );
 
   // Brand/character counts scoped to the current view, hierarchy-aware (a brand
   // tallies products in it or any of its characters). Each count therefore
@@ -267,6 +330,71 @@ export function ProductsConsole({
     });
   }
 
+  // ── Rebuild titles from product data (deterministic, no AI) ───────────────
+  function runTitleRepair() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      const res = await bulkRepairTitles(ids);
+      flash(res);
+      if (res.ok && res.changed > 0) {
+        clearSelection();
+        router.refresh();
+      }
+    });
+  }
+
+  // ── Vision AI rewrite — always available for the current selection ────────
+  function runTitleRewrite() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      const res = await bulkRewriteTitles(ids);
+      flash(res);
+      if (res.ok && res.changed > 0) {
+        clearSelection();
+        router.refresh();
+      }
+    });
+  }
+
+  // ── Reclassify from the title, where the title knows better ───────────────
+  function runAdoptTitleBrand() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      const res = await adoptTitleBrand(ids);
+      flash(res);
+      if (res.ok && res.changed > 0) {
+        clearSelection();
+        router.refresh();
+      }
+    });
+  }
+
+  // ── Drop brand collections nothing about the product supports ─────────────
+  function runPurgeCollections() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      const res = await purgeUnsupportedCollections(ids);
+      flash(res);
+      if (res.ok && res.changed > 0) {
+        clearSelection();
+        router.refresh();
+      }
+    });
+  }
+
+  // ── Push the config taxonomy into the collections table ───────────────────
+  function runTaxonomySync() {
+    startTransition(async () => {
+      const res = await syncCollectionTaxonomy();
+      flash(res);
+      if (res.ok) router.refresh();
+    });
+  }
+
   // ── Bulk MagSafe override (operator knows the spec; vision can't see it) ───
   function runMagsafe(magsafe: boolean) {
     const ids = [...selected];
@@ -316,6 +444,36 @@ export function ProductsConsole({
   const selectedCaseCount = selectedProducts.filter(
     (p) => p.productType === "iphone_case",
   ).length;
+  // How many of the selection the deterministic repair would actually change,
+  // so the button can say what it will do instead of promising a no-op.
+  const selectedRepairableTitles = selectedProducts.filter(
+    (p) => titleHealth[p.id]?.repairable,
+  ).length;
+  const selectedMisfiled = selectedProducts.filter(
+    (p) => (classification[p.id]?.unsupportedSlugs.length ?? 0) > 0,
+  ).length;
+  // Rows whose title names an IP the stored classification doesn't match — the
+  // ones "Use title brand" would actually move.
+  const selectedAdoptable = selectedProducts.filter((p) => {
+    const health = classification[p.id];
+    if (!health?.titleReadsAs) return false;
+    return (
+      health.titleReadsAs !== (health.characterName ?? health.brandName)
+    );
+  }).length;
+
+  // The collection the bulk picker should land on: the selection's own brand /
+  // character, not the first node in the taxonomy tree (which is almost always
+  // Sanrio and has nothing to do with a selected Miffy row).
+  const suggestedCollectionId = useMemo(
+    () =>
+      preferredCollectionId(
+        selectedIds,
+        classification,
+        collectionOptions,
+      ),
+    [selectedIds, classification, collectionOptions],
+  );
 
   // Only label each row with its device type when it's actually ambiguous — i.e.
   // the unfiltered list spans more than one device. Inside a single-device view
@@ -326,6 +484,10 @@ export function ProductsConsole({
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
+      <BrandManager
+        open={brandManagerOpen}
+        onClose={() => setBrandManagerOpen(false)}
+      />
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -337,6 +499,58 @@ export function ProductsConsole({
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm">
+          {titleErrorCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setTitleIssuesOnly((on) => !on)}
+              title="Titles that claim a device range or a character the product doesn't match"
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-semibold ${
+                titleIssuesOnly
+                  ? "border-red-500 bg-red-500 text-white"
+                  : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+              }`}
+            >
+              <TriangleAlert className="h-4 w-4" /> Title issues
+              <span
+                className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] ${
+                  titleIssuesOnly ? "bg-white text-red-600" : "bg-red-500 text-white"
+                }`}
+              >
+                {titleErrorCount}
+              </span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setBrandManagerOpen(true)}
+            title="Add, rename or remove the brands and characters products can be classified into"
+            className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1 font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            <Tags className="h-4 w-4" /> Brands
+          </button>
+          {brandErrorCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setBrandIssuesOnly((on) => !on)}
+              title="Products whose brand field, title and collections disagree"
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-semibold ${
+                brandIssuesOnly
+                  ? "border-orange-500 bg-orange-500 text-white"
+                  : "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+              }`}
+            >
+              <Tags className="h-4 w-4" /> Wrong brand
+              <span
+                className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] ${
+                  brandIssuesOnly
+                    ? "bg-white text-orange-600"
+                    : "bg-orange-500 text-white"
+                }`}
+              >
+                {brandErrorCount}
+              </span>
+            </button>
+          )}
           {magsafeReviewCount > 0 && (
             <Link
               href="/admin/products/magsafe-review"
@@ -373,6 +587,34 @@ export function ProductsConsole({
           </span>
         </div>
       </div>
+
+      {/* ── Taxonomy drift ──────────────────────────────────────────────── */}
+      {missingCollections.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600" />
+          <p className="min-w-0 flex-1 text-sm text-amber-800">
+            <span className="font-bold">
+              {missingCollections.length} collection
+              {missingCollections.length === 1 ? "" : "s"} missing:
+            </span>{" "}
+            {missingCollections.map((c) => c.name).join(", ")}. They exist in the
+            taxonomy config but not in the database, so they can&apos;t be
+            assigned or browsed yet.
+          </p>
+          <button
+            onClick={runTaxonomySync}
+            disabled={pending}
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-amber-600 px-3.5 py-1.5 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {pending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FolderTree className="h-4 w-4" />
+            )}
+            Sync taxonomy
+          </button>
+        </div>
+      )}
 
       {/* ── Device navigation bar — the primary "shop by device" axis ───── */}
       <DeviceNavBar
@@ -462,6 +704,10 @@ export function ProductsConsole({
                 product={p}
                 selected={selected.has(p.id)}
                 showTypeBadge={showTypeBadge}
+                titleHealth={titleHealth[p.id] ?? null}
+                classification={classification[p.id] ?? null}
+                brandOptions={brandOptions}
+                collectionOptions={collectionOptions}
                 onToggle={() => toggleOne(p.id)}
                 pending={pending}
                 onPublishToggle={() =>
@@ -522,7 +768,9 @@ export function ProductsConsole({
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {collectionOptions.length > 0 && (
                 <CollectionAssignControl
+                  key={suggestedCollectionId || "none"}
                   options={collectionOptions}
+                  suggestedId={suggestedCollectionId}
                   pending={pending}
                   onApply={runCollection}
                 />
@@ -546,6 +794,70 @@ export function ProductsConsole({
                   Remove
                 </button>
               </div>
+              <button
+                onClick={runTitleRewrite}
+                disabled={pending}
+                title={`Rewrite ${selected.size} title${selected.size === 1 ? "" : "s"} from product photos with vision AI, using each product's current brand. Takes a few seconds per product.`}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)] disabled:opacity-40"
+              >
+                {pending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Regenerate titles
+              </button>
+              <button
+                onClick={runTitleRepair}
+                disabled={pending || selectedRepairableTitles === 0}
+                title={
+                  selectedRepairableTitles === 0
+                    ? "No selected title can be rebuilt from product data alone — use Regenerate titles for a vision rewrite."
+                    : `Quick-fix ${selectedRepairableTitles} title${selectedRepairableTitles === 1 ? "" : "s"} from brand, variants and MagSafe. Free, no AI.`
+                }
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)] disabled:opacity-40"
+              >
+                <Wand2 className="h-4 w-4" /> Quick fix
+                {selectedRepairableTitles > 0 && (
+                  <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-500 px-1 text-[11px] text-white">
+                    {selectedRepairableTitles}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={runAdoptTitleBrand}
+                disabled={pending || selectedAdoptable === 0}
+                title={
+                  selectedAdoptable === 0
+                    ? "No selected title names a brand that differs from its current classification."
+                    : `Set ${selectedAdoptable} product${selectedAdoptable === 1 ? "" : "s"} to the character their own title names, and re-file them.`
+                }
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)] disabled:opacity-40"
+              >
+                <Tags className="h-4 w-4" /> Use title brand
+                {selectedAdoptable > 0 && (
+                  <span className="grid h-5 min-w-5 place-items-center rounded-full bg-orange-500 px-1 text-[11px] text-white">
+                    {selectedAdoptable}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={runPurgeCollections}
+                disabled={pending || selectedMisfiled === 0}
+                title={
+                  selectedMisfiled === 0
+                    ? "Every brand collection in this selection is supported."
+                    : `Remove brand collections that ${selectedMisfiled} selected product${selectedMisfiled === 1 ? "" : "s"} should not be in. Genre and feature collections are untouched.`
+                }
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)] disabled:opacity-40"
+              >
+                <Eraser className="h-4 w-4" /> Unfile
+                {selectedMisfiled > 0 && (
+                  <span className="grid h-5 min-w-5 place-items-center rounded-full bg-orange-500 px-1 text-[11px] text-white">
+                    {selectedMisfiled}
+                  </span>
+                )}
+              </button>
               <button
                 onClick={() => runBulk({ status: "active" })}
                 disabled={pending}
@@ -691,6 +1003,10 @@ function ProductRow({
   product,
   selected,
   showTypeBadge,
+  titleHealth,
+  classification,
+  brandOptions,
+  collectionOptions,
   onToggle,
   pending,
   onPublishToggle,
@@ -701,6 +1017,12 @@ function ProductRow({
   selected: boolean;
   /** Show the device-type chip only when the list spans multiple devices. */
   showTypeBadge: boolean;
+  /** Set when this title fails the listing-title contract. */
+  titleHealth: TitleHealth | null;
+  /** This product's identity verdict, or null before the audit has loaded. */
+  classification: ClassificationHealth | null;
+  brandOptions: BrandOption[];
+  collectionOptions: AdminCollectionOption[];
   onToggle: () => void;
   pending: boolean;
   onPublishToggle: () => void;
@@ -765,6 +1087,12 @@ function ProductRow({
           </p>
           <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <StatusBadge status={product.status} />
+            {titleHealth && (
+              <TitleHealthBadge
+                productId={product.id}
+                health={titleHealth}
+              />
+            )}
             {showTypeBadge && (
               <ClassBadge title="Product type">
                 {product.productTypeLabel}
@@ -789,6 +1117,14 @@ function ProductRow({
               </ClassBadge>
             )}
           </p>
+          {classification && (
+            <ClassificationCell
+              productId={product.id}
+              health={classification}
+              brandOptions={brandOptions}
+              collectionOptions={collectionOptions}
+            />
+          )}
         </div>
       </div>
 
@@ -872,14 +1208,21 @@ function ProductRow({
 // ─────────────────────────────────────────────────────────────────────────────
 function CollectionAssignControl({
   options,
+  suggestedId,
   pending,
   onApply,
 }: {
   options: AdminCollectionOption[];
+  /** Pre-select the collection that matches the current selection's brand. */
+  suggestedId: number;
   pending: boolean;
   onApply: (collectionId: number, mode: "add" | "remove") => void;
 }) {
-  const [value, setValue] = useState<number>(options[0]?.id ?? 0);
+  const initial =
+    suggestedId && options.some((c) => c.id === suggestedId)
+      ? suggestedId
+      : (options[0]?.id ?? 0);
+  const [value, setValue] = useState<number>(initial);
   return (
     <div className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--background)] p-1">
       <FolderTree className="ml-1.5 h-4 w-4 text-[var(--foreground)]/40" />
@@ -887,7 +1230,8 @@ function CollectionAssignControl({
         value={value}
         onChange={(e) => setValue(Number(e.target.value))}
         disabled={pending}
-        className="max-w-[160px] bg-transparent py-1 text-sm font-semibold outline-none"
+        title="Defaults to the brand/character of the selected product(s)"
+        className="max-w-[180px] bg-transparent py-1 text-sm font-semibold outline-none"
       >
         {options.map((c) => (
           <option key={c.id} value={c.id}>
@@ -914,6 +1258,80 @@ function CollectionAssignControl({
       </button>
     </div>
   );
+}
+
+/**
+ * The collection id the bulk bar should open on for the current selection.
+ *
+ * Character beats brand (Miffy over Sanrio). When several products are
+ * selected, majority wins; ties fall through to the first vote so the picker
+ * still reflects *something* about the selection rather than the taxonomy root.
+ */
+function preferredCollectionId(
+  selectedIds: number[],
+  classification: Record<number, ClassificationHealth>,
+  options: AdminCollectionOption[],
+): number {
+  if (selectedIds.length === 0 || options.length === 0) {
+    return options[0]?.id ?? 0;
+  }
+
+  const votes = new Map<number, number>();
+  for (const id of selectedIds) {
+    const pick = collectionIdForHealth(classification[id], options);
+    if (pick == null) continue;
+    votes.set(pick, (votes.get(pick) ?? 0) + 1);
+  }
+
+  if (votes.size === 0) return options[0]?.id ?? 0;
+
+  let bestId = options[0]?.id ?? 0;
+  let bestCount = -1;
+  for (const [collectionId, count] of votes) {
+    if (count > bestCount) {
+      bestId = collectionId;
+      bestCount = count;
+    }
+  }
+  return bestId;
+}
+
+/** One product → its most specific brand/character collection, if any. */
+function collectionIdForHealth(
+  health: ClassificationHealth | undefined,
+  options: AdminCollectionOption[],
+): number | null {
+  if (!health) return null;
+
+  const bySlug = new Map(options.map((o) => [o.slug, o]));
+  const filed = health.brandSlugs
+    .map((slug) => bySlug.get(slug))
+    .filter((o): o is AdminCollectionOption => Boolean(o));
+
+  // Character identity wins over a parent brand filing. A Miffy product that
+  // happens to also sit under Sanrio must still open the picker on Miffy —
+  // otherwise the bulk bar looks like it forgot what you selected.
+  if (health.characterName) {
+    const named = options.find(
+      (o) => o.kind === "character" && o.name === health.characterName,
+    );
+    if (named) return named.id;
+  }
+
+  const filedCharacter = filed.find((o) => o.kind === "character");
+  if (filedCharacter) return filedCharacter.id;
+
+  if (health.brandName) {
+    const named = options.find(
+      (o) => o.kind === "brand" && o.name === health.brandName,
+    );
+    if (named) return named.id;
+  }
+
+  const filedBrand = filed.find((o) => o.kind === "brand");
+  if (filedBrand) return filedBrand.id;
+
+  return null;
 }
 
 /**
@@ -982,6 +1400,38 @@ function ClassBadge({
       {icon}
       {children}
     </span>
+  );
+}
+
+/**
+ * The row's entry point into title repair.
+ *
+ * A title advertising an iPhone the product doesn't fit looks exactly like a
+ * correct one in a list, so the defect has to announce itself here — with the
+ * reason on hover and a direct link to the panel that fixes it. Without this,
+ * the only way to find a bad title is to open all 112 products.
+ */
+function TitleHealthBadge({
+  productId,
+  health,
+}: {
+  productId: number;
+  health: TitleHealth;
+}) {
+  const error = health.severity === "error";
+  return (
+    <Link
+      href={`/admin/products/${productId}`}
+      title={`${health.details.join("\n")}\n\nOpen to fix.`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 ring-inset ${
+        error
+          ? "bg-red-50 text-red-700 ring-red-600/20 hover:bg-red-100"
+          : "bg-amber-50 text-amber-700 ring-amber-600/20 hover:bg-amber-100"
+      }`}
+    >
+      <TriangleAlert className="h-3 w-3" />
+      {error ? "Title wrong" : "Title weak"}
+    </Link>
   );
 }
 

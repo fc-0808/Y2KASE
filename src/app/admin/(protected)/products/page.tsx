@@ -4,6 +4,10 @@ import { getAdminProductOverviews } from "@/lib/products";
 import { getAdminCollectionOptions } from "@/lib/collections";
 import { db, isDbConfigured } from "@/lib/db";
 import { products as productsTable, thumbnailProposals } from "@/lib/db/schema";
+import { diffCollectionTaxonomy } from "@/lib/catalog/taxonomy-sync";
+import { auditCatalogTitles } from "@/lib/catalog/listing-title-service";
+import { auditCatalogClassification } from "@/lib/catalog/classification-health-service";
+import { listBrandOptions } from "@/lib/catalog/brands";
 import { ProductsConsole } from "./ProductsConsole";
 
 export const metadata: Metadata = { title: "Admin · Products" };
@@ -28,19 +32,29 @@ export default async function AdminProductsPage({
     );
   }
 
-  const [products, collectionOptions, magsafeReview, thumbnailReview] =
-    await Promise.all([
-      getAdminProductOverviews(),
-      getAdminCollectionOptions(),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(productsTable)
-        .where(eq(productsTable.needsMagsafeReview, true)),
-      db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(thumbnailProposals)
-        .where(eq(thumbnailProposals.status, "proposed")),
-    ]);
+  const [
+    products,
+    collectionOptions,
+    magsafeReview,
+    thumbnailReview,
+    taxonomyDrift,
+    titleHealth,
+    classification,
+  ] = await Promise.all([
+    getAdminProductOverviews(),
+    getAdminCollectionOptions(),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(productsTable)
+      .where(eq(productsTable.needsMagsafeReview, true)),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(thumbnailProposals)
+      .where(eq(thumbnailProposals.status, "proposed")),
+    diffCollectionTaxonomy(),
+    auditCatalogTitles(),
+    auditCatalogClassification(),
+  ]);
 
   return (
     <ProductsConsole
@@ -49,6 +63,11 @@ export default async function AdminProductsPage({
       initialCollectionId={initialCollectionId}
       magsafeReviewCount={magsafeReview[0]?.count ?? 0}
       thumbnailReviewCount={thumbnailReview[0]?.count ?? 0}
+      missingCollections={taxonomyDrift.missing}
+      // A Map can't cross the server/client boundary, so it goes as an object.
+      titleHealth={Object.fromEntries(titleHealth)}
+      classification={Object.fromEntries(classification)}
+      brandOptions={listBrandOptions()}
     />
   );
 }

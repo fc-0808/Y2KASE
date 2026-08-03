@@ -7,6 +7,7 @@ import { ShoppingBag, Search, ChevronDown, Menu, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
+import { MAGSAFE_FACETS, magsafeFacetHref } from "@/lib/catalog/magsafe";
 import { Wordmark } from "@/components/brand/Decor";
 
 // Skip SSR — useSession from better-auth is browser-only.
@@ -25,22 +26,6 @@ export type MenuCollection = {
   count: number;
   children: MenuCollection[];
 };
-
-/**
- * Case-compatibility facets for the mobile drawer.
- *
- * These are catalog QUERIES, not collections: "Non-MagSafe" has no collection
- * row to link to — it's the negation of the `magsafe` product tag, expressed
- * through the tri-state `magsafe` facet on `/products` (see `ProductQuery`).
- */
-const COMPATIBILITY_FACETS = [
-  { label: "MagSafe", href: "/products?magsafe=true", color: "var(--primary)" },
-  {
-    label: "Non-MagSafe",
-    href: "/products?magsafe=false",
-    color: "var(--accent)",
-  },
-] as const;
 
 type Panel = "devices" | "collections" | null;
 
@@ -423,16 +408,16 @@ function MobileMenu({ brands }: { brands: MenuCollection[] }) {
 
       <MobileSection title="Shop by compatibility">
         <div className="flex flex-wrap gap-2">
-          {COMPATIBILITY_FACETS.map((facet) => (
+          {MAGSAFE_FACETS.map((facet) => (
             <Link
-              key={facet.href}
-              href={facet.href}
+              key={facet.id}
+              href={magsafeFacetHref(facet.magsafe)}
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold"
             >
               <span
                 aria-hidden
                 className="h-2 w-2 shrink-0 rounded-full"
-                style={{ background: facet.color }}
+                style={{ background: facet.accentColor }}
               />
               {facet.label}
             </Link>

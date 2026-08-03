@@ -11,6 +11,12 @@
  * For each product: upload images to Cloudinary -> ask GPT vision for
  * title/description/tags/price -> insert into Postgres as a `draft` product
  * (so a human can review in the admin panel before publishing).
+ *
+ * NOTE: this is the legacy Cloudinary path, kept for one-off imports. It has no
+ * MagSafe classification stage on purpose — `generateProductCopy` strips the
+ * reserved `magsafe` tag, so products created here are never MagSafe until
+ * `npm run backfill:magsafe` (or the admin bulk action) classifies them. The
+ * maintained pipeline is `npm run build:catalog`.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -22,7 +28,7 @@ import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { eq } from "drizzle-orm";
 import * as schema from "../src/lib/db/schema";
-import { generateProductCopy, slugify } from "../src/lib/ai";
+import { generateProductCopy, slugify, copyModelName } from "../src/lib/ai";
 
 const { products, productImages } = schema;
 
@@ -136,7 +142,12 @@ async function main() {
         console.log(`  uploaded -> ${up.url}`);
       }
 
-      const copy = await generateProductCopy(uploaded.map((u) => u.url));
+      const copy = await generateProductCopy(
+        uploaded.map((u) => u.url),
+        group.name,
+        undefined,
+        (m) => console.log(`  ${m}`),
+      );
       console.log(`  AI title: ${copy.title}`);
 
       const slug = await uniqueSlug(db, slugify(copy.title));
@@ -151,7 +162,7 @@ async function main() {
           currency: process.env.NEXT_PUBLIC_STORE_CURRENCY ?? "USD",
           tags: copy.tags,
           status: "draft", // review before publishing
-          aiModel: process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini",
+          aiModel: copyModelName(),
         })
         .returning({ id: products.id });
 

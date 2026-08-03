@@ -523,6 +523,14 @@ export async function runAutoPinNow(input?: {
   if (res.reason === "no-pinterest-token") {
     return { ok: false, message: "Connect Pinterest first." };
   }
+  if (res.reason === "auth-failed") {
+    return {
+      ok: false,
+      message:
+        res.errors[0] ??
+        "Pinterest authentication failed. Reconnect Pinterest in Social Studio.",
+    };
+  }
   if (res.reason === "no-board") {
     return {
       ok: false,

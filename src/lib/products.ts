@@ -22,6 +22,7 @@ import {
   orderStyles,
 } from "@/lib/pricing";
 import { productTypeLabel } from "@/lib/catalog/product-types";
+import { MAGSAFE_TAG } from "@/lib/catalog/magsafe";
 import { deviceProductTypes } from "@/lib/catalog/devices";
 import { resolveCollectionFilterIds } from "@/lib/collections";
 import { getReviewSummaries } from "@/lib/reviews";
@@ -76,10 +77,11 @@ export type ProductListItem = {
 const PAGE_SIZE = 24;
 
 /**
- * Tag that marks a product as MagSafe-compatible. Written by the AI
- * classification step and the single source of truth for the MagSafe facet.
+ * Tag that marks a product as MagSafe-compatible — the single source of truth
+ * for the MagSafe facet. Owned by `@/lib/catalog/magsafe`, which is also the
+ * only place allowed to apply it; re-exported here for storefront callers.
  */
-export const MAGSAFE_TAG = "magsafe";
+export { MAGSAFE_TAG };
 
 export type ProductQuery = {
   search?: string;
@@ -196,6 +198,52 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
     page,
     pageSize: PAGE_SIZE,
   };
+}
+
+/** Live product counts for the two MagSafe compatibility facets. */
+export type MagsafeFacetCounts = {
+  /** Active products carrying the `magsafe` tag. */
+  magsafe: number;
+  /** Active products without it. */
+  nonMagsafe: number;
+};
+
+/**
+ * Product counts for the MagSafe / Non-MagSafe browse facets.
+ *
+ * MagSafe compatibility is the storefront's primary categorisation axis, so the
+ * /collections index shows a live count beside each facet instead of sending
+ * shoppers into a page whose size they can't predict. Both halves come back
+ * from one aggregate scan rather than two round-trips, and the result is tagged
+ * so an admin MagSafe decision surfaces immediately instead of waiting out the
+ * page's hourly ISR window.
+ */
+export function getMagsafeFacetCounts(): Promise<MagsafeFacetCounts> {
+  if (!isDbConfigured()) return Promise.resolve({ magsafe: 0, nonMagsafe: 0 });
+  return getMagsafeFacetCountsCached();
+}
+
+const getMagsafeFacetCountsCached = unstable_cache(
+  computeMagsafeFacetCounts,
+  ["magsafe-facet-counts"],
+  { tags: [CACHE_TAGS.products], revalidate: 3600 },
+);
+
+async function computeMagsafeFacetCounts(): Promise<MagsafeFacetCounts> {
+  // `tags` is NOT NULL DEFAULT '{}', so the negated half is exhaustive: the two
+  // counts always sum to the active catalog, exactly like the `magsafe` filter
+  // in `getProducts` above.
+  const [row] = await db
+    .select({
+      magsafe:
+        sql<number>`count(*) filter (where ${MAGSAFE_TAG} = any(${products.tags}))::int`,
+      nonMagsafe:
+        sql<number>`count(*) filter (where not (${MAGSAFE_TAG} = any(${products.tags})))::int`,
+    })
+    .from(products)
+    .where(eq(products.status, "active"));
+
+  return { magsafe: row?.magsafe ?? 0, nonMagsafe: row?.nonMagsafe ?? 0 };
 }
 
 /**

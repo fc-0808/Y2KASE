@@ -1,0 +1,49 @@
+{
+  "popup": {
+    "eyebrowScratch": "Exclusivité",
+    "eyebrowPrize": "Joli grattage",
+    "eyebrowClaim": "Dernière étape",
+    "headingScratch": "Grattez pour découvrir une offre secrète 🎁",
+    "headingPrize": "Votre offre secrète est prête 🎉",
+    "headingClaim": "Où devons-nous l'envoyer ?",
+    "scratchMe": "GRATTEZ ICI ✨",
+    "revealInstead": "Passer le grattage",
+    "teaser": "Votre offre exclusive…",
+    "claimButton": "Récupérer maintenant ✨",
+    "bundle": "{label} dès {count} articles",
+    "perksList": "Promos membres · Accès anticipé",
+    "emailLabel": "Votre adresse e-mail",
+    "emailPlaceholder": "vous@exemple.fr",
+    "submit": "Découvrir ma remise ✨",
+    "submitting": "Affichage…",
+    "privacy": "Pas de spam. Désabonnement à tout moment.",
+    "invalidEmail": "Veuillez saisir une adresse e-mail valide.",
+    "genericError": "Une erreur est survenue. Veuillez réessayer.",
+    "connectionError": "Erreur de connexion. Veuillez réessayer.",
+    "successNew": "{percent} % de remise, c'est pour vous ! 🎉",
+    "successReturning": "Contente de vous revoir ! 💕",
+    "successBodyNew": "Voici votre code — nous vous l'avons aussi envoyé par e-mail. 💌",
+    "successBodyReturning": "Vous êtes déjà sur la liste VIP : voici votre code. 💌",
+    "shopNow": "Découvrir la boutique ✨",
+    "close": "Fermer"
+  },
+  "promoCode": {
+    "yourCode": "Votre code",
+    "copy": "Copier",
+    "copied": "Copié !",
+    "copyAria": "Copier le code de réduction {code}",
+    "manualHint": "Appuyez sur ⌘/Ctrl + C pour copier",
+    "copiedAnnounce": "Code de réduction {code} copié dans le presse-papiers.",
+    "manualAnnounce": "Presse-papiers indisponible. Le code est sélectionné — copiez-le au clavier."
+  },
+  "offer": {
+    "appliedToBag": "Appliqué à votre panier ✨",
+    "enterAtCheckout": "À saisir au paiement",
+    "percentOff": "{percent} % de réduction"
+  },
+  "localeBanner": {
+    "message": "Vous naviguez depuis {country} ? Ce site est aussi disponible en {language}.",
+    "switch": "Passer en {language}",
+    "dismiss": "Non merci"
+  }
+}

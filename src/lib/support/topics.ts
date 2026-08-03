@@ -10,6 +10,11 @@
  * but the FACTS must stay identical to `src/app/faq/page.tsx` and
  * `src/lib/legal.ts`. Change a shipping window or return period in one place
  * and change it in all three.
+ *
+ * A fourth copy is pasted into tawk's Apollo auto-reply (Administration → AI
+ * Assist). It answers shoppers in our name with no deploy in the loop, so a
+ * policy change is not finished until `docs/support-ai-knowledge.md` is
+ * updated AND re-pasted there.
  */
 
 import type { ComponentType } from "react";
