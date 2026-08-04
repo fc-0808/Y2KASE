@@ -18,9 +18,9 @@ export const SUPPORT_RESPONSE_TIME = "Typically replies within 24 hours";
 /**
  * Cross-app trigger for the help widget. Any part of the storefront (a CTA on
  * /contact, a nudge after checkout, a link in the FAQ) can raise the panel by
- * calling `openSupportPanel()`. Mirrors the CONSENT_OPEN_EVENT pattern the
- * cookie banner already uses, so a page never has to import the widget, share
- * a React context, or thread props through the layout to reach it.
+ * calling `openSupportPanel()`. Uses a window event so a page never has to
+ * import the widget, share a React context, or thread props through the layout
+ * to reach it.
  */
 export const SUPPORT_OPEN_EVENT = "y2k:open-support";
 

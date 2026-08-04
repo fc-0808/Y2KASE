@@ -19,7 +19,6 @@ import { MetaPixel } from "@/components/analytics/MetaPixel";
 import { TikTokPixel } from "@/components/analytics/TikTokPixel";
 import { PinterestTag } from "@/components/analytics/PinterestTag";
 import { UtmCapture } from "@/components/analytics/UtmCapture";
-import { CookieConsent } from "@/components/analytics/CookieConsent";
 import { organizationJsonLd, websiteJsonLd } from "@/lib/seo";
 
 // Body — rounded, friendly, highly legible. `swap` keeps text paintable while
@@ -161,7 +160,6 @@ export default function RootLayout({
         <TikTokPixel />
         <PinterestTag />
         <UtmCapture />
-        <CookieConsent />
       </body>
     </html>
   );

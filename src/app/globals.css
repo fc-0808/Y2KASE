@@ -22,6 +22,9 @@
   --primary: #ff3ea5; /* bubblegum / magenta pink — CTAs + wordmark */
   --primary-foreground: #ffffff;
   --primary-soft: #ffd9ee;
+  /** Slightly darker pink for high-contrast CTAs (plum label on pink). */
+  --primary-strong: #e02890;
+  --primary-strong-shadow: #b01f6e;
 
   --accent: #a78bfa; /* lavender */
   --accent-blue: #74c7ff;
@@ -30,6 +33,20 @@
 
   --border: #f1d3ec;
   --ring: #ff3ea5;
+
+  /*
+   * How much of the viewport's bottom edge is currently claimed by a fixed
+   * action bar (today: the PDP's sticky Add to Bag).
+   *
+   * The bar is owned by one page but shadows the whole storefront: it would sit
+   * on top of the footer and under the support launcher, both of which live in
+   * the root layout and know nothing about it. Rather than wire state across
+   * that distance, the bar publishes its measured height here and anything
+   * pinned to the bottom edge adds it in. Stays 0px whenever no bar is mounted
+   * — including at desktop widths, where the bar is display:none and therefore
+   * measures zero.
+   */
+  --bottom-bar-h: 0px;
 
   /* Iridescent gradients reused across hero, badges and accents. */
   --holo: linear-gradient(
@@ -155,6 +172,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   min-height: 100dvh;
+  /* Keeps the footer clear of a page-owned fixed action bar. */
+  padding-bottom: var(--bottom-bar-h, 0px);
 }
 
 /* Headings default to the rounded display face for kawaii character. */
@@ -266,6 +285,33 @@ h1, h2, h3, .font-display {
   box-shadow: 0 1px 0 #d62f88;
 }
 
+/**
+ * Accessible candy button — same press effect as `.btn-candy`, but plum label
+ * on a slightly darker pink so primary actions stay WCAG AA on holo panels.
+ */
+.btn-candy-solid {
+  background: var(--primary-strong);
+  color: var(--foreground);
+  font-weight: 800;
+  border-radius: 9999px;
+  box-shadow: 0 4px 0 var(--primary-strong-shadow);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
+}
+.btn-candy-solid:hover {
+  filter: brightness(1.03);
+}
+.btn-candy-solid:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--primary-strong-shadow);
+}
+.btn-candy-solid:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* ── Keyframes / animations ──────────────────────────────────────────────── */
 
 @keyframes float-up {
@@ -292,21 +338,47 @@ h1, h2, h3, .font-display {
   100% { background-position: 0% 50%; }
 }
 
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+/* Mobile announcement bar: fade between two offers in a fixed-height slot.
+   ~4s readable dwell per offer, ~0.6s crossfade, 8s total loop. */
+@keyframes announce-a {
+  0%, 42% { opacity: 1; }
+  50%, 92% { opacity: 0; }
+  100% { opacity: 1; }
 }
-.animate-marquee {
-  animation: marquee 30s linear infinite;
+@keyframes announce-b {
+  0%, 42% { opacity: 0; }
+  50%, 92% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.announce-rotate__a {
+  animation: announce-a 8s ease-in-out infinite;
+}
+.announce-rotate__b {
+  animation: announce-b 8s ease-in-out infinite;
+}
+.announce-rotate:hover .announce-rotate__a,
+.announce-rotate:hover .announce-rotate__b,
+.announce-rotate:focus-within .announce-rotate__a,
+.announce-rotate:focus-within .announce-rotate__b {
+  animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-float-up,
   .animate-bob,
   .animate-twinkle,
   .bg-holo-shimmer,
-  .animate-marquee {
+  .announce-rotate__a,
+  .announce-rotate__b {
     animation: none !important;
   }
+  .animate-float-up {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .announce-rotate__a { opacity: 1 !important; }
+  .announce-rotate__b { opacity: 0 !important; }
 }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */

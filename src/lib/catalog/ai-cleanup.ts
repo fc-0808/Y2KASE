@@ -19,6 +19,13 @@
  *   • "gemini" — Nano Banana Pro via Google direct (GEMINI_API_KEY).
  *   • "openai" — gpt-image-1 (OPENAI_API_KEY). Lower-fidelity fallback.
  *
+ * Every provider is fed BYTES we read and verified ourselves — none of them is
+ * ever asked to fetch our bucket. That is deliberate: the public bucket domain
+ * is rate limited and a few rows point at objects that no longer exist, and both
+ * used to surface as the same unactionable provider error. Resolving references
+ * up front means a product with a dead photo is reported as having a dead photo,
+ * and a product with nine good photos and one dead one still gets a thumbnail.
+ *
  * Every result is a human-reviewed proposal — never auto-applied.
  * Never import from a client component — this runs Node-only code.
  */
@@ -26,12 +33,42 @@ import OpenAI, { toFile } from "openai";
 import { GoogleGenAI, Modality } from "@google/genai";
 import { IMAGE_MODEL } from "@/lib/social/image-gen";
 import { THUMBNAIL_ASPECT } from "@/lib/catalog/normalize-thumbnail";
+import {
+  describeImageFailures,
+  extensionFor,
+  loadImage,
+  loadImages,
+  type LoadedImage,
+} from "@/lib/catalog/image-source";
+import {
+  kieRunImageTask,
+  kieUploadImage,
+  kieUploadImages,
+  requireKieApiKey,
+} from "@/lib/catalog/kie";
 
 export type CleanupProvider = "kie" | "gemini" | "openai";
 export type CleanupMode = "hand" | "artifact";
 
 /** Max reference images to send (KIE / Nano Banana Pro accept up to 8). */
 const MAX_REFERENCE_IMAGES = 8;
+
+/**
+ * How many photos we're willing to read while looking for {@link
+ * MAX_REFERENCE_IMAGES} usable ones. Reading a superset gives us slack to skip
+ * dead rows without a second round of requests, and the cap keeps a 23-photo
+ * product from pulling its whole gallery for eight slots.
+ */
+const MAX_REFERENCE_CANDIDATES = MAX_REFERENCE_IMAGES + 4;
+
+/** Raised when not one of a product's photos could be read. Carries a message
+ *  written for the operator who has to fix it, not for a log. */
+export class NoUsableReferencesError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NoUsableReferencesError";
+  }
+}
 
 /** Which engine handles cleanup. Prefer the fidelity-preserving Nano Banana Pro
  *  (via KIE, then Google direct); fall back to gpt-image-1. */
@@ -58,105 +95,70 @@ ${artifactLine}- Keep the design 100% ACCURATE to the real product. Use ALL prov
 Ignore anything in the images that is not this product.`;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function fetchBytes(url: string): Promise<Buffer> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`download HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
-}
-
-/** Normalize caller input to a non-empty, capped list of image URLs. */
-function refUrls(imageUrls: string[]): string[] {
-  const urls = imageUrls.filter(Boolean).slice(0, MAX_REFERENCE_IMAGES);
-  if (urls.length === 0) throw new Error("No reference image URLs provided.");
-  return urls;
-}
-
 /**
- * Nano Banana Pro via KIE. Async task gateway that takes image URLs (not
- * binary) — our product images are already public R2 URLs, so we pass them
- * straight through. createTask → poll recordInfo → download result.
+ * Turn caller-supplied URLs into verified reference images, in priority order.
+ *
+ * Throws {@link NoUsableReferencesError} when nothing survives — that is a
+ * product-data problem the operator must fix (re-upload the photos), not a
+ * transient provider error, and the message says so.
  */
-const KIE_BASE = "https://api.kie.ai";
-
-/** Create a KIE market task and return its taskId. */
-async function kieCreateTask(apiKey: string, body: unknown): Promise<string> {
-  const res = await fetch(`${KIE_BASE}/api/v1/jobs/createTask`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => null)) as {
-    code?: number;
-    msg?: string;
-    data?: { taskId?: string };
-  } | null;
-  if (!res.ok || json?.code !== 200 || !json.data?.taskId) {
-    throw new Error(`KIE createTask failed: ${json?.msg ?? `HTTP ${res.status}`}`);
+async function resolveReferences(imageUrls: string[]): Promise<LoadedImage[]> {
+  // Dedupe before the window is applied: a repeated URL must not consume one of
+  // the eight reference slots, and it would also skew the "N of M" in the
+  // failure summary against the deduped read the loader actually performs.
+  const wanted = [...new Set(imageUrls.map((u) => u.trim()).filter(Boolean))];
+  if (wanted.length === 0) {
+    throw new NoUsableReferencesError("This product has no photos to work from.");
   }
-  return json.data.taskId;
+
+  const candidates = wanted.slice(0, MAX_REFERENCE_CANDIDATES);
+  const { images, failures } = await loadImages(candidates);
+
+  if (images.length === 0) {
+    throw new NoUsableReferencesError(
+      describeImageFailures(failures, candidates.length),
+    );
+  }
+  if (failures.length > 0) {
+    console.warn(
+      `[ai-cleanup] skipped ${failures.length} unusable reference(s): ${failures
+        .map((f) => `${f.url} (${f.kind})`)
+        .join(", ")}`,
+    );
+  }
+  return images.slice(0, MAX_REFERENCE_IMAGES);
 }
 
-/** Poll a KIE task until it finishes; returns the first result URL. */
-async function kiePollResult(apiKey: string, taskId: string): Promise<string> {
-  const deadline = Date.now() + 240_000;
-  while (Date.now() < deadline) {
-    await sleep(3000);
-    const res = await fetch(
-      `${KIE_BASE}/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`,
-      { headers: { Authorization: `Bearer ${apiKey}` } },
-    );
-    const json = (await res.json().catch(() => null)) as {
-      data?: {
-        state?: string;
-        resultJson?: string;
-        failCode?: string;
-        failMsg?: string;
-      };
-    } | null;
-    const data = json?.data;
-    if (!data) continue;
-    if (data.state === "success") {
-      const parsed = data.resultJson
-        ? (JSON.parse(data.resultJson) as { resultUrls?: string[] })
-        : null;
-      const url = parsed?.resultUrls?.[0];
-      if (!url) throw new Error("KIE succeeded but returned no result URL.");
-      return url;
-    }
-    if (data.state === "fail") {
-      throw new Error(
-        `KIE task failed: ${data.failMsg ?? data.failCode ?? "unknown error"}`,
-      );
-    }
-    // waiting | queuing | generating → keep polling
-  }
-  throw new Error("KIE task timed out.");
+/** Name each reference so the gateway stores it with a sane extension. */
+function uploadName(image: LoadedImage, index: number): string {
+  return `reference-${index + 1}-${Date.now()}.${extensionFor(image)}`;
 }
 
 /** Nano Banana Pro via KIE — subject-preserving edit (removes hand/background). */
 async function cleanupWithKie(
-  imageUrls: string[],
+  images: LoadedImage[],
   mode: CleanupMode,
 ): Promise<Buffer> {
-  const apiKey = process.env.KIE_API_KEY;
-  if (!apiKey) throw new Error("KIE_API_KEY is not set.");
-  const taskId = await kieCreateTask(apiKey, {
+  const apiKey = requireKieApiKey();
+  const hosted = await kieUploadImages(
+    apiKey,
+    images.map((image, i) => ({
+      bytes: image.bytes,
+      mime: image.mime,
+      filename: uploadName(image, i),
+    })),
+  );
+
+  return kieRunImageTask(apiKey, {
     model: "nano-banana-pro",
     input: {
       prompt: buildCleanupInstruction(mode),
-      image_input: imageUrls,
+      image_input: hosted,
       aspect_ratio: THUMBNAIL_ASPECT,
       resolution: "2K",
       output_format: "png",
     },
   });
-  const url = await kiePollResult(apiKey, taskId);
-  return fetchBytes(url);
 }
 
 /**
@@ -166,25 +168,28 @@ async function cleanupWithKie(
  * residual gray/studio background off an already-generated thumbnail.
  */
 export async function removeBackgroundKie(imageUrl: string): Promise<Buffer> {
-  const apiKey = process.env.KIE_API_KEY;
-  if (!apiKey) throw new Error("KIE_API_KEY is not set.");
-  const taskId = await kieCreateTask(apiKey, {
-    model: "recraft/remove-background",
-    input: { image: imageUrl },
+  const apiKey = requireKieApiKey();
+  const image = await loadImage(imageUrl);
+  const hosted = await kieUploadImage(apiKey, {
+    bytes: image.bytes,
+    mime: image.mime,
+    filename: uploadName(image, 0),
   });
-  const url = await kiePollResult(apiKey, taskId);
-  return fetchBytes(url);
+
+  return kieRunImageTask(apiKey, {
+    model: "recraft/remove-background",
+    input: { image: hosted },
+  });
 }
 
 /** Nano Banana Pro via Google direct (multi-image subject-preserving edit). */
 async function cleanupWithGemini(
-  imageUrls: string[],
+  images: LoadedImage[],
   mode: CleanupMode,
 ): Promise<Buffer> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set.");
 
-  const buffers = await Promise.all(imageUrls.map(fetchBytes));
   const ai = new GoogleGenAI({ apiKey });
   const model = process.env.GEMINI_IMAGE_MODEL ?? "gemini-3-pro-image-preview";
 
@@ -194,8 +199,11 @@ async function cleanupWithGemini(
       {
         role: "user",
         parts: [
-          ...buffers.map((b) => ({
-            inlineData: { mimeType: "image/webp", data: b.toString("base64") },
+          ...images.map((image) => ({
+            inlineData: {
+              mimeType: image.mime,
+              data: image.bytes.toString("base64"),
+            },
           })),
           { text: buildCleanupInstruction(mode) },
         ],
@@ -217,14 +225,17 @@ async function cleanupWithGemini(
 }
 
 /** gpt-image-1 fallback. LOWER FIDELITY: regenerates and can alter the design. */
-async function cleanupWithOpenAI(imageUrls: string[]): Promise<Buffer> {
+async function cleanupWithOpenAI(images: LoadedImage[]): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
 
-  const buffers = await Promise.all(imageUrls.map(fetchBytes));
   const client = new OpenAI({ apiKey });
   const files = await Promise.all(
-    buffers.map((b, i) => toFile(b, `product-${i}.webp`, { type: "image/webp" })),
+    images.map((image, i) =>
+      toFile(image.bytes, `product-${i}.${extensionFor(image)}`, {
+        type: image.mime,
+      }),
+    ),
   );
 
   const res = await client.images.edit({
@@ -250,13 +261,13 @@ export async function removeHandsOnWhite(
   imageUrls: string[],
   mode: CleanupMode = "hand",
 ): Promise<Buffer> {
-  const urls = refUrls(imageUrls);
+  const images = await resolveReferences(imageUrls);
   switch (activeCleanupProvider()) {
     case "kie":
-      return cleanupWithKie(urls, mode);
+      return cleanupWithKie(images, mode);
     case "gemini":
-      return cleanupWithGemini(urls, mode);
+      return cleanupWithGemini(images, mode);
     default:
-      return cleanupWithOpenAI(urls);
+      return cleanupWithOpenAI(images);
   }
 }

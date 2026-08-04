@@ -7,12 +7,11 @@
  * - Sends a branded welcome email with the discount code.
  *
  * WHICH CODE GETS ISSUED
- * The scratch card decided that already, and it wrote the answer into a signed
- * httpOnly cookie (see `@/lib/scratch`). This route re-reads that cookie rather
- * than trusting anything in the request body, so the tier the shopper was shown
- * is provably the tier they receive. No cookie — a footer signup, a blocked
- * cookie, an expired draw — falls back to the public welcome coupon, because
- * failing a signup over a missing prize would cost more than the discount.
+ * WELCOME_COUPON (BESTIE10) by default. If a legacy scratch-draw cookie is still
+ * present (see `@/lib/scratch`), that signed httpOnly cookie wins instead — so
+ * anyone who played the old scratch card before we retired it still receives the
+ * tier they were promised. No cookie — footer signup, blocked cookie, expired
+ * draw — falls back to the public welcome coupon.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";

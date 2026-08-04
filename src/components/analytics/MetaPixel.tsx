@@ -3,21 +3,15 @@
 /**
  * Meta (Facebook) Pixel — client-side event tracking.
  *
- * Uses Meta's Consent Mode pattern:
- *  - `fbq('consent', 'revoke')` is called at init time to prevent any cookie
- *    writes before the user opts in.
- *  - When `ads` consent is granted (via our CookieConsent banner), the banner
- *    calls `fbq('consent', 'grant')` and PageView is fired.
- *
- * Purchase events are handled server-side via Meta CAPI (see meta-capi.ts)
- * which is more reliable than the Pixel alone (bypasses iOS 14 + ad blockers).
- * Both channels send the same `event_id` so Meta deduplicates automatically.
+ * Initialized immediately (no consent gate). Purchase events are also sent
+ * server-side via Meta CAPI (see meta-capi.ts), which is more reliable than the
+ * Pixel alone (bypasses iOS 14 + ad blockers). Both channels send the same
+ * `event_id` so Meta deduplicates automatically.
  */
 
 import Script from "next/script";
 import { Suspense, useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { readConsent } from "@/lib/analytics/consent";
 
 export const META_PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID;
 
@@ -29,7 +23,7 @@ declare global {
   }
 }
 
-/** Fire a Pixel event — only if ads consent has been granted. */
+/** Fire a Pixel event when fbq is available. */
 export function trackFbEvent(
   type: "track" | "trackCustom",
   name: string,
@@ -37,20 +31,11 @@ export function trackFbEvent(
   opts?: { eventID?: string },
 ): void {
   if (typeof window === "undefined" || typeof window.fbq !== "function") return;
-  const consent = readConsent();
-  if (!consent?.ads) return;
   if (opts?.eventID) {
     window.fbq(type, name, data ?? {}, { eventID: opts.eventID });
   } else {
     window.fbq(type, name, data ?? {});
   }
-}
-
-/** Grant Meta Pixel consent and fire an initial PageView. Called by CookieConsent. */
-export function grantMetaConsent(): void {
-  if (typeof window === "undefined" || typeof window.fbq !== "function") return;
-  window.fbq("consent", "grant");
-  window.fbq("track", "PageView");
 }
 
 function MetaPageviewTracker() {
@@ -59,7 +44,6 @@ function MetaPageviewTracker() {
 
   useEffect(() => {
     trackFbEvent("track", "PageView");
-     
   }, [pathname, searchParams]);
 
   return null;
@@ -78,8 +62,8 @@ export function MetaPixel() {
           n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;
           s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)
           }(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-          fbq('consent','revoke');
           fbq('init','${META_PIXEL_ID}');
+          fbq('track','PageView');
         `}
       </Script>
       <Suspense fallback={null}>

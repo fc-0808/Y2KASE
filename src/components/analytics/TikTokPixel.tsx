@@ -3,10 +3,7 @@
 /**
  * TikTok Pixel — client-side conversion tracking.
  *
- * TikTok doesn't have a native consent mode equivalent, so we gate the entire
- * pixel behind the visitor's `ads` consent choice. The script is only injected
- * after consent is granted by listening to the `y2k:consent-update` custom
- * event dispatched by our CookieConsent component.
+ * Loaded on mount when `NEXT_PUBLIC_TIKTOK_PIXEL_ID` is set (no consent gate).
  *
  * Standard events fired:
  *  - PageView  — every page navigation
@@ -18,7 +15,6 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { readConsent } from "@/lib/analytics/consent";
 
 export const TIKTOK_PIXEL_ID = process.env.NEXT_PUBLIC_TIKTOK_PIXEL_ID;
 
@@ -30,7 +26,7 @@ declare global {
   }
 }
 
-/** Inject TikTok Pixel script dynamically (only after consent). */
+/** Inject TikTok Pixel script once. */
 function loadTikTokScript(pixelId: string): void {
   if (typeof window === "undefined") return;
   if (window.ttq) return;
@@ -82,8 +78,6 @@ export function trackTtEvent(
   data?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined" || !window.ttq) return;
-  const consent = readConsent();
-  if (!consent?.ads) return;
   window.ttq.track(event, data ?? {});
 }
 
@@ -92,28 +86,11 @@ export function TikTokPixel() {
 
   useEffect(() => {
     if (!TIKTOK_PIXEL_ID) return;
-
-    const consent = readConsent();
-    if (consent?.ads) {
-      loadTikTokScript(TIKTOK_PIXEL_ID);
-      return;
-    }
-
-    // Listen for future consent grant
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ ads: boolean }>).detail;
-      if (detail?.ads && TIKTOK_PIXEL_ID) {
-        loadTikTokScript(TIKTOK_PIXEL_ID);
-      }
-    };
-    window.addEventListener("y2k:consent-update", handler);
-    return () => window.removeEventListener("y2k:consent-update", handler);
-  }, []); // only on mount
+    loadTikTokScript(TIKTOK_PIXEL_ID);
+  }, []);
 
   useEffect(() => {
-    if (!TIKTOK_PIXEL_ID) return;
-    const consent = readConsent();
-    if (!consent?.ads || !window.ttq) return;
+    if (!TIKTOK_PIXEL_ID || !window.ttq) return;
     window.ttq.page();
   }, [pathname]);
 

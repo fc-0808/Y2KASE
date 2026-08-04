@@ -174,36 +174,108 @@ export async function getCollectionBreadcrumb(
 }
 
 /**
- * Resolve a collection slug to the set of collection ids that a product filter
- * should match — the collection itself plus all of its descendants, so
- * browsing "Sanrio" includes products tagged only under "Hello Kitty".
+ * The bare hierarchy (id → slug → parent), memoized per request.
+ *
+ * A single catalog render resolves collection ids several times — once for the
+ * browse context, once for the brand facet, once more for each facet's own
+ * count — and they all walk the same tiny table. React `cache` collapses those
+ * into one read without any caller having to thread the result around.
  */
-export async function resolveCollectionFilterIds(
-  slug: string,
-): Promise<number[]> {
-  if (!isDbConfigured()) return [];
+const getCollectionHierarchy = reactCache(async () => {
   const all = await db.query.collections.findMany({
     columns: { id: true, slug: true, parentId: true },
   });
-  const root = all.find((c) => c.slug === slug);
-  if (!root) return [];
 
+  const idBySlug = new Map<string, number>();
   const childrenOf = new Map<number, number[]>();
   for (const c of all) {
+    idBySlug.set(c.slug, c.id);
     if (c.parentId == null) continue;
-    const arr = childrenOf.get(c.parentId) ?? [];
-    arr.push(c.id);
-    childrenOf.set(c.parentId, arr);
+    const siblings = childrenOf.get(c.parentId) ?? [];
+    siblings.push(c.id);
+    childrenOf.set(c.parentId, siblings);
   }
+  return { idBySlug, childrenOf };
+});
 
-  const ids: number[] = [];
-  const stack = [root.id];
+/**
+ * Resolve collection slugs to the set of collection ids a product filter should
+ * match — each collection plus all of its descendants, so browsing "Sanrio"
+ * includes products filed only under "Hello Kitty".
+ *
+ * Multiple slugs resolve to the UNION of their subtrees, which is the standard
+ * "any of these" semantics for a multi-select facet. Slugs that don't exist
+ * contribute nothing; an empty result therefore means "nothing can match", and
+ * callers translate that into zero products rather than the whole catalog.
+ */
+export async function resolveCollectionFilterIds(
+  slugOrSlugs: string | string[],
+): Promise<number[]> {
+  if (!isDbConfigured()) return [];
+  const slugs = Array.isArray(slugOrSlugs) ? slugOrSlugs : [slugOrSlugs];
+  if (slugs.length === 0) return [];
+
+  const { idBySlug, childrenOf } = await getCollectionHierarchy();
+  const stack = slugs
+    .map((slug) => idBySlug.get(slug))
+    .filter((id): id is number => id !== undefined);
+
+  const ids = new Set<number>();
   while (stack.length) {
     const id = stack.pop()!;
-    ids.push(id);
+    // Doubles as the cycle guard: a mis-parented row can't spin this forever.
+    if (ids.has(id)) continue;
+    ids.add(id);
     for (const child of childrenOf.get(id) ?? []) stack.push(child);
   }
-  return ids;
+  return [...ids];
+}
+
+/** One selectable option in the catalog's Brand facet. */
+export type BrandFacet = {
+  slug: string;
+  name: string;
+  icon: string | null;
+  accentColor: string | null;
+  /**
+   * Stocked character children, when the brand has them. The `/products` brand
+   * menu nests these under the parent so a shopper who picked Sanrio can narrow
+   * to Hello Kitty without leaving the catalog. Empty/omitted on surfaces that
+   * already *are* a brand landing page (those offer the children as the facet).
+   */
+  children?: BrandFacet[];
+};
+
+/**
+ * The brands offered as catalog filter options: top-level `brand` nodes that
+ * actually hold stock, in merchandised (taxonomy) order — the same order and
+ * the same source as the nav mega-menu, so the two can never disagree about
+ * which brands exist.
+ *
+ * Stock-less brands (and stock-less children) are dropped rather than greyed
+ * out: the taxonomy carries IP we can classify but may not stock yet, and an
+ * option that can never match anything is noise. Contextual zero-counts (a
+ * brand that exists but has no match under the *current* filters) are a
+ * different case and stay visible — see `getCatalogFacetCounts`.
+ */
+export async function getBrandFacets(): Promise<BrandFacet[]> {
+  const tree = await getCollectionTree();
+  return tree
+    .filter((node) => node.kind === "brand" && node.totalCount > 0)
+    .map(({ slug, name, icon, accentColor, children }) => ({
+      slug,
+      name,
+      icon,
+      accentColor,
+      children: children
+        .filter((child) => child.totalCount > 0)
+        .map((child) => ({
+          slug: child.slug,
+          name: child.name,
+          icon: child.icon,
+          accentColor: child.accentColor,
+        })),
+    }));
 }
 
 /** All collection ids a single product belongs to (for the admin editor). */

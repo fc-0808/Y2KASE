@@ -5,11 +5,10 @@
  *
  * Owns three things the individual pieces can't decide on their own:
  *
- *  1. WHEN TO STAND DOWN. The bottom of the viewport is crowded (cookie
- *     banner, welcome pop-up, cart drawer, and tawk's own window once it
- *     opens). Rather than fight those with z-indexes and offsets — which
- *     breaks the moment any of them changes height — the launcher simply
- *     yields. Nothing floats over the consent choice, and there are never two
+ *  1. WHEN TO STAND DOWN. The bottom of the viewport is crowded (welcome
+ *     pop-up, cart drawer, and tawk's own window once it opens). Rather than
+ *     fight those with z-indexes and offsets — which breaks the moment any of
+ *     them changes height — the launcher simply yields. There are never two
  *     chat bubbles on screen at once.
  *
  *  2. IDENTITY, EARLY. Resolving the signed-in shopper takes a round-trip, so
@@ -277,7 +276,9 @@ export function SupportWidget() {
   return (
     <div
       ref={rootRef}
-      className="pointer-events-none fixed bottom-0 right-0 z-50 flex flex-col items-end gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+      // Sits above any page-owned action bar (see --bottom-bar-h in globals.css)
+      // so the launcher can never cover a checkout button.
+      className="pointer-events-none fixed bottom-0 right-0 z-50 flex flex-col items-end gap-3 p-4 pb-[calc(max(1rem,env(safe-area-inset-bottom))+var(--bottom-bar-h,0px))]"
     >
       <span aria-live="polite" className="sr-only">
         {unread > 0

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Globe } from "lucide-react";
 import { Wordmark, PixelHeart, Sparkle } from "@/components/brand/Decor";
-import { CookieSettingsLink } from "@/components/analytics/CookieSettingsLink";
 
 /** lucide v1 dropped brand glyphs (trademark), so we inline them. */
 function InstagramIcon() {
@@ -95,8 +94,6 @@ export function Footer() {
           Y2KASE — made with <PixelHeart className="inline h-3.5 w-3.5" /> for
           besties everywhere
         </span>
-        <span aria-hidden>·</span>
-        <CookieSettingsLink className="hover:text-[var(--primary)]" />
       </div>
     </footer>
   );

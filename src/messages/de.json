@@ -1,29 +1,24 @@
 {
   "popup": {
-    "eyebrowScratch": "Exklusiv",
-    "eyebrowPrize": "Gut gerubbelt",
-    "eyebrowClaim": "Letzter Schritt",
-    "headingScratch": "Rubbeln und Geheim-Angebot entdecken 🎁",
-    "headingPrize": "Dein Geheim-Angebot ist bereit 🎉",
-    "headingClaim": "Wohin sollen wir es senden?",
-    "scratchMe": "JETZT RUBBELN ✨",
-    "revealInstead": "Rubbeln überspringen",
-    "teaser": "Dein exklusives Angebot…",
-    "claimButton": "Jetzt sichern ✨",
-    "bundle": "{label} ab {count} Artikeln",
-    "perksList": "Mitglieder-Aktionen · Früher Zugang",
-    "emailLabel": "Deine E-Mail-Adresse",
-    "emailPlaceholder": "du@beispiel.de",
-    "submit": "Rabatt aufdecken ✨",
-    "submitting": "Aufdecken…",
-    "privacy": "Kein Spam. Jederzeit abbestellbar.",
+    "eyebrow": "Werde Club-Mitglied",
+    "heading": "Zwei Wege, heute zu sparen ✨",
+    "codeBanner": "Dein {percent}%-Rabattcode",
+    "bundleAutomatic": "{label}",
+    "stackingNote": "Die beste Rabattkombination wird an der Kasse automatisch angewendet.",
+    "emailPitch": "Plus: Early Access, Restock-Alerts & Angebote in deinem Posteingang!",
+    "emailLabel": "Deine E-Mail:",
+    "emailPlaceholder": "you@example.com",
+    "submit": "Club beitreten ✨",
+    "submitting": "Wird beigetreten…",
+    "privacy": "Kein Spam, jederzeit abmelden. Siehe unsere Datenschutzerklärung.",
     "invalidEmail": "Bitte gib eine gültige E-Mail-Adresse ein.",
     "genericError": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
     "connectionError": "Verbindungsfehler. Bitte versuche es erneut.",
-    "successNew": "{percent}% Rabatt gehören dir! 🎉",
-    "successReturning": "Willkommen zurück! 💕",
-    "successBodyNew": "Hier ist dein Code – wir haben ihn dir auch per E-Mail geschickt. 💌",
-    "successBodyReturning": "Du bist bereits auf der VIP-Liste – hier ist dein Code. 💌",
+    "successNew": "Du bist dabei, Bestie! 🎉",
+    "successReturning": "Willkommen zurück, Bestie! 💕",
+    "successBodyNew": "Schau in dein Postfach 💌 Dein Code ist drin, plus Early Access zu jedem Drop.",
+    "successBodyReturning": "Du bist schon auf der VIP-Liste — wir halten dich auf dem Laufenden. 💌",
+    "successBodyNoEmail": "Early Access zu jedem Drop kommt bald. Hier nochmal dein Code — kopiere ihn, bevor du schließt. 💾",
     "shopNow": "Jetzt shoppen ✨",
     "close": "Schließen"
   },
@@ -32,18 +27,18 @@
     "copy": "Kopieren",
     "copied": "Kopiert!",
     "copyAria": "Rabattcode {code} kopieren",
-    "manualHint": "Mit ⌘/Strg + C kopieren",
+    "manualHint": "⌘/Strg + C zum Kopieren",
     "copiedAnnounce": "Rabattcode {code} in die Zwischenablage kopiert.",
-    "manualAnnounce": "Zwischenablage nicht verfügbar. Der Code ist markiert – kopiere ihn mit der Tastatur."
+    "manualAnnounce": "Zwischenablage nicht verfügbar. Der Code ist markiert — kopiere ihn mit der Tastatur."
   },
   "offer": {
-    "appliedToBag": "Im Warenkorb aktiviert ✨",
+    "appliedToBag": "Auf deinen Warenkorb angewendet ✨",
     "enterAtCheckout": "An der Kasse eingeben",
     "percentOff": "{percent}% Rabatt"
   },
   "localeBanner": {
-    "message": "Aus {country}? Diese Seite gibt es auch auf {language}.",
+    "message": "Einkaufen aus {country}? Seite auf {language} anzeigen.",
     "switch": "Zu {language} wechseln",
-    "dismiss": "Nein, danke"
+    "dismiss": "Nein danke"
   }
 }

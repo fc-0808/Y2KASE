@@ -1,38 +1,37 @@
 "use client";
 
 /**
- * WelcomeGiftForm — VIP membership capture on the /welcome-gift landing page.
+ * WelcomeGiftForm — gated discount capture on the /welcome-gift landing page.
  *
- * The discount code is given away unconditionally by the <PromoCodeBlock> above
- * this form, so signing up buys perks (early access, exclusive designs,
- * birthday gifts) rather than the code. That's why nothing here reveals a
- * discount on success — it would be handing over something the visitor already
- * has, and it would make the confirmation read like the offer was gated.
+ * The promo code is revealed only after a valid email is submitted — that
+ * exchange is what drives conversion on the QR welcome flow. On success the
+ * code is auto-saved to the bag and the shopper gets a one-tap shop CTA.
  *
  * Flow:
  *  1. Collect email (+ optional first name).
- *  2. POST /api/subscribe with `source: "welcome-card"` so welcome-gift
- *     conversions stay attributable in the subscribers table / analytics.
- *  3. Confirm membership.
- *
- * The API is idempotent: returning besties are acknowledged without a duplicate
- * welcome email (`alreadySubscribed`).
+ *  2. POST /api/subscribe with `source: "welcome-card"`.
+ *  3. Reveal the issued code + "Shop Now" deep link.
  */
 
 import { useState } from "react";
 import Link from "next/link";
 import { Sparkles, ArrowRight } from "lucide-react";
+import { PromoCodeBlock } from "@/components/PromoCodeBlock";
+import { WELCOME_COUPON } from "@/lib/promotions";
+import { usePromoActions } from "@/lib/store/promo";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type Status = "idle" | "loading" | "success";
 
 export function WelcomeGiftForm() {
+  const { autoApply } = usePromoActions();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [alreadyMember, setAlreadyMember] = useState(false);
+  const [issuedCode, setIssuedCode] = useState(WELCOME_COUPON.code);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +61,9 @@ export function WelcomeGiftForm() {
         return;
       }
 
+      const code: string = data.code ?? WELCOME_COUPON.code;
+      autoApply(code, "welcome-gift");
+      setIssuedCode(code);
       setAlreadyMember(Boolean(data.alreadySubscribed));
       setStatus("success");
     } catch {
@@ -71,8 +73,8 @@ export function WelcomeGiftForm() {
   }
 
   if (status === "success") {
-    // `role="status"` announces the swap without yanking focus out from under
-    // anyone mid-read — the form it replaced is gone from the DOM.
+    const shopHref = `/discount/${encodeURIComponent(issuedCode)}?redirect=${encodeURIComponent("/")}`;
+
     return (
       <div role="status" className="text-center">
         <div className="mx-auto mb-2.5 inline-flex h-11 w-11 items-center justify-center rounded-full bg-[var(--primary-soft)]">
@@ -83,15 +85,20 @@ export function WelcomeGiftForm() {
         </h2>
         <p className="mx-auto mt-1.5 max-w-xs text-[13px] leading-snug text-[var(--foreground)]/65">
           {alreadyMember
-            ? "You're already on the VIP list — we'll keep the good stuff coming. 💌"
-            : "Check your inbox 💌 First dibs, exclusive designs and birthday surprises are on their way."}
+            ? "Your code is ready — tap below to shop with your discount applied."
+            : "Check your inbox 💌 Your welcome code is below."}
         </p>
 
+        <div className="mt-4">
+          <PromoCodeBlock code={issuedCode} hideEyebrow copyLabel="Copy Code" />
+        </div>
+
         <Link
-          href="/products"
-          className="btn-candy mt-4 inline-flex w-full items-center justify-center gap-2 py-3 text-sm"
+          href={shopHref}
+          className="btn-candy mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 py-3 text-sm"
         >
-          Shop the collection <ArrowRight className="h-4 w-4" />
+          Shop Now ({WELCOME_COUPON.percentOff}% Off Applied){" "}
+          <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
     );
@@ -101,14 +108,8 @@ export function WelcomeGiftForm() {
     <div>
       <div className="mb-3 text-center">
         <h2 className="font-display text-lg font-black leading-tight text-[var(--foreground)] sm:text-xl">
-          Unlock VIP Perks 💌
+          Claim Your Welcome Gift! 🎀
         </h2>
-        {/* Hidden on mobile so the fields stay above the fold; the heading and
-            the perk bullets beside the card already carry the pitch. */}
-        <p className="mx-auto mt-1.5 hidden max-w-xs text-[13px] leading-snug text-[var(--foreground)]/65 sm:block">
-          Drop your email for first dibs on limited drops, exclusive designs,
-          and birthday surprises.
-        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-2.5" noValidate>
@@ -126,7 +127,7 @@ export function WelcomeGiftForm() {
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Sakura"
             autoComplete="given-name"
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+            className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
           />
         </div>
 
@@ -148,7 +149,7 @@ export function WelcomeGiftForm() {
             inputMode="email"
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? "wg-email-error" : undefined}
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+            className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
           />
         </div>
 
@@ -165,9 +166,9 @@ export function WelcomeGiftForm() {
         <button
           type="submit"
           disabled={status === "loading" || !email}
-          className="btn-candy w-full py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn-candy min-h-11 w-full py-3.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {status === "loading" ? "Joining…" : "Join the Club ✨"}
+          {status === "loading" ? "Claiming…" : "Claim My Welcome Gift ✨"}
         </button>
 
         <p className="text-center text-[11px] text-[var(--foreground)]/40">

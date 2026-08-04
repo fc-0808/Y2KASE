@@ -1,27 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
-  Truck,
   Percent,
   Cake,
   Sparkles,
   ShieldCheck,
   Heart,
-  Lock,
-  RotateCcw,
   ArrowRight,
 } from "lucide-react";
 import { WelcomeGiftForm } from "@/components/WelcomeGiftForm";
-import { PromoCodeBlock } from "@/components/PromoCodeBlock";
 import { Wordmark, SparkleField, PixelHeart } from "@/components/brand/Decor";
 import { WELCOME_COUPON } from "@/lib/promotions";
 import { ROUTES } from "@/lib/routes";
 
 const OFF = `${WELCOME_COUPON.percentOff}% off`;
 
-// The offer is no longer gated behind a signup, so the description leads with
-// the code rather than promising something the visitor has to "unlock".
-const PITCH = `Take ${OFF} your order with code ${WELCOME_COUPON.code} — plus free shipping over $35, member-only drops and VIP perks from the Y2KASE Club.`;
+const PITCH = `Unlock ${OFF} your first order — plus free shipping over $35, member-only drops and VIP perks from the Y2KASE Club.`;
 
 export const metadata: Metadata = {
   title: "Your Welcome Gift",
@@ -37,16 +31,6 @@ export const metadata: Metadata = {
 };
 
 const PERKS = [
-  {
-    icon: <Sparkles className="h-5 w-5" />,
-    title: "Buy 2, Get 2 Free",
-    desc: "Add any 4 to your bag — the 2 cheapest are on us. ✨",
-  },
-  {
-    icon: <Truck className="h-5 w-5" />,
-    title: "Free shipping over $35",
-    desc: "Tracked delivery, right to your door.",
-  },
   {
     icon: <Percent className="h-5 w-5" />,
     title: "Member-only discounts",
@@ -82,18 +66,12 @@ const REASONS = [
   },
 ];
 
-const TRUST = [
-  { icon: <Lock className="h-3.5 w-3.5" />, label: "Secure checkout" },
-  { icon: <RotateCcw className="h-3.5 w-3.5" />, label: "30-day returns" },
-  { icon: <PixelHeart className="h-3.5 w-3.5" />, label: "No spam, ever" },
-];
-
 export default function WelcomeGiftPage() {
   return (
     <div className="flex flex-col">
       {/* ── Hero + claim form ─────────────────────────────────────────────── */}
-      <section className="mx-auto w-full max-w-[1080px] px-4 pt-3 sm:px-6 sm:pt-12">
-        <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-holo-shimmer p-4 shadow-[0_30px_80px_-40px_rgba(120,60,120,0.45)] sm:rounded-[2.5rem] sm:p-10">
+      <section className="mx-auto w-full max-w-[1080px] px-4 pt-2 pb-3 sm:px-6 sm:pt-12 sm:pb-0">
+        <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-holo-shimmer p-3 shadow-[0_30px_80px_-40px_rgba(120,60,120,0.45)] sm:rounded-[2.5rem] sm:p-10">
           <div className="bg-grid absolute inset-0 opacity-30" />
           <SparkleField />
 
@@ -128,44 +106,19 @@ export default function WelcomeGiftPage() {
               </ul>
             </div>
 
-            {/* Claim card — the conversion focal point. Two stacked jobs: hand
-                over the code with no strings attached, then ask for the email
-                on the strength of the perks rather than the discount. */}
-            <div className="card-cute relative overflow-hidden p-4 ring-1 ring-white/60 sm:p-6">
+            {/* Claim card — gated discount: email unlocks the code. */}
+            <div className="card-cute relative overflow-hidden p-3 ring-1 ring-white/60 sm:p-6">
               <div className="absolute inset-x-0 top-0 h-1.5 bg-holo-vivid" />
-
-              <div className="text-center">
-                <h2 className="mb-2.5 font-display text-lg font-black leading-tight text-[var(--foreground)] sm:text-xl">
-                  Take {WELCOME_COUPON.percentOff}% Off Now ✨
-                </h2>
-                <PromoCodeBlock
-                  code={WELCOME_COUPON.code}
-                  note={`${OFF} · Enter at checkout`}
-                />
-              </div>
-
-              <hr className="my-4 border-t border-[var(--border)] sm:my-5" />
-
               <WelcomeGiftForm />
             </div>
           </div>
         </div>
-
-        {/* Trust strip */}
-        <ul className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-semibold text-[var(--foreground)]/55 sm:mt-5 sm:gap-x-6">
-          {TRUST.map((t) => (
-            <li key={t.label} className="inline-flex items-center gap-1.5">
-              <span className="text-[var(--primary)]">{t.icon}</span>
-              {t.label}
-            </li>
-          ))}
-        </ul>
       </section>
 
       {/* ── Club perks ────────────────────────────────────────────────────── */}
       <section className="mx-auto w-full max-w-[1080px] px-4 pt-16 sm:px-6">
         <SectionHeading eyebrow="Members only" title="Perks of the club" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {PERKS.map((p) => (
             <div
               key={p.title}

@@ -4,11 +4,10 @@
  * Blocking-overlay registry — one source of truth for "something already owns
  * the shopper's attention".
  *
- * The storefront floats several independent surfaces (cookie banner, welcome
- * pop-up, cart drawer, support widget) that all live in the bottom-right /
- * bottom-center of the viewport. Without coordination they stack on top of each
- * other on small screens, which is how you end up with a chat bubble sitting on
- * the "Accept all" button.
+ * The storefront floats several independent surfaces (welcome pop-up, cart
+ * drawer, support widget) that all live in the bottom-right / bottom-center of
+ * the viewport. Without coordination they stack on top of each other on small
+ * screens, which is how you end up with a chat bubble sitting on a promo CTA.
  *
  * Rather than hand-tuning z-indexes and offsets — which breaks the moment any
  * of those panels changes height — each attention-grabbing surface claims the

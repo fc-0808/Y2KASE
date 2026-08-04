@@ -18,7 +18,12 @@ import {
 } from "./thumbnail-scope";
 import { classifyThumbnailSuitability, type ThumbnailScore } from "@/lib/ai";
 import { normalizeThumbnail } from "@/lib/catalog/normalize-thumbnail";
-import { removeHandsOnWhite, removeBackgroundKie } from "@/lib/catalog/ai-cleanup";
+import {
+  removeHandsOnWhite,
+  removeBackgroundKie,
+  NoUsableReferencesError,
+} from "@/lib/catalog/ai-cleanup";
+import { loadImage, type LoadedImage } from "@/lib/catalog/image-source";
 import { makeR2Client, uploadWebpToR2 } from "@/lib/catalog/r2";
 import { mapWithConcurrency } from "@/lib/catalog/concurrency";
 
@@ -59,6 +64,18 @@ export const THUMBNAIL_SCORE_THRESHOLD = 0.6;
 
 /** Mirror of the ingest key sanitiser so proposal keys match the R2 layout. */
 const sanitise = (s: string) => s.replace(/[^a-zA-Z0-9/_-]/g, "_");
+
+/**
+ * The sentence stored on a flagged row, and shown on its card.
+ *
+ * An unusable-source error already reads as an instruction ("re-upload the
+ * product's photos"), so it is passed through verbatim; anything else is an
+ * unexpected fault and is labelled as one.
+ */
+function failureReason(err: unknown): string {
+  if (err instanceof NoUsableReferencesError) return err.message;
+  return `Generation failed: ${err instanceof Error ? err.message : String(err)}`;
+}
 
 const UNSCORED: ThumbnailScore = {
   score: 0,
@@ -187,10 +204,7 @@ async function processProduct(
     });
     return "proposed";
   } catch (err) {
-    await upsertProposal(id, {
-      status: "flagged",
-      reason: `Generation failed: ${err instanceof Error ? err.message : String(err)}`,
-    });
+    await upsertProposal(id, { status: "flagged", reason: failureReason(err) });
     return "flagged";
   }
 }
@@ -286,10 +300,19 @@ export async function regenerateProposalWithAiCleanup(
   // Nano Banana Pro removes hand/props/background → white, using ALL of the
   // product's photos as references (source first) for design accuracy, then
   // Sharp trims + centers for consistent framing. No Photoroom.
-  const normalized = await buildThumbnail(
-    orderedImageUrls(product.images, source.id),
-    mode,
-  );
+  //
+  // A failure here leaves the existing row alone on purpose: the operator asked
+  // to rebuild one thumbnail, and demoting a live one because a provider call
+  // failed would lose work. The reason is returned instead, for the toast.
+  let normalized: Buffer;
+  try {
+    normalized = await buildThumbnail(
+      orderedImageUrls(product.images, source.id),
+      mode,
+    );
+  } catch (err) {
+    return { ok: false, message: failureReason(err) };
+  }
 
   const r2 = makeR2Client();
   const key = `products/${sanitise(product.slug)}/thumbnail-cleaned-${Date.now()}.webp`;
@@ -326,8 +349,13 @@ export async function removeBackgroundProposal(
   if (!bucket) throw new Error("R2_BUCKET_NAME is not set.");
 
   // Segment product → transparent PNG, then composite onto white + center.
-  const cutout = await removeBackgroundKie(prop.proposalUrl);
-  const normalized = await normalizeThumbnail(cutout);
+  let normalized: Buffer;
+  try {
+    const cutout = await removeBackgroundKie(prop.proposalUrl);
+    normalized = await normalizeThumbnail(cutout);
+  } catch (err) {
+    return { ok: false, message: failureReason(err) };
+  }
 
   const r2 = makeR2Client();
   const key = `products/manual/${productId}-nobg-${Date.now()}.webp`;
@@ -365,13 +393,13 @@ export async function recropProposal(
   const bucket = process.env.R2_BUCKET_NAME;
   if (!bucket) throw new Error("R2_BUCKET_NAME is not set.");
 
-  const res = await fetch(prop.proposalUrl);
-  if (!res.ok) throw new Error(`download HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  const meta = await sharp(buf).metadata();
-  const W = meta.width ?? 0;
-  const H = meta.height ?? 0;
-  if (!W || !H) throw new Error("Could not read image dimensions.");
+  let source: LoadedImage;
+  try {
+    source = await loadImage(prop.proposalUrl);
+  } catch (err) {
+    return { ok: false, message: failureReason(err) };
+  }
+  const { bytes: buf, width: W, height: H } = source;
 
   const clamp = (v: number, min: number, max: number) =>
     Math.max(min, Math.min(max, v));
@@ -404,20 +432,24 @@ export async function recropProposal(
  * Regenerate several products in parallel (bounded by CONCURRENCY). Used by the
  * bulk "Regenerate" action; the client sends manageable chunks so each request
  * stays within the serverless time budget.
+ *
+ * Reports one representative failure alongside the counts. A silent "Regenerated
+ * 3" when five were selected tells the operator nothing about the other two, and
+ * in practice the two share a cause worth naming.
  */
 export async function regenerateProposalsWithAiCleanup(
   ids: number[],
-): Promise<{ processed: number; failed: number }> {
+): Promise<{ processed: number; failed: number; firstFailure?: string }> {
   const outcomes = await mapWithConcurrency(ids, CONCURRENCY, async (id) => {
     try {
-      const res = await regenerateProposalWithAiCleanup(id);
-      return res.ok;
-    } catch {
-      return false;
+      return await regenerateProposalWithAiCleanup(id);
+    } catch (err) {
+      return { ok: false, message: failureReason(err) };
     }
   });
   return {
-    processed: outcomes.filter(Boolean).length,
-    failed: outcomes.filter((o) => !o).length,
+    processed: outcomes.filter((o) => o.ok).length,
+    failed: outcomes.filter((o) => !o.ok).length,
+    firstFailure: outcomes.find((o) => !o.ok)?.message,
   };
 }

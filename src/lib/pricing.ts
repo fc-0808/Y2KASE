@@ -320,11 +320,6 @@ export const IPHONE_GENERATIONS: IphoneGeneration[] = [
   },
 ];
 
-/** Master order lookup for stable, human-friendly model sorting. */
-const MODEL_ORDER = new Map<string, number>(
-  IPHONE_MODELS.map((m, i) => [m, i]),
-);
-
 /** Sort an arbitrary list of model strings into canonical master order. */
 export function orderModels(models: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -336,6 +331,43 @@ export function orderModels(models: readonly string[]): string[] {
 /** The generation id a given model belongs to (or null if unrecognized). */
 export function generationOf(model: string): string | null {
   return IPHONE_GENERATIONS.find((g) => g.models.includes(model))?.id ?? null;
+}
+
+/**
+ * Where a model sits within its generation. Shoppers think in tiers before they
+ * think in years ("I have the Pro Max"), so the PDP keeps the tier fixed when
+ * they move between generations instead of dumping them back on the base model.
+ */
+export type ModelTier = "base" | "pro" | "pro-max";
+
+export function modelTier(model: string): ModelTier {
+  if (/pro\s*max$/i.test(model)) return "pro-max";
+  if (/pro$/i.test(model)) return "pro";
+  return "base";
+}
+
+/**
+ * Split an offered model set into generation groups, oldest → newest, dropping
+ * generations the product doesn't sell.
+ *
+ * Models outside the master map (a hand-edited row, a phone released after this
+ * table was last touched) are collected into a trailing group rather than
+ * discarded — a model a product genuinely sells must never become unpickable.
+ */
+export function groupModelsByGeneration(
+  models: readonly string[],
+): IphoneGeneration[] {
+  const offered = new Set(models);
+  const groups = IPHONE_GENERATIONS.map((g) => ({
+    ...g,
+    models: g.models.filter((m) => offered.has(m)),
+  })).filter((g) => g.models.length > 0);
+
+  const ungrouped = models.filter((m) => generationOf(m) === null);
+  if (ungrouped.length > 0) {
+    groups.push({ id: "other", label: "Other models", models: [...ungrouped] });
+  }
+  return groups;
 }
 
 /**

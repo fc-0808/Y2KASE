@@ -25,17 +25,29 @@ export function PromoCodeBlock({
   code,
   note,
   onCopy,
+  hideEyebrow = false,
+  compact = false,
+  copyLabel = "Copy",
 }: {
   /** The customer-facing code, e.g. "BESTIE10". */
   code: string;
-  /** Fine print under the block, e.g. "10% off · Enter at checkout". */
-  note: string;
+  /**
+   * Optional fine print under the block. Omit when the caller already states
+   * the offer above the code (e.g. a status banner).
+   */
+  note?: string;
   /**
    * Fired once per copy attempt, including the keyboard fallback — taking the
    * code is the same intent either way, so an unavailable clipboard must not
    * silently drop the signal.
    */
   onCopy?: () => void;
+  /** Hide the inner "Your code" eyebrow when the caller labels the block above. */
+  hideEyebrow?: boolean;
+  /** Tighter padding for modal contexts where vertical space is scarce. */
+  compact?: boolean;
+  /** Visible label on the copy button, e.g. "Copy Code". */
+  copyLabel?: string;
 }) {
   const [state, setState] = useState<CopyState>("idle");
   const codeRef = useRef<HTMLSpanElement>(null);
@@ -82,14 +94,22 @@ export function PromoCodeBlock({
 
   return (
     <div>
-      <div className="flex items-center gap-3 rounded-2xl border-2 border-dashed border-[var(--primary)]/55 bg-[var(--primary-soft)]/60 px-3.5 py-2.5 sm:px-4 sm:py-3">
+      <div
+        className={`flex items-center gap-3 rounded-2xl border-2 border-dashed border-[var(--primary)]/55 bg-[var(--primary-soft)]/60 ${
+          compact ? "px-3 py-2" : "px-3.5 py-2.5 sm:px-4 sm:py-3"
+        }`}
+      >
         <div className="min-w-0 flex-1 text-left">
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[var(--primary)]/70">
-            Your code
-          </p>
+          {!hideEyebrow && (
+            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[var(--primary)]/70">
+              Your code
+            </p>
+          )}
           <span
             ref={codeRef}
-            className="wordmark mt-0.5 block truncate text-lg tracking-[0.12em] sm:text-xl"
+            className={`wordmark block truncate tracking-[0.12em] ${
+              hideEyebrow ? "text-lg sm:text-xl" : "mt-0.5 text-lg sm:text-xl"
+            }`}
           >
             {code}
           </span>
@@ -109,15 +129,17 @@ export function PromoCodeBlock({
             </>
           ) : (
             <>
-              <Copy className="h-3.5 w-3.5" /> Copy
+              <Copy className="h-3.5 w-3.5" /> {copyLabel}
             </>
           )}
         </button>
       </div>
 
-      <p className="mt-2 text-center text-[11px] text-[var(--foreground)]/50">
-        {state === "manual" ? "Press ⌘/Ctrl + C to copy" : note}
-      </p>
+      {(state === "manual" || note) && (
+        <p className="mt-2 text-center text-[11px] text-[var(--foreground)]/50">
+          {state === "manual" ? "Press ⌘/Ctrl + C to copy" : note}
+        </p>
+      )}
 
       {/* The button's own label change is unreliable to announce; this is. */}
       <span role="status" aria-live="polite" className="sr-only">

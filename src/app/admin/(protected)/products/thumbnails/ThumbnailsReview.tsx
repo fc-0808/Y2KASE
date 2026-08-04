@@ -260,6 +260,10 @@ export function ThumbnailsReview({
     stopRef.current = false;
     setBulk({ running: true, done: 0, total: ids.length, verb });
     let done = 0;
+    // A chunk can succeed as a request while some of its products don't. Keep
+    // the server's explanation so the closing toast says why, instead of a count
+    // that quietly disagrees with the selection.
+    let shortfall: string | null = null;
     try {
       for (let i = 0; i < ids.length && !stopRef.current; i += chunkSize) {
         const chunk = ids.slice(i, i + chunkSize);
@@ -268,11 +272,16 @@ export function ThumbnailsReview({
           flash(res);
           break;
         }
+        if (res.processed < chunk.length) shortfall = res.message;
         done += res.processed;
         setBulk({ running: true, done, total: ids.length, verb });
         router.refresh();
       }
-      flash({ ok: true, message: `${verb} ${done}.` });
+      flash(
+        shortfall
+          ? { ok: false, message: shortfall }
+          : { ok: true, message: `${verb} ${done}.` },
+      );
     } catch (err) {
       flash({ ok: false, message: err instanceof Error ? err.message : "Bulk failed." });
     } finally {
@@ -627,14 +636,20 @@ export function ThumbnailsReview({
         />
       )}
 
+      {/* Failures stay until acknowledged — they carry the instruction for
+          fixing the product — so the toast has to be dismissable. */}
       {toast && (
-        <div
-          className={`fixed bottom-24 left-1/2 z-40 -translate-x-1/2 rounded-full px-5 py-2.5 text-sm font-bold text-white shadow-lg ${
+        <button
+          type="button"
+          onClick={() => setToast(null)}
+          title="Dismiss"
+          className={`fixed bottom-24 left-1/2 z-40 flex max-w-[min(90vw,42rem)] -translate-x-1/2 items-center gap-2 rounded-2xl px-5 py-2.5 text-left text-sm font-bold text-white shadow-lg ${
             toast.ok ? "bg-green-600" : "bg-red-600"
           }`}
         >
-          {toast.message}
-        </div>
+          <span>{toast.message}</span>
+          <X className="h-4 w-4 shrink-0 opacity-70" />
+        </button>
       )}
     </div>
   );

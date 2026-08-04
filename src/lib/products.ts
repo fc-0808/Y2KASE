@@ -8,11 +8,13 @@ import {
   notInArray,
   or,
   sql,
+  type SQL,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS } from "@/lib/cache";
-import { products, productCollections } from "@/lib/db/schema";
+import { collections, products, productCollections } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
 import {
   MODEL_OPTION_NAME,
@@ -91,6 +93,14 @@ export type ProductQuery = {
   /** Collection slug — matches the collection and all of its descendants. */
   collection?: string;
   /**
+   * Brand facet: collection slugs OR-ed together, each matching its own subtree
+   * (so "Sanrio" includes Kuromi). Separate from {@link ProductQuery.collection}
+   * because they answer different questions — `collection` is the browse
+   * context a shopper arrived in, `brands` is a multi-select narrowing applied
+   * on top of it — and the two AND together.
+   */
+  brands?: string[];
+  /**
    * MagSafe compatibility facet: `true` = MagSafe only, `false` = non-MagSafe
    * only, `undefined` = no filter. Modelled as a tri-state boolean rather than
    * a tag string so the negated ("Non-MagSafe") case is expressible.
@@ -100,20 +110,36 @@ export type ProductQuery = {
   sort?: "newest" | "price-asc" | "price-desc";
 };
 
-export async function getProducts(query: ProductQuery = {}): Promise<{
-  items: ProductListItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-}> {
-  const page = Math.max(1, query.page ?? 1);
-  const offset = (page - 1) * PAGE_SIZE;
+/** `products.id IN (…)` for membership in any of these collections' subtrees. */
+async function collectionMembership(slugs: string[]): Promise<SQL> {
+  const collectionIds = await resolveCollectionFilterIds(slugs);
+  // Unknown/empty collection → no matches rather than the whole catalog.
+  if (collectionIds.length === 0) return sql`false`;
+  return inArray(
+    products.id,
+    db
+      .select({ id: productCollections.productId })
+      .from(productCollections)
+      .where(inArray(productCollections.collectionId, collectionIds)),
+  );
+}
 
-  if (!isDbConfigured()) {
-    return { items: [], total: 0, page, pageSize: PAGE_SIZE };
-  }
+/**
+ * Build the WHERE conjuncts for a catalog query.
+ *
+ * `omit` drops one facet from the set. That is what makes the facet counts
+ * *contextual without being self-defeating*: the number beside "MagSafe" has to
+ * answer "how many would I get if I picked this?", which means every other
+ * active filter applies but the compatibility facet itself does not. Counting a
+ * facet against its own selection would just report the current result size
+ * next to one option and zero next to the rest.
+ */
+async function catalogFilters(
+  query: ProductQuery,
+  omit?: "magsafe" | "brands",
+): Promise<SQL[]> {
+  const filters: SQL[] = [eq(products.status, "active")];
 
-  const filters = [eq(products.status, "active")];
   if (query.search) {
     filters.push(
       or(
@@ -128,7 +154,7 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
 
   // MagSafe facet. `tags` is NOT NULL DEFAULT '{}', so the negated form is safe
   // — there are no NULL arrays that would silently drop out of `NOT (… = ANY)`.
-  if (query.magsafe !== undefined) {
+  if (omit !== "magsafe" && query.magsafe !== undefined) {
     filters.push(
       query.magsafe
         ? sql`${MAGSAFE_TAG} = ANY(${products.tags})`
@@ -146,24 +172,31 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
 
   // Collection filter → product must belong to the collection or a descendant.
   if (query.collection) {
-    const collectionIds = await resolveCollectionFilterIds(query.collection);
-    if (collectionIds.length > 0) {
-      filters.push(
-        inArray(
-          products.id,
-          db
-            .select({ id: productCollections.productId })
-            .from(productCollections)
-            .where(inArray(productCollections.collectionId, collectionIds)),
-        ),
-      );
-    } else {
-      // Unknown/empty collection → no matches rather than the whole catalog.
-      filters.push(sql`false`);
-    }
+    filters.push(await collectionMembership([query.collection]));
   }
 
-  const where = and(...filters);
+  // Brand facet → product must belong to ANY of the selected brands' subtrees.
+  if (omit !== "brands" && query.brands && query.brands.length > 0) {
+    filters.push(await collectionMembership(query.brands));
+  }
+
+  return filters;
+}
+
+export async function getProducts(query: ProductQuery = {}): Promise<{
+  items: ProductListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
+  const page = Math.max(1, query.page ?? 1);
+  const offset = (page - 1) * PAGE_SIZE;
+
+  if (!isDbConfigured()) {
+    return { items: [], total: 0, page, pageSize: PAGE_SIZE };
+  }
+
+  const where = and(...(await catalogFilters(query)));
 
   const orderBy =
     query.sort === "price-asc"
@@ -198,6 +231,148 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
     page,
     pageSize: PAGE_SIZE,
   };
+}
+
+/**
+ * How many products each unselected facet option would return, given every
+ * *other* filter the shopper has already applied.
+ *
+ * Showing these turns the filter bar from a set of guesses into a map of the
+ * catalog: an option annotated "0" is visibly a dead end before it is clicked,
+ * which is the single biggest usability difference between a real faceted
+ * search and a row of links.
+ */
+export type CatalogFacetCounts = {
+  /** Compatibility facet, counted with every filter EXCEPT compatibility. */
+  magsafe: { on: number; off: number };
+  /** Brand slug → count, with every filter EXCEPT the brand facet. */
+  brands: Record<string, number>;
+};
+
+const EMPTY_FACET_COUNTS: CatalogFacetCounts = {
+  magsafe: { on: 0, off: 0 },
+  brands: {},
+};
+
+/**
+ * @param facetSlugs Count these exact collections instead of rolling every
+ * membership up to its brand root. A collection landing page offers its own
+ * children as the subtree facet, and those need counts of their own — rolled up
+ * they would every one of them report the parent's total.
+ * @param alsoCountSlugs Extra collection slugs to count alongside brand roots
+ * (character children on `/products`). Merged into the same map so the facet
+ * UI can read parent and child counts from one object.
+ */
+export async function getCatalogFacetCounts(
+  query: ProductQuery = {},
+  facetSlugs?: string[],
+  alsoCountSlugs?: string[],
+): Promise<CatalogFacetCounts> {
+  if (!isDbConfigured()) return EMPTY_FACET_COUNTS;
+  const [magsafe, brands, extras] = await Promise.all([
+    countCompatibilityFacet(query),
+    facetSlugs
+      ? countCollectionFacet(query, facetSlugs)
+      : countBrandFacet(query),
+    !facetSlugs && alsoCountSlugs && alsoCountSlugs.length > 0
+      ? countCollectionFacet(query, alsoCountSlugs)
+      : Promise.resolve({} as Record<string, number>),
+  ]);
+  return { magsafe, brands: { ...brands, ...extras } };
+}
+
+/** Both halves of the compatibility facet from one aggregate scan. */
+async function countCompatibilityFacet(
+  query: ProductQuery,
+): Promise<CatalogFacetCounts["magsafe"]> {
+  const [row] = await db
+    .select({
+      on: sql<number>`count(*) filter (where ${MAGSAFE_TAG} = any(${products.tags}))::int`,
+      off: sql<number>`count(*) filter (where not (${MAGSAFE_TAG} = any(${products.tags})))::int`,
+    })
+    .from(products)
+    .where(and(...(await catalogFilters(query, "magsafe"))));
+  return { on: row?.on ?? 0, off: row?.off ?? 0 };
+}
+
+/**
+ * Per-brand counts, rolled up from character nodes to the brand they belong to.
+ *
+ * The taxonomy is exactly two levels deep — a `brand` root with `character`
+ * children, enforced on both the seed path and the admin's create path — so a
+ * membership's brand is `coalesce(parent_id, id)`, and `root.kind = 'brand'`
+ * discards genre/feature memberships. `count(distinct …)` is load-bearing:
+ * products are filed into both the character and its ancestor, so a Hello Kitty
+ * case appears twice under Sanrio and must still count once.
+ */
+async function countBrandFacet(
+  query: ProductQuery,
+): Promise<Record<string, number>> {
+  // Aliased so the outer join can't be confused with the `product_collections`
+  // subquery that a collection/brand filter may already have put in the WHERE.
+  const membership = alias(productCollections, "membership");
+  const node = alias(collections, "node");
+  const root = alias(collections, "root");
+
+  const rows = await db
+    .select({
+      slug: root.slug,
+      count: sql<number>`count(distinct ${membership.productId})::int`,
+    })
+    .from(membership)
+    .innerJoin(products, eq(products.id, membership.productId))
+    .innerJoin(node, eq(node.id, membership.collectionId))
+    .innerJoin(root, eq(root.id, sql`coalesce(${node.parentId}, ${node.id})`))
+    .where(
+      and(
+        eq(root.kind, "brand"),
+        eq(root.status, "active"),
+        ...(await catalogFilters(query, "brands")),
+      ),
+    )
+    .groupBy(root.slug);
+
+  return Object.fromEntries(rows.map((row) => [row.slug, row.count]));
+}
+
+/**
+ * Counts for a named set of collections, each on its own.
+ *
+ * Counts *direct* membership, which is exact for the leaf nodes this is used
+ * with. The taxonomy is two levels deep, so a collection's children have no
+ * descendants of their own to inherit products from — the same guarantee
+ * `countBrandFacet` leans on from the other end. Pass a slug that does have
+ * children and you would undercount it by whatever is filed only beneath them.
+ */
+async function countCollectionFacet(
+  query: ProductQuery,
+  slugs: string[],
+): Promise<Record<string, number>> {
+  if (slugs.length === 0) return {};
+
+  // Aliased for the same reason as `countBrandFacet`: a collection or brand
+  // filter may already have put a `product_collections` subquery in the WHERE.
+  const membership = alias(productCollections, "membership");
+  const node = alias(collections, "node");
+
+  const rows = await db
+    .select({
+      slug: node.slug,
+      count: sql<number>`count(distinct ${membership.productId})::int`,
+    })
+    .from(membership)
+    .innerJoin(products, eq(products.id, membership.productId))
+    .innerJoin(node, eq(node.id, membership.collectionId))
+    .where(
+      and(
+        inArray(node.slug, slugs),
+        eq(node.status, "active"),
+        ...(await catalogFilters(query, "brands")),
+      ),
+    )
+    .groupBy(node.slug);
+
+  return Object.fromEntries(rows.map((row) => [row.slug, row.count]));
 }
 
 /** Live product counts for the two MagSafe compatibility facets. */
@@ -698,24 +873,6 @@ export async function getAllProductSlugs(): Promise<string[]> {
     .from(products)
     .where(eq(products.status, "active"));
   return rows.map((r) => r.slug);
-}
-
-export async function getPopularTags(limit = 16): Promise<string[]> {
-  if (!isDbConfigured()) return [];
-  const rows = await db.execute<{ tag: string; n: number }>(sql`
-    select unnest(tags) as tag, count(*)::int as n
-    from products
-    where status = 'active'
-    group by tag
-    order by n desc
-    limit ${limit}
-  `);
-  // drizzle's neon-http returns { rows } | array depending on driver version.
-  const data = (Array.isArray(rows) ? rows : rows.rows) as {
-    tag: string;
-    n: number;
-  }[];
-  return data.map((r) => r.tag);
 }
 
 function toListItem(p: {

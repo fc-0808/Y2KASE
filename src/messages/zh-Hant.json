@@ -1,30 +1,25 @@
 {
   "popup": {
-    "eyebrowScratch": "專屬限定",
-    "eyebrowPrize": "刮得好",
-    "eyebrowClaim": "最後一步",
-    "headingScratch": "刮開查看神秘優惠 🎁",
-    "headingPrize": "你的神秘優惠已準備好 🎉",
-    "headingClaim": "要寄到哪裡呢？",
-    "scratchMe": "刮開這裡 ✨",
-    "revealInstead": "略過刮刮卡",
-    "teaser": "你的專屬優惠…",
-    "claimButton": "立即領取 ✨",
-    "bundle": "任選 {count} 件{label}",
-    "perksList": "會員優惠 · 搶先看",
-    "emailLabel": "電子郵件地址",
+    "eyebrow": "加入會員俱樂部",
+    "heading": "今天兩種省錢方式 ✨",
+    "codeBanner": "你的 {percent}% 折扣碼",
+    "bundleAutomatic": "{label}",
+    "stackingNote": "結帳時會自動套用最優惠的折扣組合。",
+    "emailPitch": "還能搶先收到新品、補貨通知和會員專屬優惠！",
+    "emailLabel": "你的 Email：",
     "emailPlaceholder": "you@example.com",
-    "submit": "查看我的折扣 ✨",
-    "submitting": "查看中…",
-    "privacy": "絕不寄送垃圾郵件，隨時可取消訂閱。",
-    "invalidEmail": "請輸入有效的電子郵件地址。",
+    "submit": "加入俱樂部 ✨",
+    "submitting": "加入中…",
+    "privacy": "絕不發垃圾信，隨時可取消訂閱。詳見隱私權政策。",
+    "invalidEmail": "請輸入有效的 Email 地址。",
     "genericError": "發生錯誤，請再試一次。",
     "connectionError": "連線錯誤，請再試一次。",
-    "successNew": "{percent}% 折扣是你的了！🎉",
-    "successReturning": "歡迎回來！💕",
-    "successBodyNew": "這是你的折扣碼，我們也寄到你的信箱了。💌",
-    "successBodyReturning": "你已在 VIP 名單中，這是我們寄給你的折扣碼。💌",
-    "shopNow": "立即購物 ✨",
+    "successNew": "歡迎加入，bestie！🎉",
+    "successReturning": "歡迎回來，bestie！💕",
+    "successBodyNew": "請查收 Email 💌 折扣碼已寄出，新品搶先看也會送到你信箱。",
+    "successBodyReturning": "你已在 VIP 名單上 — 好康持續送上 💌",
+    "successBodyNoEmail": "新品搶先看通知即將送達。折扣碼在此 — 關閉前請先複製 💾",
+    "shopNow": "立即選購 ✨",
     "close": "關閉"
   },
   "promoCode": {
@@ -32,7 +27,7 @@
     "copy": "複製",
     "copied": "已複製！",
     "copyAria": "複製折扣碼 {code}",
-    "manualHint": "請按 ⌘/Ctrl + C 複製",
+    "manualHint": "按 ⌘/Ctrl + C 複製",
     "copiedAnnounce": "折扣碼 {code} 已複製到剪貼簿。",
     "manualAnnounce": "無法使用剪貼簿。折扣碼已選取 — 請用鍵盤複製。"
   },
@@ -42,8 +37,8 @@
     "percentOff": "{percent}% 折扣"
   },
   "localeBanner": {
-    "message": "從{country}瀏覽嗎？可切換為{language}。",
-    "switch": "切換為{language}",
+    "message": "從 {country} 購物？以 {language} 瀏覽本網站。",
+    "switch": "切換至 {language}",
     "dismiss": "不用了"
   }
 }

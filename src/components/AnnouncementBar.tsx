@@ -1,39 +1,86 @@
-import { Sparkle, PixelHeart } from "@/components/brand/Decor";
-
-const MESSAGES = [
-  "Welcome to the Y2KASE Club, bestie!",
-  "Buy 2, Get 2 Free — add any 4 to your bag ✨",
-  "Free shipping on orders over $35",
-  "10% off with code BESTIE10",
-  "Tag @y2kase.co for a chance to be featured",
-  "New holographic drops every week",
-];
+import { SHIPPING } from "@/lib/pricing";
+import { BUNDLE } from "@/lib/promotions";
+import { DEFAULT_FORMAT_LOCALE } from "@/lib/utils";
 
 /**
- * Holographic marquee announcement bar. The message list is duplicated so the
- * translateX(-50%) loop is seamless. Static content — no client JS.
+ * The currency the offers are quoted in. Validated against the shipping table
+ * before it reaches `Intl`, because an unrecognised code there throws — and a
+ * bad env var must not be able to take the whole storefront header down.
+ */
+const CURRENCY = (() => {
+  const configured = (
+    process.env.NEXT_PUBLIC_STORE_CURRENCY ?? "USD"
+  ).toUpperCase();
+  return configured in SHIPPING ? configured : "USD";
+})();
+
+/** `3500` → `"$35"`. A whole threshold drops the `.00`; an odd one keeps it. */
+function formatThreshold(cents: number): string {
+  const amount = cents / 100;
+  return new Intl.NumberFormat(DEFAULT_FORMAT_LOCALE, {
+    style: "currency",
+    currency: CURRENCY,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+  }).format(amount);
+}
+
+/**
+ * Both offers are DERIVED from the pricing and promotions engines rather than
+ * retyped, so the bar can never advertise a threshold or a bundle that
+ * checkout does not actually honour.
+ */
+const FREE_SHIPPING_OFFER = `Free standard shipping for orders over ${formatThreshold(
+  SHIPPING[CURRENCY].freeOverCents,
+)}`;
+const BUNDLE_OFFER = `Y2KASE Special: Buy ${BUNDLE.groupSize} Phone Cases—Pay For ${
+  BUNDLE.groupSize - BUNDLE.freePerGroup
+}`;
+
+const OFFER_TEXT =
+  "text-[11px] font-semibold leading-5 text-[var(--foreground)] md:text-xs";
+
+/**
+ * Holographic announcement bar. Server-rendered, no client JS.
+ *
+ * Desktop (`md+`): both offers on one centred line, separated by `|`.
+ * Mobile: one offer at a time in a fixed-height slot, crossfading via CSS
+ * (see `.announce-rotate` in globals.css). Pausable on hover/focus; freezes
+ * on the first offer when `prefers-reduced-motion` is set.
+ *
+ * Both offers stay in the DOM so assistive tech can still reach them; the
+ * visual rotator is the only thing that cycles.
  */
 export function AnnouncementBar() {
-  const loop = [...MESSAGES, ...MESSAGES];
   return (
-    <div className="bg-holo-shimmer border-b border-[var(--border)]">
-      <div className="relative flex overflow-hidden py-1.5">
-        <div className="animate-marquee flex shrink-0 items-center whitespace-nowrap">
-          {loop.map((m, i) => (
-            <span
-              key={i}
-              className="flex items-center gap-2 px-5 text-xs font-extrabold uppercase tracking-wide text-[var(--foreground)]/80"
-            >
-              {i % 2 === 0 ? (
-                <Sparkle className="h-3 w-3 text-[var(--primary)]" />
-              ) : (
-                <PixelHeart className="h-3.5 w-3.5" />
-              )}
-              {m}
-            </span>
-          ))}
-        </div>
+    <div
+      role="region"
+      aria-label="Store promotions"
+      className="bg-holo-shimmer border-b border-[var(--border)]"
+    >
+      {/* Mobile — single-line, one offer at a time */}
+      <div className="announce-rotate relative mx-auto h-7 overflow-hidden px-4 md:hidden">
+        <p
+          className={`announce-rotate__a absolute inset-x-4 top-1/2 -translate-y-1/2 text-center ${OFFER_TEXT}`}
+        >
+          {FREE_SHIPPING_OFFER}
+        </p>
+        <p
+          className={`announce-rotate__b absolute inset-x-4 top-1/2 -translate-y-1/2 text-center ${OFFER_TEXT}`}
+        >
+          {BUNDLE_OFFER}
+        </p>
       </div>
+
+      {/* Desktop — both offers, pipe-separated */}
+      <p
+        className={`mx-auto hidden max-w-6xl flex-wrap items-center justify-center gap-x-3 gap-y-0 px-4 py-1 text-center md:flex ${OFFER_TEXT}`}
+      >
+        <span>{FREE_SHIPPING_OFFER}</span>
+        <span aria-hidden="true" className="text-[var(--foreground)]/35">
+          |
+        </span>
+        <span>{BUNDLE_OFFER}</span>
+      </p>
     </div>
   );
 }

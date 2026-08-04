@@ -8,6 +8,8 @@ import { formatPrice } from "@/lib/utils";
 import { STYLE_OPTION_NAME, getStylePrice, defaultStyleFor } from "@/lib/pricing";
 import { trackAddToCart, trackViewItem } from "@/lib/analytics/gtag";
 import { Stars } from "@/components/reviews/Stars";
+import { ProductOptions } from "@/components/product/ProductOptions";
+import { StickyBuyBar } from "@/components/product/StickyBuyBar";
 
 type Option = { id: number; name: string; values: string[] };
 type Img = {
@@ -50,6 +52,7 @@ export function ProductDetailClient({
   options: Option[];
 }) {
   const addItem = useCart((s) => s.addItem);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   const [selected, setSelected] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       options
@@ -159,8 +162,8 @@ export function ProductDetailClient({
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-4">
+    <div className="grid gap-8 pb-[max(5rem,calc(80px+env(safe-area-inset-bottom)))] lg:grid-cols-2 lg:pb-0">
+      <div className="flex min-w-0 flex-col gap-3">
         <div className="relative aspect-square overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--product-surface)]">
           {current?.kind === "video" ? (
             <video
@@ -188,46 +191,78 @@ export function ProductDetailClient({
         </div>
 
         {slides.length > 1 && (
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {slides.map((slide, i) => (
-              <button
-                key={slide.kind === "video" ? `video-${slide.url}` : `img-${slide.id}`}
-                onClick={() => setActiveSlide(i)}
-                className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border-2 bg-[var(--product-surface)] ${
-                  i === activeSlide
-                    ? "border-[var(--primary)]"
-                    : "border-transparent"
-                }`}
-              >
-                {slide.kind === "video" ? (
-                  <>
-                    <video
+          <>
+            <div
+              className="flex justify-center gap-1.5"
+              role="tablist"
+              aria-label="Product images"
+            >
+              {slides.map((slide, i) => (
+                <button
+                  key={
+                    slide.kind === "video"
+                      ? `dot-video-${slide.url}`
+                      : `dot-img-${slide.id}`
+                  }
+                  type="button"
+                  role="tab"
+                  aria-selected={i === activeSlide}
+                  aria-label={`View image ${i + 1} of ${slides.length}`}
+                  onClick={() => setActiveSlide(i)}
+                  className={`h-2 rounded-full transition-all ${
+                    i === activeSlide
+                      ? "w-5 bg-[var(--primary)]"
+                      : "w-2 bg-[var(--foreground)]/25 hover:bg-[var(--foreground)]/40"
+                  }`}
+                />
+              ))}
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {slides.map((slide, i) => (
+                <button
+                  key={
+                    slide.kind === "video"
+                      ? `video-${slide.url}`
+                      : `img-${slide.id}`
+                  }
+                  onClick={() => setActiveSlide(i)}
+                  className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 bg-[var(--product-surface)] sm:h-20 sm:w-20 ${
+                    i === activeSlide
+                      ? "border-[var(--primary)]"
+                      : "border-transparent"
+                  }`}
+                >
+                  {slide.kind === "video" ? (
+                    <>
+                      <video
+                        src={slide.url}
+                        className="h-full w-full object-contain"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                      <span className="absolute inset-0 grid place-items-center bg-black/30">
+                        <Play className="h-4 w-4 fill-white text-white sm:h-5 sm:w-5" />
+                      </span>
+                    </>
+                  ) : (
+                    <Image
                       src={slide.url}
-                      className="h-full w-full object-contain"
-                      muted
-                      playsInline
-                      preload="metadata"
+                      alt={slide.alt}
+                      fill
+                      sizes="80px"
+                      className="object-contain"
                     />
-                    <span className="absolute inset-0 grid place-items-center bg-black/30">
-                      <Play className="h-5 w-5 fill-white text-white" />
-                    </span>
-                  </>
-                ) : (
-                  <Image
-                    src={slide.url}
-                    alt={slide.alt}
-                    fill
-                    sizes="80px"
-                    className="object-contain"
-                  />
-                )}
-              </button>
-            ))}
-          </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
-      <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-5 sm:gap-6">
         <div>
           <h1 className="text-2xl font-black leading-tight sm:text-3xl">
             {title}
@@ -243,45 +278,32 @@ export function ProductDetailClient({
               </span>
             </a>
           )}
-          <p className="mt-2 text-2xl font-bold text-[var(--primary)]">
+          {/* The style cards quote add-on deltas, so this is the only place the
+              running total is spelled out — announce it when it moves. */}
+          <p
+            aria-live="polite"
+            className="mt-2 text-2xl font-bold text-[var(--primary)]"
+          >
             {formatPrice(currentPrice, currency)}
           </p>
         </div>
 
-        {options.map((opt) => (
-          <div key={opt.id}>
-            <p className="mb-2 text-sm font-bold">
-              {opt.name}
-              {selected[opt.name] && (
-                <span className="ml-2 font-normal text-[var(--foreground)]/60">
-                  {selected[opt.name]}
-                </span>
-              )}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {opt.values.map((value) => {
-                const isActive = selected[opt.name] === value;
-                return (
-                  <button
-                    key={value}
-                    onClick={() =>
-                      setSelected((s) => ({ ...s, [opt.name]: value }))
-                    }
-                    className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                      isActive
-                        ? "border-[var(--primary)] bg-[var(--primary)] text-white"
-                        : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]"
-                    }`}
-                  >
-                    {value}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        <ProductOptions
+          options={options}
+          selected={selected}
+          onSelect={(name, value) =>
+            setSelected((s) => ({ ...s, [name]: value }))
+          }
+          currency={currency}
+          // Only the iPhone-case axis is priced per style today; other product
+          // types would otherwise price every card at the same base number.
+          priceForStyle={
+            isIphoneCase ? (style) => getStylePrice(style, currency) : undefined
+          }
+        />
 
         <button
+          ref={addButtonRef}
           onClick={handleAdd}
           disabled={!allSelected}
           className="btn-candy flex items-center justify-center gap-2 py-4 text-base disabled:cursor-not-allowed disabled:opacity-50"
@@ -297,6 +319,16 @@ export function ProductDetailClient({
           )}
         </button>
       </div>
+
+      <StickyBuyBar
+        watch={addButtonRef}
+        price={currentPrice}
+        currency={currency}
+        summary={Object.values(selected).filter(Boolean).join(" · ")}
+        disabled={!allSelected}
+        added={added}
+        onAdd={handleAdd}
+      />
     </div>
   );
 }

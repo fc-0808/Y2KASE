@@ -8,8 +8,7 @@
  *  2. Build retargeting audiences from site visitors
  *  3. Track and optimise for standard events (PageVisit, AddToCart, Checkout)
  *
- * Like TikTok, Pinterest has no native consent mode — the script is only
- * loaded after the visitor grants `ads` consent.
+ * Loaded on mount when `NEXT_PUBLIC_PINTEREST_TAG_ID` is set (no consent gate).
  *
  * Pinterest Tag standard events:
  *  - pagevisit  — every page view
@@ -22,7 +21,6 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { readConsent } from "@/lib/analytics/consent";
 
 export const PINTEREST_TAG_ID = process.env.NEXT_PUBLIC_PINTEREST_TAG_ID;
 
@@ -59,14 +57,12 @@ function loadPinterestScript(tagId: string): void {
   pintrk("page");
 }
 
-/** Fire a Pinterest Tag event — no-ops if not loaded or no consent. */
+/** Fire a Pinterest Tag event when the tag is loaded. */
 export function trackPinEvent(
   event: string,
   data?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined" || !window.pintrk) return;
-  const consent = readConsent();
-  if (!consent?.ads) return;
   window.pintrk("track", event, data ?? {});
 }
 
@@ -75,25 +71,11 @@ export function PinterestTag() {
 
   useEffect(() => {
     if (!PINTEREST_TAG_ID) return;
-    const consent = readConsent();
-    if (consent?.ads) {
-      loadPinterestScript(PINTEREST_TAG_ID);
-      return;
-    }
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ ads: boolean }>).detail;
-      if (detail?.ads && PINTEREST_TAG_ID) {
-        loadPinterestScript(PINTEREST_TAG_ID);
-      }
-    };
-    window.addEventListener("y2k:consent-update", handler);
-    return () => window.removeEventListener("y2k:consent-update", handler);
+    loadPinterestScript(PINTEREST_TAG_ID);
   }, []);
 
   useEffect(() => {
-    if (!PINTEREST_TAG_ID) return;
-    const consent = readConsent();
-    if (!consent?.ads || !window.pintrk) return;
+    if (!PINTEREST_TAG_ID || !window.pintrk) return;
     window.pintrk("page");
   }, [pathname]);
 

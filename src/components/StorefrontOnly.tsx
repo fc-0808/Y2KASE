@@ -8,7 +8,7 @@ import { isAdminRoute, isCheckoutFlowRoute } from "@/lib/routes";
  * cart drawer, marketing pop-ups) on every route EXCEPT:
  *
  *   • /admin — ships its own shell (`AdminNavbar`) and must not inherit the
- *     storefront's sticky header, promo marquee, cart or newsletter pop-up.
+ *     storefront's sticky header, promo bar, cart or newsletter pop-up.
  *   • the checkout funnel (/cart, /checkout/*) — deliberately distraction-free.
  *     The mega-menu, mega-footer, cart drawer, e-mail pop-up and support bubble
  *     are all suppressed in favour of the minimal chrome rendered by

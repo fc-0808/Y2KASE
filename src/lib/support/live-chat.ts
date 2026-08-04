@@ -58,10 +58,9 @@ const LOAD_TIMEOUT_MS = 20_000;
 
 /**
  * Where the vendor's window sits in our stacking order. tawk defaults to
- * 2000000000, which parks the chat over the cookie banner (z-60) — the one
- * surface nothing may cover. Above the sticky header (z-40), below the z-50
- * overlay group, so the vendor obeys the same "stand down" rule the launcher
- * follows in `SupportWidget`.
+ * 2000000000, which would park the chat over every other surface. Above the
+ * sticky header (z-40), below the z-50 overlay group, so the vendor obeys the
+ * same "stand down" rule the launcher follows in `SupportWidget`.
  */
 const CHAT_Z_INDEX = 45;
 

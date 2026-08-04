@@ -6,7 +6,7 @@ import { Wordmark } from "@/components/brand/Decor";
  * Minimal checkout header — the Y2KASE wordmark centred, with a single way back
  * to the catalog.
  *
- * Every other exit point (mega-menu, search, account, cart icon, promo marquee)
+ * Every other exit point (mega-menu, search, account, cart icon, promo bar)
  * is intentionally removed: once a shopper reaches the bag, extra navigation is
  * pure leakage. The 1px holo strip keeps the Y2K identity without adding noise.
  */

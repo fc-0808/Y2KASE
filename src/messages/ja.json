@@ -1,29 +1,24 @@
 {
   "popup": {
-    "eyebrowScratch": "特別限定",
-    "eyebrowPrize": "おめでとう",
-    "eyebrowClaim": "あと一歩",
-    "headingScratch": "けずってシークレット特典をチェック 🎁",
-    "headingPrize": "シークレット特典をご用意しました 🎉",
-    "headingClaim": "どちらにお送りしますか？",
-    "scratchMe": "スクラッチ ✨",
-    "revealInstead": "スクラッチせずに進む",
-    "teaser": "あなただけの特典…",
-    "claimButton": "今すぐ受け取る ✨",
-    "bundle": "{count}点で{label}",
-    "perksList": "会員セール · 先行公開",
-    "emailLabel": "メールアドレス",
+    "eyebrow": "クラブに参加",
+    "heading": "今日お得に買う2つの方法 ✨",
+    "codeBanner": "{percent}%オフコード",
+    "bundleAutomatic": "{label}",
+    "stackingNote": "最もお得な割引の組み合わせが、チェックアウト時に自動で適用されます。",
+    "emailPitch": "さらに、新商品の先行公開・再入荷通知・会員限定オファーをメールで！",
+    "emailLabel": "メールアドレス：",
     "emailPlaceholder": "you@example.com",
-    "submit": "割引を確認する ✨",
-    "submitting": "確認中…",
-    "privacy": "迷惑メールは送りません。配信停止はいつでも可能です。",
+    "submit": "クラブに参加 ✨",
+    "submitting": "参加中…",
+    "privacy": "スパムは送りません。いつでも配信停止できます。プライバシーポリシーをご確認ください。",
     "invalidEmail": "有効なメールアドレスを入力してください。",
     "genericError": "エラーが発生しました。もう一度お試しください。",
     "connectionError": "接続エラーです。もう一度お試しください。",
-    "successNew": "{percent}%オフを獲得！🎉",
-    "successReturning": "おかえりなさい！💕",
-    "successBodyNew": "こちらがコードです。メールでもお送りしました。💌",
-    "successBodyReturning": "すでにVIPリストに登録済みです。お送りしたコードはこちら。💌",
+    "successNew": "参加完了、bestie！🎉",
+    "successReturning": "おかえりなさい、bestie！💕",
+    "successBodyNew": "受信トレイを確認 💌 コードはメールにも。新商品の先行公開もお届けします。",
+    "successBodyReturning": "すでにVIPリストに登録済みです。引き続きお届けします 💌",
+    "successBodyNoEmail": "先行公開の案内をお送りします。コードはこちら — 閉じる前にコピーしてください 💾",
     "shopNow": "お買い物へ ✨",
     "close": "閉じる"
   },
@@ -34,16 +29,16 @@
     "copyAria": "クーポンコード {code} をコピー",
     "manualHint": "⌘/Ctrl + C でコピーできます",
     "copiedAnnounce": "クーポンコード {code} をクリップボードにコピーしました。",
-    "manualAnnounce": "クリップボードが使用できません。コードを選択しました — キーボードでコピーしてください。"
+    "manualAnnounce": "クリップボードが使えません。コードを選択しました — キーボードでコピーしてください。"
   },
   "offer": {
     "appliedToBag": "カートに適用済み ✨",
-    "enterAtCheckout": "ご購入手続きで入力",
+    "enterAtCheckout": "チェックアウトで入力",
     "percentOff": "{percent}%オフ"
   },
   "localeBanner": {
-    "message": "{country}からのアクセスですか？{language}で表示できます。",
-    "switch": "{language}に切り替える",
-    "dismiss": "閉じる"
+    "message": "{country}からお買い物？{language}で表示する",
+    "switch": "{language}に切り替え",
+    "dismiss": "いいえ"
   }
 }

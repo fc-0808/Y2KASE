@@ -1566,9 +1566,19 @@ export async function bulkRegenerateThumbnails(
     return { ok: false, message: "Not authorized.", processed: 0 };
   }
   try {
-    const { processed } = await regenerateProposalsWithAiCleanup(ids);
+    const { processed, failed, firstFailure } =
+      await regenerateProposalsWithAiCleanup(ids);
     revalidatePath("/admin/products/thumbnails");
-    return { ok: true, processed, message: `Regenerated ${processed}.` };
+    // Report as OK so the client's chunk loop continues through a batch where
+    // some products can't succeed, but name what went wrong on the rest.
+    return {
+      ok: true,
+      processed,
+      message:
+        failed > 0
+          ? `Regenerated ${processed}, ${failed} failed. ${firstFailure ?? ""}`.trim()
+          : `Regenerated ${processed}.`,
+    };
   } catch (err) {
     return {
       ok: false,

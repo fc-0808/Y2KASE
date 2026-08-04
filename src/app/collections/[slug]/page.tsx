@@ -1,20 +1,33 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import {
   getCollectionBySlug,
-  getCollectionChildren,
+  getCollectionTree,
   getCollectionBreadcrumb,
+  type CollectionNode,
 } from "@/lib/collections";
-import { getProducts } from "@/lib/products";
+import { getCatalogFacetCounts, getProducts, type ProductQuery } from "@/lib/products";
 import { ProductCard } from "@/components/ProductCard";
 import { JsonLd } from "@/components/JsonLd";
 import { breadcrumbJsonLd, collectionPageJsonLd } from "@/lib/seo";
+import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
+import {
+  CatalogSummary,
+  buildCatalogChips,
+} from "@/components/catalog/CatalogSummary";
+import { CatalogPagination } from "@/components/catalog/CatalogPagination";
+import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
+import {
+  buildCatalogHref,
+  hasActiveFilters,
+  parseCatalogParams,
+  type CatalogParams,
+  type CatalogSearchParams,
+} from "@/lib/catalog/params";
 
 export const revalidate = 3600;
-
-type SearchParams = { page?: string; sort?: "newest" | "price-asc" | "price-desc" };
 
 export async function generateMetadata({
   params,
@@ -30,6 +43,8 @@ export async function generateMetadata({
   return {
     title: collection.name,
     description,
+    // Filtered/sorted/paginated variants all consolidate here, exactly as they
+    // do on /products — otherwise every facet combination is a thin duplicate.
     alternates: { canonical: `/collections/${slug}` },
     openGraph: {
       type: "website",
@@ -41,39 +56,113 @@ export async function generateMetadata({
   };
 }
 
+/** Depth-first lookup of one node in the collection forest. */
+function findNode(nodes: CollectionNode[], slug: string): CollectionNode | null {
+  for (const node of nodes) {
+    if (node.slug === slug) return node;
+    const hit = findNode(node.children, slug);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** "character" → "Characters", for the facet trigger. */
+function facetLabel(kind: string | undefined): string {
+  if (!kind) return "Collections";
+  return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}s`;
+}
+
 export default async function CollectionPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<SearchParams>;
+  searchParams: Promise<CatalogSearchParams>;
 }) {
   const { slug } = await params;
-  const sp = await searchParams;
   const collection = await getCollectionBySlug(slug);
   if (!collection) notFound();
 
-  const page = Number(sp.page ?? "1") || 1;
-  const [children, breadcrumb, { items, total, pageSize }] = await Promise.all([
-    getCollectionChildren(collection.id),
+  const basePath = `/collections/${slug}`;
+
+  // The tree is what makes this page a catalog rather than a list: it carries
+  // each child's `totalCount`, which is both the facet vocabulary and the
+  // evidence that a child is worth offering. `SiteHeader` has already awaited
+  // this exact call to build the mega-menu, so React's request-level `cache`
+  // usually hands it straight back — the products query waiting on it costs a
+  // map lookup, not a round trip.
+  const [tree, breadcrumb] = await Promise.all([
+    getCollectionTree().catch(() => []),
     getCollectionBreadcrumb(collection),
-    getProducts({ collection: slug, page, sort: sp.sort }),
+  ]);
+
+  // Stocked children only: the taxonomy classifies IP before we stock it, so an
+  // unfiltered vocabulary would offer facets that can only ever return nothing.
+  // Same rule `getBrandFacets` and the nav drawer apply.
+  const children = (findNode(tree, slug)?.children ?? []).filter(
+    (child) => child.totalCount > 0,
+  );
+
+  /*
+   * This page is `/products` scoped to one branch of the taxonomy, so it runs
+   * the same URL state — with one deliberate difference.
+   *
+   * `collection` is blanked. The route already says which collection this is;
+   * leaving it in the state would double-apply the narrowing and, worse, render
+   * a removable filter chip whose "clear" link leads back to the page it is
+   * already on. The scoping is instead passed straight to the query below,
+   * where it is not the shopper's to remove.
+   *
+   * The subtree facet is re-pointed from top-level brands to this collection's
+   * own children, which is the only narrowing that means anything here: inside
+   * Sanrio, "Kuromi" is a useful filter and "Miffy" would return nothing. Both
+   * travel through the same `?brand=` parameter because both are collection
+   * subtrees OR-ed together — the mechanism never cared what the taxonomy calls
+   * the level it is filtering on.
+   */
+  const requested = parseCatalogParams(await searchParams, basePath);
+  const offered = new Set(children.map((child) => child.slug));
+  const catalogParams: CatalogParams = {
+    ...requested,
+    collection: undefined,
+    brands: requested.brands.filter((s) => offered.has(s)),
+  };
+
+  const query: ProductQuery = {
+    search: catalogParams.q,
+    tag: catalogParams.tag,
+    device: catalogParams.device,
+    collection: slug,
+    brands: catalogParams.brands,
+    magsafe: catalogParams.magsafe,
+    page: catalogParams.page,
+    sort: catalogParams.sort,
+  };
+
+  const [{ items, total, pageSize }, facetCounts] = await Promise.all([
+    getProducts(query),
+    getCatalogFacetCounts(
+      query,
+      children.map((child) => child.slug),
+    ),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const accent = collection.accentColor ?? "var(--primary)";
 
-  function buildHref(overrides: Partial<SearchParams>) {
-    const merged = { ...sp, ...overrides };
-    const qs = new URLSearchParams();
-    if (merged.sort) qs.set("sort", merged.sort);
-    if (merged.page && merged.page !== "1") qs.set("page", merged.page);
-    const s = qs.toString();
-    return s ? `/collections/${slug}?${s}` : `/collections/${slug}`;
+  // Stale bookmark or a crawler walking `?page=` past the end — send it to the
+  // last real page rather than an empty grid under a nonsense summary.
+  if (total > 0 && catalogParams.page > totalPages) {
+    redirect(buildCatalogHref(catalogParams, { page: totalPages }));
   }
 
+  const accent = collection.accentColor ?? "var(--primary)";
+  const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(catalogParams.page * pageSize, total);
+  const filtered = hasActiveFilters(catalogParams);
+  const chips = buildCatalogChips(catalogParams, { brands: children });
+
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -87,81 +176,81 @@ export default async function CollectionPage({
           collectionPageJsonLd({
             name: collection.name,
             description: collection.description,
-            url: `/collections/${slug}`,
+            url: basePath,
             productUrls: items.map((p) => `/products/${p.slug}`),
           }),
         ]}
       />
-      {/* Breadcrumb */}
-      <nav className="mb-4 flex flex-wrap items-center gap-1 text-sm text-[var(--foreground)]/55 sm:mb-5">
-        <Link href="/collections" className="hover:text-[var(--primary)]">
-          Collections
-        </Link>
-        {breadcrumb.map((c, i) => (
-          <span key={c.id} className="flex items-center gap-1">
-            <ChevronRight className="h-3.5 w-3.5" />
-            {i === breadcrumb.length - 1 ? (
-              <span className="font-semibold text-[var(--foreground)]">
-                {c.name}
-              </span>
-            ) : (
-              <Link
-                href={`/collections/${c.slug}`}
-                className="hover:text-[var(--primary)]"
-              >
-                {c.name}
-              </Link>
-            )}
-          </span>
-        ))}
-      </nav>
 
-      {/*
-        Hero — intentionally icon-free. The decorative emoji tile previously sat
-        in a 64px flex row that set the header's minimum height on every device;
-        dropping it lets the title/count/description stack in their natural
-        height and pulls the product grid ~70px further up the fold on mobile.
-        `collection.icon` is still carried by the data model and used for the
-        sub-collection pills and the empty state below.
-      */}
+      {/* Identity band: where you are and what this is. The product count lives
+          in the result summary below instead of here — with filters on the page
+          a fixed "41 products" beside the title would contradict the "1–8 of 8"
+          directly under it. The description is deliberately not rendered; it
+          still reaches search via `generateMetadata` and the JSON-LD above,
+          neither of which reads the DOM. */}
       <header
-        className="mb-5 overflow-hidden rounded-2xl border border-[var(--border)] px-5 py-4 sm:mb-6 sm:rounded-3xl sm:px-7 sm:py-6"
+        className="mb-4 overflow-hidden rounded-2xl border border-[var(--border)] px-4 py-3.5 sm:rounded-3xl sm:px-6 sm:py-4"
         style={{
-          background: `linear-gradient(135deg, ${accent}1f, transparent 70%)`,
+          // `color-mix`, not `${accent}1f`: `accentColor` is nullable
+          // (`taxonomy-sync` writes `?? null`), so this can resolve to
+          // `var(--primary)`, which no appended hex alpha can express.
+          // `var(--primary)1f` is an invalid stop and drops the whole gradient.
+          background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 12%, transparent), transparent 70%)`,
         }}
       >
-        <h1 className="text-2xl font-black sm:text-3xl lg:text-4xl">
+        <nav
+          aria-label="Breadcrumb"
+          className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/65 sm:text-sm"
+        >
+          <Link href="/collections" className="hover:text-[var(--primary)]">
+            Collections
+          </Link>
+          {breadcrumb.map((c, i) => {
+            const isCurrent = i === breadcrumb.length - 1;
+            return (
+              <span key={c.id} className="flex items-center gap-1">
+                <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                {isCurrent ? (
+                  <span
+                    aria-current="page"
+                    className="font-semibold text-[var(--foreground)]"
+                  >
+                    {c.name}
+                  </span>
+                ) : (
+                  <Link
+                    href={`/collections/${c.slug}`}
+                    className="hover:text-[var(--primary)]"
+                  >
+                    {c.name}
+                  </Link>
+                )}
+              </span>
+            );
+          })}
+        </nav>
+        <h1 className="mt-1.5 text-2xl font-black sm:text-3xl">
           {collection.name}
         </h1>
-        <p className="mt-1 text-sm font-semibold text-[var(--foreground)]/50">
-          {total} product{total === 1 ? "" : "s"}
-        </p>
-        {collection.description && (
-          <p className="mt-2 max-w-2xl text-sm text-[var(--foreground)]/70 sm:text-base">
-            {collection.description}
-          </p>
-        )}
       </header>
 
-      {/* Sub-collections */}
-      {children.length > 0 && (
-        <section className="mb-5 sm:mb-6">
-          <div className="flex flex-wrap gap-2">
-            {children.map((c) => (
-              <Link
-                key={c.id}
-                href={`/collections/${c.slug}`}
-                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-              >
-                {c.icon && <span>{c.icon}</span>}
-                {c.name}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+      <CatalogToolbar
+        params={catalogParams}
+        brands={children}
+        counts={facetCounts}
+        brandsLabel={facetLabel(children[0]?.kind)}
+        searchPlaceholder={`Search ${collection.name}…`}
+        searchLabel={`Search ${collection.name} products`}
+      />
 
-      {/* Products */}
+      <CatalogSummary
+        total={total}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        chips={chips}
+        resetHref={filtered ? basePath : undefined}
+      />
+
       {items.length > 0 ? (
         <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -169,45 +258,49 @@ export default async function CollectionPage({
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
-
-          {totalPages > 1 && (
-            <div className="mt-10 flex items-center justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={buildHref({ page: String(page - 1) })}
-                  className="rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-semibold hover:border-[var(--primary)]"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-2 text-sm font-semibold">
-                Page {page} of {totalPages}
-              </span>
-              {page < totalPages && (
-                <Link
-                  href={buildHref({ page: String(page + 1) })}
-                  className="rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-semibold hover:border-[var(--primary)]"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
+          <CatalogPagination params={catalogParams} totalPages={totalPages} />
         </>
       ) : (
-        <div className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--card)] p-12 text-center">
-          <p className="text-4xl">{collection.icon ?? "🔍"}</p>
-          <p className="mt-3 text-lg font-bold">Nothing here yet</p>
-          <p className="mt-1 text-sm text-[var(--foreground)]/60">
-            We&apos;re still stocking this collection. Check back soon!
-          </p>
-          <Link
-            href="/products"
-            className="mt-4 inline-block rounded-full bg-[var(--primary)] px-5 py-2.5 text-sm font-bold text-white"
-          >
-            Shop all products
-          </Link>
-        </div>
+        <CatalogEmpty
+          filtered={filtered}
+          resetHref={basePath}
+          icon={collection.icon ?? "🔍"}
+        />
+      )}
+
+      {/*
+        Links to the children's own landing pages, below the grid.
+
+        The facet above narrows in place, which is the right default — but a
+        shopper who only wants Hello Kitty is better served by a page with its
+        own heading, artwork and metadata than by a filtered view of Sanrio. The
+        two are not redundant, they are a filter and a destination, and putting
+        the destinations after the products keeps them from competing with the
+        controls for the fold.
+      */}
+      {children.length > 0 && (
+        <section className="mt-12 border-t border-[var(--border)] pt-6">
+          <h2 className="mb-3 text-lg font-black">
+            Shop {collection.name} by {facetLabel(children[0]?.kind).toLowerCase().replace(/s$/, "")}
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {children.map((child) => (
+              <Link
+                key={child.id}
+                href={`/collections/${child.slug}`}
+                aria-label={`${child.name} — ${child.totalCount} product${
+                  child.totalCount === 1 ? "" : "s"
+                }`}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+              >
+                {child.name}
+                <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/45">
+                  {child.totalCount}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

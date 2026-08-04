@@ -1,13 +1,19 @@
 /**
- * Products listing skeleton. Shown instantly while the server query runs, so a
- * filter/sort/search navigation feels immediate instead of blank — a real
- * perceived-performance win on the most-trafficked browse route. Its shape
- * mirrors the real page (toolbar → result summary → grid) so the layout doesn't
- * jump when content arrives.
+ * Collection landing skeleton. Mirrors the real page's shape — identity band →
+ * toolbar → result summary → grid — so switching collections or landing from
+ * the mega-menu paints structure immediately instead of a blank main, and the
+ * layout doesn't jump when the query returns. Same contract as
+ * `/products/loading`, because it is now the same catalog underneath.
  */
-export default function ProductsLoading() {
+export default function CollectionLoading() {
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-5 sm:px-6 sm:py-7">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
+      {/* Identity band: breadcrumb + title */}
+      <div className="mb-4 rounded-2xl border border-[var(--border)] bg-[var(--muted)]/40 px-4 py-3.5 sm:rounded-3xl sm:px-6 sm:py-4">
+        <div className="h-4 w-40 animate-pulse rounded-full bg-[var(--muted)]" />
+        <div className="mt-2 h-8 w-56 animate-pulse rounded-full bg-[var(--muted)]" />
+      </div>
+
       {/* Toolbar: facet triggers · search · sort */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex gap-2">

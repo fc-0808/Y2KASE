@@ -161,14 +161,14 @@ visible at https://y2kase.com/account/orders
 
 - We never sell personal data. It is shared only with the providers needed to
   run the store: Stripe for payments, our shipping carriers, our email
-  provider, tawk.to for this chat, and Google Analytics, which only loads after
-  the shopper accepts cookies.
+  provider, tawk.to for this chat, Google Analytics, and configured ad pixels
+  (Meta, TikTok, Pinterest).
 - Shoppers in the EU or UK can request access to, correction of, or deletion of
   their personal data by emailing hello@y2kase.com.
 - Order data is kept for 7 years for accounting. Marketing data can be deleted
   on request at any time.
-- Cookie choices can be changed any time through the "Cookie settings" link in
-  the site footer.
+- Shoppers can control or delete cookies through their browser settings. See
+  the privacy policy for details.
 
 ## Useful links
 
