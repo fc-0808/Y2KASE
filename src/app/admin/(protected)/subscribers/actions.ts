@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { emailSubscribers } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth";
+import { preserveHardSuppressionReason } from "@/lib/marketing/consent";
 import { syncSubscriberToResend } from "@/lib/marketing/resend";
 
 export type SubscriberActionResult = { ok: boolean; message: string };
@@ -30,7 +31,7 @@ export async function unsubscribeSubscriber(
     .set({
       status: "unsubscribed",
       unsubscribedAt: new Date(),
-      unsubscribeReason: "admin",
+      unsubscribeReason: preserveHardSuppressionReason("admin"),
     })
     .where(eq(emailSubscribers.id, id))
     .returning({

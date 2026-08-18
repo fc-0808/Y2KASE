@@ -39,6 +39,7 @@ import {
   renderMarketingEmail,
   validateMarketingDraft,
 } from "@/lib/marketing/template";
+import { isRecoverablePreparingCampaign } from "@/lib/marketing/campaign-status";
 import {
   CAMPAIGN_TYPES,
   MARKETING_LIMITS,
@@ -1292,14 +1293,17 @@ export function CampaignStudio({
                             Duplicate
                           </button>
                           {(campaign.status === "draft" ||
-                            campaign.status === "failed") && (
+                            campaign.status === "failed" ||
+                            isRecoverablePreparingCampaign(campaign)) && (
                             <button
                               type="button"
                               onClick={() => editCampaign(campaign)}
                               disabled={pending}
                               className="rounded-full border border-border px-3 py-1.5 text-xs font-bold hover:border-primary hover:text-primary disabled:opacity-50"
                             >
-                              Edit
+                              {campaign.status === "preparing"
+                                ? "Recover"
+                                : "Edit"}
                             </button>
                           )}
                           {campaign.resendBroadcastId && (

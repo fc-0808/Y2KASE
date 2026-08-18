@@ -6,11 +6,20 @@ import { emailSubscribers, marketingCampaigns } from "@/lib/db/schema";
 import { SUPPORT_EMAIL } from "@/lib/support/constants";
 import { marketingPostalAddress } from "./compliance";
 import { MARKETING_TEMPLATE_VERSION } from "./template";
+import {
+  LAUNCH_CLAIM_STALE_MS,
+  isRecoverablePreparingCampaign,
+} from "./campaign-status";
 import type {
   MarketingCampaignStatus,
   MarketingCampaignView,
   MarketingDraft,
 } from "./types";
+
+export {
+  LAUNCH_CLAIM_STALE_MS,
+  isRecoverablePreparingCampaign,
+} from "./campaign-status";
 
 const CAMPAIGN_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -162,16 +171,23 @@ export async function saveMarketingCampaignRecord(input: {
     };
   }
 
+  const staleBefore = new Date(Date.now() - LAUNCH_CLAIM_STALE_MS);
+  const recoverablePreparing =
+    existing != null && isRecoverablePreparingCampaign(existing);
+
   if (
     existing &&
     !EDITABLE_STATUSES.includes(
       existing.status as (typeof EDITABLE_STATUSES)[number],
-    )
+    ) &&
+    !recoverablePreparing
   ) {
     return {
       ok: false,
       error:
-        "A queued, scheduled, sent, or cancelled campaign can no longer be edited. Duplicate it instead.",
+        existing.status === "preparing"
+          ? "This campaign is still being prepared. Wait a few minutes for the stale claim to expire, then try again."
+          : "A queued, scheduled, sent, cancelled, or preparing campaign can no longer be edited. Duplicate it instead.",
     };
   }
 
@@ -222,6 +238,7 @@ export async function saveMarketingCampaignRecord(input: {
       preparedAt:
         existing.contentHash === contentHash ? existing.preparedAt : null,
       launchAttemptId: null,
+      launchStartedAt: null,
       status: "draft",
       lastError: null,
       updatedAt: now,
@@ -229,8 +246,13 @@ export async function saveMarketingCampaignRecord(input: {
     .where(
       and(
         eq(marketingCampaigns.id, input.id),
-        inArray(marketingCampaigns.status, [...EDITABLE_STATUSES]),
         eq(marketingCampaigns.contentHash, existing.contentHash),
+        recoverablePreparing
+          ? and(
+              eq(marketingCampaigns.status, "preparing"),
+              lt(marketingCampaigns.updatedAt, staleBefore),
+            )
+          : inArray(marketingCampaigns.status, [...EDITABLE_STATUSES]),
       ),
     )
     .returning();
@@ -346,7 +368,7 @@ export async function claimCampaignLaunch(
     return { ok: false, error: "This campaign has already been sent." };
   }
 
-  const staleBefore = new Date(Date.now() - 5 * 60_000);
+  const staleBefore = new Date(Date.now() - LAUNCH_CLAIM_STALE_MS);
   const launchAttemptId = randomUUID();
   const sameReviewedVersion = and(
     eq(marketingCampaigns.id, id),

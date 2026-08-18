@@ -8,6 +8,10 @@ import {
   validateMarketingDraft,
 } from "../src/lib/marketing/template";
 import {
+  LAUNCH_CLAIM_STALE_MS,
+  isRecoverablePreparingCampaign,
+} from "../src/lib/marketing/campaign-status";
+import {
   sanitizeUtmParams,
   utmToMetadata,
 } from "../src/lib/analytics/utm";
@@ -126,5 +130,33 @@ const stripeMetadata = utmToMetadata(safeAttribution);
 assert.equal(stripeMetadata.utm_campaign, "summer-drop");
 assert.equal(stripeMetadata.fbclid.length, 255);
 
-console.log("✓ marketing template safety checks passed");
+const now = Date.UTC(2026, 7, 18, 12, 0, 0);
+assert.equal(
+  isRecoverablePreparingCampaign({
+    status: "preparing",
+    updatedAt: new Date(now - LAUNCH_CLAIM_STALE_MS + 1_000).toISOString(),
+    now,
+  }),
+  false,
+  "a fresh preparing claim must stay locked",
+);
+assert.equal(
+  isRecoverablePreparingCampaign({
+    status: "preparing",
+    updatedAt: new Date(now - LAUNCH_CLAIM_STALE_MS).toISOString(),
+    now,
+  }),
+  true,
+  "a five-minute-old preparing claim must become recoverable",
+);
+assert.equal(
+  isRecoverablePreparingCampaign({
+    status: "queued",
+    updatedAt: new Date(now - LAUNCH_CLAIM_STALE_MS * 2).toISOString(),
+    now,
+  }),
+  false,
+  "only preparing rows are recoverable through the stale-claim path",
+);
 
+console.log("✓ marketing template safety checks passed");

@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "contact.created":
       case "contact.updated":
-        await reconcileResendContact(event.data.email);
+        await reconcileResendContact(event.data.email, eventAt);
         break;
 
       case "email.complained":

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Broadcast, Contact, Resend, Segment, Topic } from "resend";
 import { db } from "@/lib/db";
 import { emailSubscribers, marketingCampaigns } from "@/lib/db/schema";
@@ -16,11 +16,19 @@ import {
   isMarketingSenderConfigured,
   marketingPostalAddress,
 } from "./compliance";
+import { preserveHardSuppressionReason } from "./consent";
 import type { MarketingDraft } from "./types";
 
 const DEFAULT_SEGMENT_NAME = "Y2KASE Subscribers";
 const DEFAULT_TOPIC_NAME = "Y2KASE News & Offers";
 const MIN_REQUEST_INTERVAL_MS = 550;
+/**
+ * Hard ceiling on per-run provider calls. At 550ms pacing this stays inside the
+ * 120s serverless budget with headroom for the initial list/create calls.
+ * Audience sync used to walk every subscriber with a topic lookup, so a list
+ * of a few hundred would time out mid-claim and strand the campaign.
+ */
+const MAX_PROVIDER_CALLS_PER_SYNC = 160;
 
 let requestQueue: Promise<void> = Promise.resolve();
 let nextRequestAt = 0;
@@ -286,6 +294,9 @@ async function verifyMarketingWebhook(resend: Resend): Promise<void> {
     "email.bounced",
     "email.complained",
     "email.suppressed",
+    // Required so a campaign whose provider send succeeded but whose local
+    // status write failed can still be reconciled to `sent`.
+    "email.delivered",
   ]);
   const webhook = response.data.data.find(
     (item) =>
@@ -348,6 +359,12 @@ async function setContactTopic(
  * Provider-side opt-outs always win. Contacts not present in the local consent
  * ledger are removed from an app-owned segment, preventing a legacy Resend
  * contact from accidentally entering a campaign.
+ *
+ * Cost is dominated by per-contact provider calls. Ineligible rows that have
+ * never existed on the provider are skipped entirely, and contacts that are
+ * already globally unsubscribed never pay for a topic lookup — otherwise the
+ * sync scales with total list size rather than with the eligible recipient
+ * ceiling and times out inside the launch claim.
  */
 export async function syncMarketingAudience(): Promise<{
   segmentId: string;
@@ -379,7 +396,19 @@ export async function syncMarketingAudience(): Promise<{
     localSubscribers.map((subscriber) => subscriber.email.trim().toLowerCase()),
   );
   let recipientCount = 0;
+  let synchronizedCount = 0;
+  let providerCalls = 0;
   const eligibleEmails: string[] = [];
+
+  const track = async <T>(call: () => Promise<T>): Promise<T> => {
+    providerCalls += 1;
+    if (providerCalls > MAX_PROVIDER_CALLS_PER_SYNC) {
+      throw new Error(
+        `Audience sync exceeded the ${MAX_PROVIDER_CALLS_PER_SYNC}-call provider budget. Shrink the local list or move reconciliation to a background worker before launching.`,
+      );
+    }
+    return call();
+  };
 
   for (const subscriber of localSubscribers) {
     const email = subscriber.email.trim().toLowerCase();
@@ -392,16 +421,27 @@ export async function syncMarketingAudience(): Promise<{
     let contact = providerByEmail.get(email);
     let currentTopic: "opt_in" | "opt_out" | null = null;
 
+    // Never create provider contacts for people who cannot receive mail. A
+    // previous opt-out that never reached Resend has nothing to reconcile.
+    if (!hasRecordedConsent && !contact) {
+      continue;
+    }
+
+    synchronizedCount += 1;
+
     if (!contact) {
-      const created = await resendApi(() =>
-        resend.contacts.create({
-          email,
-          unsubscribed: false,
-          ...names,
-          segments: [{ id: segment.id }],
-          topics: [{ id: topic.id, subscription: desired }],
-        }),
-        { retry: false },
+      const created = await track(() =>
+        resendApi(
+          () =>
+            resend.contacts.create({
+              email,
+              unsubscribed: false,
+              ...names,
+              segments: [{ id: segment.id }],
+              topics: [{ id: topic.id, subscription: desired }],
+            }),
+          { retry: false },
+        ),
       );
       if (created.error) {
         throw providerError(`Creating contact ${email}`, created.error.message);
@@ -419,38 +459,62 @@ export async function syncMarketingAudience(): Promise<{
       currentTopic = desired;
     } else {
       if (
+        hasRecordedConsent &&
         subscriber.name &&
         (contact.first_name !== (names.firstName ?? null) ||
           contact.last_name !== (names.lastName ?? null))
       ) {
-        const updated = await resendApi(() =>
-          resend.contacts.update({
-            email,
-            firstName: names.firstName ?? null,
-            lastName: names.lastName ?? null,
-          }),
+        const updated = await track(() =>
+          resendApi(() =>
+            resend.contacts.update({
+              email,
+              firstName: names.firstName ?? null,
+              lastName: names.lastName ?? null,
+            }),
+          ),
         );
         if (updated.error) {
           throw providerError(`Updating contact ${email}`, updated.error.message);
         }
       }
-      if (!segmentEmails.has(email)) {
-        const added = await resendApi(() =>
-          resend.contacts.segments.add({
-            email,
-            segmentId: segment.id,
-          }),
+      if (hasRecordedConsent && !segmentEmails.has(email)) {
+        const added = await track(() =>
+          resendApi(() =>
+            resend.contacts.segments.add({
+              email,
+              segmentId: segment.id,
+            }),
+          ),
         );
         if (added.error) {
-          throw providerError(`Adding ${email} to the marketing segment`, added.error.message);
+          throw providerError(
+            `Adding ${email} to the marketing segment`,
+            added.error.message,
+          );
         }
         segmentEmails.add(email);
       }
     }
 
-    currentTopic ??= await contactTopicSubscription(resend, email, topic.id);
-    const providerOptedOut =
-      Boolean(contact.unsubscribed) || currentTopic === "opt_out";
+    // A global provider unsubscribe is already an opt-out; skip the topic list.
+    if (contact.unsubscribed) {
+      if (hasRecordedConsent) {
+        await db
+          .update(emailSubscribers)
+          .set({
+            status: "unsubscribed",
+            unsubscribedAt: new Date(),
+            unsubscribeReason: preserveHardSuppressionReason("provider_opt_out"),
+          })
+          .where(eq(emailSubscribers.id, subscriber.id));
+      }
+      continue;
+    }
+
+    currentTopic ??= await track(() =>
+      contactTopicSubscription(resend, email, topic.id),
+    );
+    const providerOptedOut = currentTopic === "opt_out";
 
     if (hasRecordedConsent && providerOptedOut) {
       await db
@@ -458,17 +522,17 @@ export async function syncMarketingAudience(): Promise<{
         .set({
           status: "unsubscribed",
           unsubscribedAt: new Date(),
-          unsubscribeReason: "provider_opt_out",
+          unsubscribeReason: preserveHardSuppressionReason("provider_opt_out"),
         })
         .where(eq(emailSubscribers.id, subscriber.id));
       continue;
     }
     if (!hasRecordedConsent && currentTopic !== "opt_out") {
-      await setContactTopic(resend, email, topic.id, "opt_out");
+      await track(() => setContactTopic(resend, email, topic.id, "opt_out"));
       continue;
     }
     if (hasRecordedConsent && currentTopic !== "opt_in") {
-      await setContactTopic(resend, email, topic.id, "opt_in");
+      await track(() => setContactTopic(resend, email, topic.id, "opt_in"));
     }
     if (hasRecordedConsent) {
       recipientCount += 1;
@@ -490,11 +554,13 @@ export async function syncMarketingAudience(): Promise<{
   if (mayPrune) {
     for (const contact of unknownContacts) {
       const email = contact.email.trim().toLowerCase();
-      const removed = await resendApi(() =>
-        resend.contacts.segments.remove({
-          email,
-          segmentId: segment.id,
-        }),
+      const removed = await track(() =>
+        resendApi(() =>
+          resend.contacts.segments.remove({
+            email,
+            segmentId: segment.id,
+          }),
+        ),
       );
       if (removed.error) {
         throw providerError(
@@ -509,7 +575,7 @@ export async function syncMarketingAudience(): Promise<{
     segmentId: segment.id,
     topicId: topic.id,
     recipientCount,
-    synchronizedCount: localSubscribers.length,
+    synchronizedCount,
     eligibleEmails: eligibleEmails.sort(),
   };
 }
@@ -660,7 +726,10 @@ export async function syncSubscriberToResend(input: {
 }
 
 /** Pull a provider-side global/topic opt-out into the local consent ledger. */
-export async function reconcileResendContact(email: string): Promise<void> {
+export async function reconcileResendContact(
+  email: string,
+  occurredAt: Date = new Date(),
+): Promise<void> {
   const resend = client();
   const topic = await resolveTopic(resend);
   const normalized = email.trim().toLowerCase();
@@ -681,10 +750,24 @@ export async function reconcileResendContact(email: string): Promise<void> {
     .update(emailSubscribers)
     .set({
       status: "unsubscribed",
-      unsubscribedAt: new Date(),
-      unsubscribeReason: "provider_opt_out",
+      unsubscribedAt: occurredAt,
+      unsubscribeReason: preserveHardSuppressionReason("provider_opt_out"),
     })
-    .where(eq(emailSubscribers.email, normalized));
+    .where(
+      and(
+        eq(emailSubscribers.email, normalized),
+        // Same ordering guard as suppressLocalRecipients: a fresher local
+        // resubscribe/consent must win over a stale provider webhook.
+        or(
+          isNull(emailSubscribers.resubscribedAt),
+          lt(emailSubscribers.resubscribedAt, occurredAt),
+        ),
+        or(
+          isNull(emailSubscribers.consentRecordedAt),
+          lt(emailSubscribers.consentRecordedAt, occurredAt),
+        ),
+      ),
+    );
 }
 
 export async function sendMarketingTest(input: {
@@ -841,24 +924,41 @@ export async function removeMarketingSegment(
 
 export async function refreshMarketingCampaignStatuses(): Promise<number> {
   const campaigns = await db.query.marketingCampaigns.findMany({
-    where: inArray(marketingCampaigns.status, ["queued", "scheduled"]),
+    where: or(
+      inArray(marketingCampaigns.status, ["queued", "scheduled"]),
+      // A launch whose provider send succeeded but whose local write failed
+      // (or timed out while still `preparing`) still has a broadcast id. Pull
+      // those rows back into the truth Resend already knows.
+      and(
+        inArray(marketingCampaigns.status, ["preparing", "failed"]),
+        sql`${marketingCampaigns.resendBroadcastId} is not null`,
+      ),
+    ),
   });
   let updated = 0;
   for (const campaign of campaigns) {
     if (!campaign.resendBroadcastId) continue;
     const broadcast = await getMarketingBroadcast(campaign.resendBroadcastId);
     if (!broadcast) {
-      await db
-        .update(marketingCampaigns)
-        .set({
-          status: "failed",
-          scheduledAt: null,
-          lastError:
-            "The linked broadcast no longer exists in Resend. Review before retrying.",
-          updatedAt: new Date(),
-        })
-        .where(eq(marketingCampaigns.id, campaign.id));
-      updated += 1;
+      // A missing broadcast is only a failure for campaigns that claimed to be
+      // in flight. A stranded `preparing`/`failed` draft with a deleted draft
+      // broadcast stays where it is so the operator can recover it.
+      if (
+        campaign.status === "queued" ||
+        campaign.status === "scheduled"
+      ) {
+        await db
+          .update(marketingCampaigns)
+          .set({
+            status: "failed",
+            scheduledAt: null,
+            lastError:
+              "The linked broadcast no longer exists in Resend. Review before retrying.",
+            updatedAt: new Date(),
+          })
+          .where(eq(marketingCampaigns.id, campaign.id));
+        updated += 1;
+      }
       continue;
     }
     if (broadcast.status === "sent") {
@@ -867,11 +967,15 @@ export async function refreshMarketingCampaignStatuses(): Promise<number> {
         .set({
           status: "sent",
           sentAt: broadcast.sent_at ? new Date(broadcast.sent_at) : new Date(),
+          lastError: null,
           updatedAt: new Date(),
         })
         .where(eq(marketingCampaigns.id, campaign.id));
       updated += 1;
-    } else if (broadcast.status === "draft") {
+    } else if (
+      broadcast.status === "draft" &&
+      (campaign.status === "queued" || campaign.status === "scheduled")
+    ) {
       await db
         .update(marketingCampaigns)
         .set({

@@ -1,11 +1,40 @@
 import "server-only";
 
 import { createHmac } from "node:crypto";
+import { sql } from "drizzle-orm";
 import type { NextRequest } from "next/server";
+import { emailSubscribers } from "@/lib/db/schema";
 import { clientIp } from "@/lib/rate-limit";
 
 /** Bump whenever the storefront's marketing-consent disclosure materially changes. */
 export const MARKETING_CONSENT_VERSION = "2026-08-14-v1";
+
+/**
+ * Provider/customer opt-outs must never erase hard-suppression evidence.
+ * `/api/subscribe` refuses to reactivate bounce/complaint/suppressed rows; if a
+ * later webhook or one-click unsubscribe overwrote those reasons, the guard
+ * would silently stop firing.
+ */
+export const HARD_SUPPRESSION_REASONS = [
+  "bounce",
+  "complaint",
+  "suppressed",
+] as const;
+
+export type HardSuppressionReason = (typeof HARD_SUPPRESSION_REASONS)[number];
+
+export function isHardSuppressionReason(
+  value: string | null | undefined,
+): value is HardSuppressionReason {
+  return (
+    value === "bounce" || value === "complaint" || value === "suppressed"
+  );
+}
+
+/** SQL expression that keeps an existing hard-suppression reason intact. */
+export function preserveHardSuppressionReason(next: string) {
+  return sql`CASE WHEN ${emailSubscribers.unsubscribeReason} IN ('bounce', 'complaint', 'suppressed') THEN ${emailSubscribers.unsubscribeReason} ELSE ${next} END`;
+}
 
 export type MarketingConsentEvidence = {
   consentVersion: string;

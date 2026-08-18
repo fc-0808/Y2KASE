@@ -13,6 +13,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 import { emailSubscribers } from "@/lib/db/schema";
 import { SUPPORT_EMAIL } from "@/lib/legal";
+import { preserveHardSuppressionReason } from "@/lib/marketing/consent";
 import { SITE_URL } from "@/lib/site";
 
 function currentSecret(): string {
@@ -111,7 +112,7 @@ export async function applyUnsubscribe(
         set: {
           status: "unsubscribed",
           unsubscribedAt: new Date(),
-          unsubscribeReason: "customer_one_click",
+          unsubscribeReason: preserveHardSuppressionReason("customer_one_click"),
         },
       })
       .returning({ name: emailSubscribers.name });
