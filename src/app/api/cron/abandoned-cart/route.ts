@@ -10,6 +10,15 @@
  * older than 24h means the Stripe session has expired (default lifetime), so
  * there's nothing to resume.
  *
+ * Cadence: two runs a day, twelve hours apart (see vercel.json, which cannot
+ * carry comments). A single daily run cannot cover this window — a cart
+ * abandoned in the hour before it is too young to email, and by the following
+ * run it is older than 24h and its Stripe session has expired, so it is never
+ * recovered. Two runs guarantee every cart is reachable while its session is
+ * still open. Expressing that as two once-a-day entries rather than an hourly
+ * expression is deliberate: hourly schedules are a paid Vercel feature, and the
+ * atomic claim below makes the extra run free of duplicate-send risk.
+ *
  * Auth: Vercel attaches `Authorization: Bearer ${CRON_SECRET}` to cron requests
  * when CRON_SECRET is set. We reject anything else so the endpoint can't be
  * triggered to spam customers.
@@ -42,10 +51,10 @@ export async function GET(req: NextRequest) {
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: true, sent: 0, reason: "no-db" });
   }
-  // Now runs hourly, so settle the commercial-mail prerequisites once per run
-  // rather than per order. Claiming rows and retrieving Stripe sessions for a
-  // send that cannot legally happen wastes API quota and leaves the reason for
-  // an empty run invisible.
+  // Settle the commercial-mail prerequisites once per run rather than per
+  // order. Claiming rows and retrieving Stripe sessions for a send that cannot
+  // legally happen burns API quota and leaves the reason for an empty run
+  // invisible.
   const readiness = marketingMailReadiness();
   if (!readiness.ready) {
     console.error(

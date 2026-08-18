@@ -3,7 +3,11 @@
   "crons": [
     {
       "path": "/api/cron/abandoned-cart",
-      "schedule": "15 * * * *"
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/abandoned-cart",
+      "schedule": "0 21 * * *"
     },
     {
       "path": "/api/cron/review-requests",
