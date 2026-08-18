@@ -1,6 +1,5 @@
 import "server-only";
 
-import "server-only";
 import { eq, inArray } from "drizzle-orm";
 import type { Broadcast, Contact, Resend, Segment, Topic } from "resend";
 import { db } from "@/lib/db";

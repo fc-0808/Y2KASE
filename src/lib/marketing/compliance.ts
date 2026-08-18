@@ -6,15 +6,28 @@ export function marketingPostalAddress(): string | null {
   return value && value.length >= 6 ? value : null;
 }
 
-/** Campaign mail must never silently fall back to the receipt/sign-in sender. */
+/** Strip any display name, leaving the bare mailbox, lowercased for comparison. */
+function mailbox(sender: string): string {
+  const value = sender.trim();
+  return (value.match(/<([^<>]+)>\s*$/)?.[1]?.trim() || value).toLowerCase();
+}
+
+/**
+ * Campaign mail must never silently fall back to the receipt/sign-in sender.
+ *
+ * The comparison is between mailboxes, not between the raw configured strings.
+ * "Y2KASE <orders@…>" and "Y2KASE Club <orders@…>" are different strings but the
+ * same sending identity, so comparing raw values would call a shared mailbox
+ * "separated" and let campaign volume damage the deliverability of receipts and
+ * sign-in links — the exact outcome this gate exists to prevent.
+ */
 export function isMarketingSenderConfigured(): boolean {
-  const value = process.env.EMAIL_FROM_MARKETING?.trim() ?? "";
-  const address = value.match(/<([^<>]+)>$/)?.[1]?.trim() || value;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return false;
-  const transactional =
-    process.env.EMAIL_FROM?.trim() ??
-    "Y2KASE <orders@send.y2kase.com>";
-  return value !== transactional;
+  const marketing = mailbox(process.env.EMAIL_FROM_MARKETING?.trim() ?? "");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(marketing)) return false;
+  const transactional = mailbox(
+    process.env.EMAIL_FROM?.trim() || "Y2KASE <orders@send.y2kase.com>",
+  );
+  return marketing !== transactional;
 }
 
 function configuredUuid(name: string): string | null {
