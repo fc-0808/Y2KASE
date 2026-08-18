@@ -4,10 +4,21 @@ import { ProductMedia } from "@/components/ProductMedia";
 import { Stars } from "@/components/reviews/Stars";
 import type { ProductListItem } from "@/lib/products";
 
-export function ProductCard({ product }: { product: ProductListItem }) {
+export function ProductCard({
+  product,
+  imagePriority = false,
+  headingLevel = 3,
+}: {
+  product: ProductListItem;
+  /** Use only for the first visible card when it can become the route LCP. */
+  imagePriority?: boolean;
+  /** Match the surrounding page outline: catalog roots use h2, rails use h3. */
+  headingLevel?: 2 | 3;
+}) {
   const onSale =
     product.compareAtPrice &&
     Number(product.compareAtPrice) > Number(product.price);
+  const Heading = headingLevel === 2 ? "h2" : "h3";
 
   return (
     <Link
@@ -28,7 +39,9 @@ export function ProductCard({ product }: { product: ProductListItem }) {
       <ProductMedia
         src={product.imageUrl}
         alt={product.title}
-        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 360px"
+        loading={imagePriority ? "eager" : "lazy"}
+        fetchPriority={imagePriority ? "high" : "auto"}
         className="aspect-[2/3] md:aspect-[4/5]"
         imageClassName="scale-[1.08] transition duration-500 md:scale-100 md:group-hover:scale-105"
       >
@@ -40,9 +53,9 @@ export function ProductCard({ product }: { product: ProductListItem }) {
       </ProductMedia>
       {/* Centred on mobile to balance the centred product; left-aligned from md. */}
       <div className="flex flex-1 flex-col gap-1.5 p-3 text-center md:gap-2 md:p-4 md:text-left">
-        <h3 className="line-clamp-2 text-sm font-bold leading-snug transition group-hover:text-[var(--primary)]">
+        <Heading className="line-clamp-2 text-sm font-bold leading-snug transition group-hover:text-[var(--primary)]">
           {product.title}
-        </h3>
+        </Heading>
         {product.rating && product.rating.count > 0 && (
           <div className="flex items-center justify-center gap-1 md:justify-start">
             <Stars rating={product.rating.average} size={13} />

@@ -27,7 +27,10 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { trackSupport } from "@/lib/support/analytics";
 import { cartSubtotal, useCart } from "@/lib/store/cart";
-import { useHasBlockingOverlay } from "@/lib/store/overlay";
+import {
+  useHasOtherBlockingOverlay,
+  useOverlayLock,
+} from "@/lib/store/overlay";
 import {
   SUPPORT_OPEN_EVENT,
   type SupportIdentity,
@@ -110,8 +113,10 @@ export function SupportWidget() {
   const [unread, setUnread] = useState(0);
 
   const cartOpen = useCart((state) => state.isOpen);
-  const overlayActive = useHasBlockingOverlay();
+  const overlayActive = useHasOtherBlockingOverlay("support-panel");
   const state = getLiveChatState();
+
+  useOverlayLock("support-panel", open || chatOpen);
 
   const launcherRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);

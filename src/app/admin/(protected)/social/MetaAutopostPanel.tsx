@@ -58,7 +58,6 @@ export function MetaAutopostPanel({
     fbPosts,
     postedToday,
     enabled,
-    perRun,
   } = coverage;
 
   const isConnected = connected.length > 0;

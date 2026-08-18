@@ -10,7 +10,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
-import { orders, orderItems } from "@/lib/db/schema";
+import { orders } from "@/lib/db/schema";
 import type { Order, OrderItem } from "@/lib/db/schema";
 
 /** The canonical lifecycle of an order. Order is meaningful (used for the UI). */

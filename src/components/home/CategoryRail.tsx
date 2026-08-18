@@ -12,7 +12,7 @@
  *   without a generated cover fall back to a clean accent-gradient tile.
  */
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -72,36 +72,16 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
             <Link
               key={c.slug}
               href={`/collections/${c.slug}`}
+              aria-label={c.name}
               className="group w-64 shrink-0 snap-start sm:w-80"
             >
               {/* Banner cover — the collection name is baked into the art
                   (CaseBang style). Falls back to a name-on-gradient tile. */}
-              <div className="relative aspect-video overflow-hidden rounded-3xl border border-[var(--border)] shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 group-hover:-translate-y-1.5 group-hover:border-[var(--primary)] group-hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.5)]">
-                {hasCover ? (
-                  <Image
-                    src={collectionCoverSrc(c.slug)}
-                    alt={c.name}
-                    fill
-                    sizes="(max-width: 640px) 256px, 320px"
-                    className="object-cover transition duration-500 group-hover:scale-105"
-                  />
-                ) : (
-                  <span
-                    className="absolute inset-0 grid place-items-center p-4 text-center"
-                    style={{
-                      background: `linear-gradient(155deg, ${accent}40 0%, ${accent}17 50%, #ffffff 100%)`,
-                    }}
-                  >
-                    <span
-                      aria-hidden
-                      className="bg-grid absolute inset-0 opacity-20"
-                    />
-                    <span className="relative font-display text-lg font-extrabold text-[var(--foreground)] sm:text-xl">
-                      {c.name}
-                    </span>
-                  </span>
-                )}
-              </div>
+              <CategoryArtwork
+                name={c.name}
+                src={hasCover ? collectionCoverSrc(c.slug) : null}
+                accent={accent}
+              />
             </Link>
           );
         })}
@@ -118,6 +98,71 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
           </div>
         </Link>
       </div>
+    </div>
+  );
+}
+
+function CategoryArtwork({
+  name,
+  src,
+  accent,
+}: {
+  name: string;
+  src: string | null;
+  accent: string;
+}) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!src) return;
+    const element = frame.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setVisible(true);
+        observer.disconnect();
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [src]);
+
+  return (
+    <div
+      ref={frame}
+      className="relative aspect-video overflow-hidden rounded-3xl border border-[var(--border)] shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 group-hover:-translate-y-1.5 group-hover:border-[var(--primary)] group-hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.5)]"
+      style={{
+        background: `linear-gradient(155deg, ${accent}40 0%, ${accent}17 50%, #ffffff 100%)`,
+      }}
+    >
+      {src && visible ? (
+        <Image
+          src={src}
+          alt=""
+          fill
+          quality={72}
+          loading="lazy"
+          fetchPriority="low"
+          sizes="(max-width: 640px) 256px, 320px"
+          className="object-cover transition duration-500 group-hover:scale-105"
+        />
+      ) : !src ? (
+        <span className="absolute inset-0 grid place-items-center p-4 text-center">
+          <span
+            aria-hidden
+            className="bg-grid absolute inset-0 opacity-20"
+          />
+          <span className="relative font-display text-lg font-extrabold text-[var(--foreground)] sm:text-xl">
+            {name}
+          </span>
+        </span>
+      ) : null}
     </div>
   );
 }

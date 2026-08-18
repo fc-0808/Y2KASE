@@ -31,6 +31,7 @@ export function WelcomeGiftForm() {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [alreadyMember, setAlreadyMember] = useState(false);
+  const [emailed, setEmailed] = useState(false);
   const [issuedCode, setIssuedCode] = useState(WELCOME_COUPON.code);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -65,6 +66,7 @@ export function WelcomeGiftForm() {
       autoApply(code, "welcome-gift");
       setIssuedCode(code);
       setAlreadyMember(Boolean(data.alreadySubscribed));
+      setEmailed(Boolean(data.emailed));
       setStatus("success");
     } catch {
       setError("Connection error. Please try again.");
@@ -86,7 +88,9 @@ export function WelcomeGiftForm() {
         <p className="mx-auto mt-1.5 max-w-xs text-[13px] leading-snug text-[var(--foreground)]/65">
           {alreadyMember
             ? "Your code is ready — tap below to shop with your discount applied."
-            : "Check your inbox 💌 Your welcome code is below."}
+            : emailed
+              ? "Check your inbox 💌 Your welcome code is below."
+              : "Your welcome code is ready below. Save or copy it before you shop."}
         </p>
 
         <div className="mt-4">
@@ -172,7 +176,8 @@ export function WelcomeGiftForm() {
         </button>
 
         <p className="text-center text-[11px] text-[var(--foreground)]/40">
-          No spam, ever. Unsubscribe anytime. By joining you agree to our{" "}
+          By joining, you agree to receive Y2KASE marketing emails. Unsubscribe
+          anytime. See our{" "}
           <Link href="/policies/privacy-policy" className="underline">
             Privacy Policy
           </Link>

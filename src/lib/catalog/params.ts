@@ -30,9 +30,15 @@ export const DEFAULT_SORT: SortValue = "newest";
 
 /** Upper bound on selected brands, so a hand-edited URL can't fan out the query. */
 const MAX_BRANDS = 24;
+/** Bound cache cardinality and the amount of text sent through `ILIKE`. */
+const MAX_SEARCH_LENGTH = 120;
+/** Prevent arbitrary offsets from turning a hand-edited URL into an expensive scan. */
+const MAX_PAGE = 1_000;
 
 /** Collection slugs are lowercase kebab-case; anything else is not a real facet. */
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** Legacy product tags also use underscores (for example `phone_charm`). */
+const TAG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /**
  * The raw, untrusted shape Next hands us. Repeatable params (`?brand=a&brand=b`)
@@ -107,6 +113,19 @@ function first(value: string | string[] | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function parseSearch(value: string | string[] | undefined): string | undefined {
+  const normalized = first(value)?.replace(/\s+/g, " ").slice(0, MAX_SEARCH_LENGTH);
+  return normalized || undefined;
+}
+
+function parseSlug(
+  value: string | string[] | undefined,
+  pattern: RegExp = SLUG_PATTERN,
+): string | undefined {
+  const normalized = first(value)?.toLowerCase();
+  return normalized && pattern.test(normalized) ? normalized : undefined;
+}
+
 function isSortValue(value: string | undefined): value is SortValue {
   return SORT_VALUES.includes(value as SortValue);
 }
@@ -129,7 +148,7 @@ function parseBrands(value: string | string[] | undefined): string[] {
 
 function parsePage(value: string | undefined): number {
   const page = Number(value);
-  return Number.isInteger(page) && page > 1 ? page : 1;
+  return Number.isInteger(page) && page > 1 ? Math.min(page, MAX_PAGE) : 1;
 }
 
 /**
@@ -147,10 +166,10 @@ export function parseCatalogParams(
   const sort = first(sp.sort);
   return {
     basePath,
-    q: first(sp.q),
-    tag: first(sp.tag),
-    device: first(sp.device),
-    collection: first(sp.collection),
+    q: parseSearch(sp.q),
+    tag: parseSlug(sp.tag, TAG_PATTERN),
+    device: parseSlug(sp.device),
+    collection: parseSlug(sp.collection),
     brands: parseBrands(sp.brand),
     magsafe: magsafe === "true" ? true : magsafe === "false" ? false : undefined,
     sort: isSortValue(sort) ? sort : DEFAULT_SORT,

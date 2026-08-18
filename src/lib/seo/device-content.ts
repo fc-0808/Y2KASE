@@ -5,8 +5,10 @@
  * /devices/<id> — the high-intent "iPhone cases" style queries that drive the
  * bulk of category search traffic for accessory brands. Unique intro + FAQ copy
  * per device keeps these pages substantive (not thin duplicates of /products)
- * and earns the FAQ rich result.
+ * and gives search/answer engines explicit, visible Q&A context. Google limits
+ * FAQ rich-result display to authoritative government and health sites.
  */
+import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
 
 export type DeviceSeo = {
   /** <title> + H1 base, e.g. "iPhone Cases". */
@@ -20,8 +22,7 @@ export type DeviceSeo = {
 const DEVICE_SEO: Record<string, DeviceSeo> = {
   iphone: {
     heading: "iPhone Cases",
-    intro:
-      "Shop kawaii and Y2K iPhone cases at Y2KASE — holographic, glittery and character-themed designs for iPhone 13 through iPhone 17, including Pro and Pro Max. MagSafe-compatible, drop-protective, and made to express your vibe. Free shipping over $35.",
+    intro: `Shop kawaii and Y2K iPhone cases at Y2KASE — holographic, glittery and character-themed designs for iPhone 13 through iPhone 17, including Pro and Pro Max. MagSafe-compatible, drop-protective, and made to express your vibe. ${FREE_SHIPPING_OFFER}.`,
     faqs: [
       {
         question: "Which iPhone models do your cases fit?",
@@ -52,7 +53,7 @@ export function deviceSeo(id: string, label: string): DeviceSeo {
   return (
     DEVICE_SEO[id] ?? {
       heading: `${label} Cases`,
-      intro: `Shop kawaii and Y2K ${label} cases and accessories at Y2KASE — holographic, glittery and character-themed designs made to express your vibe. Free shipping over $35.`,
+      intro: `Shop kawaii and Y2K ${label} cases and accessories at Y2KASE — holographic, glittery and character-themed designs made to express your vibe. ${FREE_SHIPPING_OFFER}.`,
       faqs: [],
     }
   );

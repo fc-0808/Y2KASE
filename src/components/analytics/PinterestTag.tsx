@@ -8,7 +8,8 @@
  *  2. Build retargeting audiences from site visitors
  *  3. Track and optimise for standard events (PageVisit, AddToCart, Checkout)
  *
- * Loaded on mount when `NEXT_PUBLIC_PINTEREST_TAG_ID` is set (no consent gate).
+ * Loaded after page load, during idle time, when
+ * `NEXT_PUBLIC_PINTEREST_TAG_ID` is set (no consent gate).
  *
  * Pinterest Tag standard events:
  *  - pagevisit  — every page view
@@ -19,15 +20,22 @@
  *  - lead       — email capture / subscribe
  */
 
-import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { Suspense, useEffect } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { scheduleAfterLoad } from "@/lib/analytics/idle";
 
 export const PINTEREST_TAG_ID = process.env.NEXT_PUBLIC_PINTEREST_TAG_ID;
+const pendingPinterestEvents: {
+  event: string;
+  data?: Record<string, unknown>;
+}[] = [];
 
 declare global {
   interface Window {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pintrk?: (...args: any[]) => void;
+    __y2kPinterestPage?: string;
+    __y2kPinterestPendingPage?: string;
   }
 }
 
@@ -55,6 +63,12 @@ function loadPinterestScript(tagId: string): void {
   const pintrk = window.pintrk as unknown as (...args: any[]) => void;
   pintrk("load", tagId, { np: "nextjs" });
   pintrk("page");
+  window.__y2kPinterestPage =
+    window.location.pathname + window.location.search;
+  window.__y2kPinterestPendingPage = undefined;
+  for (const pending of pendingPinterestEvents.splice(0)) {
+    pintrk("track", pending.event, pending.data ?? {});
+  }
 }
 
 /** Fire a Pinterest Tag event when the tag is loaded. */
@@ -62,22 +76,46 @@ export function trackPinEvent(
   event: string,
   data?: Record<string, unknown>,
 ): void {
-  if (typeof window === "undefined" || !window.pintrk) return;
+  if (!PINTEREST_TAG_ID || typeof window === "undefined") return;
+  if (!window.pintrk) {
+    if (pendingPinterestEvents.length < 100) {
+      pendingPinterestEvents.push({ event, data });
+    }
+    return;
+  }
   window.pintrk("track", event, data ?? {});
 }
 
-export function PinterestTag() {
+function PinterestPageviewTracker() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const query = searchParams.toString();
+  const pageKey = query ? `${pathname}?${query}` : pathname;
 
   useEffect(() => {
     if (!PINTEREST_TAG_ID) return;
-    loadPinterestScript(PINTEREST_TAG_ID);
-  }, []);
-
-  useEffect(() => {
-    if (!PINTEREST_TAG_ID || !window.pintrk) return;
+    if (!window.pintrk) {
+      window.__y2kPinterestPendingPage = pageKey;
+      return;
+    }
+    if (window.__y2kPinterestPage === pageKey) return;
     window.pintrk("page");
-  }, [pathname]);
+    window.__y2kPinterestPage = pageKey;
+  }, [pageKey]);
 
   return null;
+}
+
+export function PinterestTag() {
+  useEffect(() => {
+    if (!PINTEREST_TAG_ID) return;
+    return scheduleAfterLoad(() => loadPinterestScript(PINTEREST_TAG_ID));
+  }, []);
+
+  if (!PINTEREST_TAG_ID) return null;
+  return (
+    <Suspense fallback={null}>
+      <PinterestPageviewTracker />
+    </Suspense>
+  );
 }

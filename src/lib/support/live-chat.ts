@@ -247,6 +247,27 @@ export function warmUpLiveChat(): void {
 }
 
 let loadPromise: Promise<TawkApi> | null = null;
+let pendingAttributes: LiveChatAttributes = {};
+
+function queueAttributes(attributes: LiveChatAttributes | undefined): void {
+  pendingAttributes = {
+    ...pendingAttributes,
+    ...normalizeAttributes(attributes),
+  };
+}
+
+function flushAttributes(api: TawkApi): void {
+  if (!api.setAttributes || Object.keys(pendingAttributes).length === 0) return;
+  const attributes = pendingAttributes;
+  pendingAttributes = {};
+  try {
+    api.setAttributes(attributes, (error) => {
+      if (error) pendingAttributes = { ...attributes, ...pendingAttributes };
+    });
+  } catch {
+    pendingAttributes = { ...attributes, ...pendingAttributes };
+  }
+}
 
 /**
  * Inject the vendor SDK exactly once. Resolves when tawk reports it is ready
@@ -283,6 +304,7 @@ function loadSdk(visitor: LiveChatVisitor): Promise<TawkApi> {
     api.onBeforeLoad = () => api.hideWidget?.();
     api.onLoad = () => {
       api.hideWidget?.();
+      flushAttributes(api);
       finish(() => resolve(api));
     };
 
@@ -341,25 +363,18 @@ export async function openLiveChat(
   if (!LIVE_CHAT_ENABLED) throw new Error("Live chat is not configured.");
 
   const visitor = options.visitor ?? {};
-  const api = await loadSdk(visitor);
-
-  // Attributes only enrich the agent's view — a rejected payload must never
-  // stop a shopper from reaching a human, so this is strictly best-effort.
-  try {
-    const attributes: LiveChatAttributes = normalizeAttributes(options.attributes);
-    // Name/email may only travel through setAttributes under secure mode; sent
-    // unsigned, tawk rejects the entire call.
-    if (visitor.hash && visitor.email) {
-      attributes.hash = visitor.hash;
-      attributes.email = visitor.email.trim().toLowerCase();
-      if (visitor.name) attributes.name = normalizeAttributeValue(visitor.name);
-    }
-    if (Object.keys(attributes).length > 0) {
-      api.setAttributes?.(attributes, () => {});
-    }
-  } catch {
-    /* non-fatal */
+  const attributes: LiveChatAttributes = normalizeAttributes(options.attributes);
+  // Name/email may only travel through setAttributes under secure mode; sent
+  // unsigned, tawk rejects the entire call.
+  if (visitor.hash && visitor.email) {
+    attributes.hash = visitor.hash;
+    attributes.email = visitor.email.trim().toLowerCase();
+    if (visitor.name) attributes.name = normalizeAttributeValue(visitor.name);
   }
+  queueAttributes(attributes);
+
+  const api = await loadSdk(visitor);
+  flushAttributes(api);
 
   api.showWidget?.();
   api.maximize?.();
@@ -371,14 +386,15 @@ export async function setLiveChatAttributes(
   attributes: LiveChatAttributes,
 ): Promise<void> {
   if (!LIVE_CHAT_ENABLED) return;
-  const api = await loadSdk({});
+  queueAttributes(attributes);
+  // Context updates must never be what boots the several-hundred-KB SDK. If a
+  // conversation is already loading/connected, flush them; otherwise they wait
+  // for the shopper's explicit chat action.
+  if (!loadPromise) return;
   try {
-    const normalized = normalizeAttributes(attributes);
-    if (Object.keys(normalized).length > 0) {
-      api.setAttributes?.(normalized, () => {});
-    }
+    flushAttributes(await loadPromise);
   } catch {
-    /* non-fatal */
+    /* a later explicit retry will flush the queued attributes */
   }
 }
 

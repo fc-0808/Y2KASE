@@ -8,7 +8,9 @@
  * customer- or crawler-facing.
  */
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/lib/db";
+import { CACHE_TAGS } from "@/lib/cache";
 import { reviews, orders, orderItems } from "@/lib/db/schema";
 import type { Review } from "@/lib/db/schema";
 
@@ -31,8 +33,18 @@ const EMPTY_SUMMARY: ReviewSummary = {
 };
 
 /** Aggregate published-review stats for a single product. */
-export async function getReviewSummary(productId: number): Promise<ReviewSummary> {
-  if (!isDbConfigured()) return EMPTY_SUMMARY;
+export function getReviewSummary(productId: number): Promise<ReviewSummary> {
+  if (!isDbConfigured()) return Promise.resolve(EMPTY_SUMMARY);
+  return getReviewSummaryCached(productId);
+}
+
+const getReviewSummaryCached = unstable_cache(
+  computeReviewSummary,
+  ["published-review-summary-v1"],
+  { tags: [CACHE_TAGS.reviews], revalidate: 300 },
+);
+
+async function computeReviewSummary(productId: number): Promise<ReviewSummary> {
   try {
     const rows = await db
       .select({ rating: reviews.rating, n: sql<number>`count(*)::int` })
@@ -49,11 +61,25 @@ export async function getReviewSummary(productId: number): Promise<ReviewSummary
 }
 
 /** Published reviews for a product, newest first. */
-export async function getPublishedReviews(
+export function getPublishedReviews(
   productId: number,
   limit = 50,
 ): Promise<Review[]> {
-  if (!isDbConfigured()) return [];
+  if (!isDbConfigured()) return Promise.resolve([]);
+  const boundedLimit = Math.min(100, Math.max(1, Math.trunc(limit)));
+  return getPublishedReviewsCached(productId, boundedLimit);
+}
+
+const getPublishedReviewsCached = unstable_cache(
+  computePublishedReviews,
+  ["published-product-reviews-v1"],
+  { tags: [CACHE_TAGS.reviews], revalidate: 300 },
+);
+
+async function computePublishedReviews(
+  productId: number,
+  limit: number,
+): Promise<Review[]> {
   try {
     return await db.query.reviews.findMany({
       where: and(

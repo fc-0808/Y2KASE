@@ -25,6 +25,7 @@ function rowToMeta(row: BlogPost): PostMeta {
     description: row.description,
     excerpt: row.excerpt,
     date: isoDate(row),
+    modified: new Date(row.updatedAt).toISOString(),
     author: row.author,
     tags: row.tags ?? [],
     cover: row.cover ?? undefined,

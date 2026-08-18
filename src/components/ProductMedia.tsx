@@ -1,4 +1,5 @@
 import Image from "next/image";
+import type { ImageProps } from "next/image";
 import type { ReactNode } from "react";
 
 type ProductMediaFit = "cover" | "contain";
@@ -20,7 +21,8 @@ export function ProductMedia({
   alt,
   sizes,
   fit = "cover",
-  priority = false,
+  loading,
+  fetchPriority,
   className,
   imageClassName,
   fallbackClassName = "text-4xl",
@@ -30,7 +32,8 @@ export function ProductMedia({
   alt: string;
   sizes?: string;
   fit?: ProductMediaFit;
-  priority?: boolean;
+  loading?: ImageProps["loading"];
+  fetchPriority?: ImageProps["fetchPriority"];
   /** Container classes: sizing (aspect/height/width), radius, borders. */
   className?: string;
   /** Extra image classes, e.g. hover transforms. */
@@ -53,7 +56,9 @@ export function ProductMedia({
           alt={alt}
           fill
           sizes={sizes}
-          priority={priority}
+          quality={82}
+          loading={loading}
+          fetchPriority={fetchPriority}
           className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
         />
       ) : (

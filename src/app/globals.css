@@ -176,6 +176,21 @@ body {
   padding-bottom: var(--bottom-bar-h, 0px);
 }
 
+/* Fixed multi-layer backgrounds trigger costly repaints while scrolling on
+   mobile GPUs. The same gradients remain visible without pinning their paint. */
+@media (max-width: 767px) {
+  body {
+    background-attachment: scroll;
+  }
+}
+
+/* Skip layout and paint for homepage shelves until they approach the viewport.
+   The intrinsic fallback keeps the scroll range stable before first render. */
+.defer-render {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 500px;
+}
+
 /* Headings default to the rounded display face for kawaii character. */
 h1, h2, h3, .font-display {
   font-family: var(--font-display), var(--font-sans), sans-serif;

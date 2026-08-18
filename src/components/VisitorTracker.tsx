@@ -6,18 +6,19 @@
  * (IP, geolocation, device) is derived server-side in /api/track; the client
  * only reports the path it landed on and the document referrer.
  *
- * Mounted once in the root layout. Admin routes are excluded so the console
- * doesn't pollute storefront traffic.
+ * Mounted once in the root layout. The console and internal routes are excluded
+ * by `isTrackablePath`, which the server endpoint applies again — the beacon is
+ * a hint, never the authority on what gets recorded.
  */
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { isTrackablePath } from "@/lib/analytics/paths";
 
 export function VisitorTracker() {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!pathname) return;
-    if (pathname.startsWith("/admin") || pathname.startsWith("/api")) return;
+    if (!pathname || !isTrackablePath(pathname)) return;
 
     const payload = JSON.stringify({
       path: pathname,

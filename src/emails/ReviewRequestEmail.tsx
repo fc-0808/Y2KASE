@@ -16,6 +16,7 @@ interface ReviewRequestEmailProps {
   productTitle: string;
   reviewUrl: string;
   unsubscribeUrl?: string;
+  postalAddress: string;
 }
 
 export function ReviewRequestEmail({
@@ -23,6 +24,7 @@ export function ReviewRequestEmail({
   productTitle,
   reviewUrl,
   unsubscribeUrl,
+  postalAddress,
 }: ReviewRequestEmailProps) {
   const greeting = name ? `Hey ${name}! ✨` : "Hey bestie! ✨";
 
@@ -57,6 +59,7 @@ export function ReviewRequestEmail({
           </Section>
 
           <Section style={footerStyle}>
+            <Text style={footerTextStyle}>{postalAddress}</Text>
             <Text style={footerTextStyle}>
               © {new Date().getFullYear()} Y2KASE · All rights reserved
             </Text>

@@ -33,6 +33,35 @@ export type UtmParams = {
   capturedAt?: string;
 };
 
+/** Normalize untrusted URL/client attribution before storage or Stripe metadata. */
+export function sanitizeUtmParams(value: unknown): UtmParams | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  const text = (key: keyof UtmParams, max: number): string | undefined => {
+    const raw = input[key];
+    if (typeof raw !== "string") return undefined;
+    const normalized = raw.replace(/\s+/g, " ").trim().slice(0, max);
+    return normalized || undefined;
+  };
+  const safe: UtmParams = {
+    source: text("source", 100),
+    medium: text("medium", 100),
+    campaign: text("campaign", 200),
+    content: text("content", 200),
+    term: text("term", 200),
+    fbclid: text("fbclid", 255),
+    ttclid: text("ttclid", 255),
+    gclid: text("gclid", 255),
+    ref: text("ref", 255),
+    landingUrl: text("landingUrl", 500),
+    capturedAt: text("capturedAt", 64),
+  };
+  for (const key of Object.keys(safe) as (keyof UtmParams)[]) {
+    if (!safe[key]) delete safe[key];
+  }
+  return Object.keys(safe).length > 0 ? safe : null;
+}
+
 /** Extract UTM + click-ID params from a URL search string. */
 export function extractUtmParams(search: string): UtmParams | null {
   const p = new URLSearchParams(search);
@@ -72,17 +101,18 @@ export function extractUtmParams(search: string): UtmParams | null {
 
   // Return null if no recognisable attribution params found
   const hasData = Object.keys(utm).length > 0;
-  return hasData ? utm : null;
+  return hasData ? sanitizeUtmParams(utm) : null;
 }
 
 /** Save UTM params to both sessionStorage and a 30-day cookie. */
 export function saveUtmParams(params: UtmParams): void {
   if (typeof window === "undefined") return;
-  const enriched: UtmParams = {
+  const enriched = sanitizeUtmParams({
     ...params,
     landingUrl: window.location.href,
     capturedAt: new Date().toISOString(),
-  };
+  });
+  if (!enriched) return;
   const json = JSON.stringify(enriched);
   try {
     sessionStorage.setItem(UTM_SESSION_KEY, json);
@@ -122,16 +152,19 @@ export function readUtmParams(): UtmParams | null {
 export function utmToMetadata(
   params: UtmParams | null,
 ): Record<string, string> {
-  if (!params) return {};
+  const safe = sanitizeUtmParams(params);
+  if (!safe) return {};
   const meta: Record<string, string> = {};
-  if (params.source) meta.utm_source = params.source;
-  if (params.medium) meta.utm_medium = params.medium;
-  if (params.campaign) meta.utm_campaign = params.campaign;
-  if (params.content) meta.utm_content = params.content;
-  if (params.term) meta.utm_term = params.term;
-  if (params.fbclid) meta.fbclid = params.fbclid;
-  if (params.ttclid) meta.ttclid = params.ttclid;
-  if (params.gclid) meta.gclid = params.gclid;
-  if (params.landingUrl) meta.landing_url = params.landingUrl.slice(0, 500);
+  if (safe.source) meta.utm_source = safe.source;
+  if (safe.medium) meta.utm_medium = safe.medium;
+  if (safe.campaign) meta.utm_campaign = safe.campaign;
+  if (safe.content) meta.utm_content = safe.content;
+  if (safe.term) meta.utm_term = safe.term;
+  if (safe.fbclid) meta.fbclid = safe.fbclid;
+  if (safe.ttclid) meta.ttclid = safe.ttclid;
+  if (safe.gclid) meta.gclid = safe.gclid;
+  if (safe.ref) meta.pinterest_ref = safe.ref;
+  if (safe.landingUrl) meta.landing_url = safe.landingUrl;
+  if (safe.capturedAt) meta.utm_captured_at = safe.capturedAt;
   return meta;
 }

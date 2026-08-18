@@ -6,7 +6,10 @@ import { ShoppingBag, Check, Play } from "lucide-react";
 import { useCart } from "@/lib/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { STYLE_OPTION_NAME, getStylePrice, defaultStyleFor } from "@/lib/pricing";
-import { trackAddToCart, trackViewItem } from "@/lib/analytics/gtag";
+import {
+  trackCartAdd,
+  trackProductView,
+} from "@/lib/analytics/commerce";
 import { Stars } from "@/components/reviews/Stars";
 import { ProductOptions } from "@/components/product/ProductOptions";
 import { StickyBuyBar } from "@/components/product/StickyBuyBar";
@@ -29,6 +32,7 @@ export function ProductDetailClient({
   slug,
   title,
   price,
+  compareAtPrice,
   currency,
   productType,
   ratingAverage = 0,
@@ -42,6 +46,7 @@ export function ProductDetailClient({
   slug: string;
   title: string;
   price: number;
+  compareAtPrice?: number | null;
   currency: string;
   productType: string;
   ratingAverage?: number;
@@ -103,6 +108,10 @@ export function ProductDetailClient({
     () => (isIphoneCase ? getStylePrice(selectedStyle, currency) : price),
     [isIphoneCase, selectedStyle, currency, price],
   );
+  const onSale =
+    compareAtPrice !== null &&
+    compareAtPrice !== undefined &&
+    compareAtPrice > currentPrice;
 
   // Every image is a slide (plus the optional video) — nothing is filtered out.
   const slides = useMemo<Slide[]>(() => {
@@ -124,12 +133,12 @@ export function ProductDetailClient({
 
   const current = slides[activeSlide] ?? slides[0];
 
-  // GA4 view_item — fire exactly once when the PDP is first viewed.
+  // Commerce view event — fire exactly once when the PDP is first viewed.
   const viewedRef = useRef(false);
   useEffect(() => {
     if (viewedRef.current) return;
     viewedRef.current = true;
-    trackViewItem(
+    trackProductView(
       { productId, slug, title, price: currentPrice, options: selected },
       currency,
     );
@@ -153,7 +162,7 @@ export function ProductDetailClient({
         null,
       options: selected,
     });
-    trackAddToCart(
+    trackCartAdd(
       { productId, slug, title, price: currentPrice, options: selected, quantity: 1 },
       currency,
     );
@@ -181,7 +190,9 @@ export function ProductDetailClient({
               src={current.url}
               alt={current.alt}
               fill
-              priority
+              quality={82}
+              loading={activeSlide === 0 ? "eager" : "lazy"}
+              fetchPriority={activeSlide === 0 ? "high" : "auto"}
               sizes="(max-width: 1024px) 100vw, 50vw"
               className="object-contain"
             />
@@ -226,6 +237,11 @@ export function ProductDetailClient({
                       ? `video-${slide.url}`
                       : `img-${slide.id}`
                   }
+                  type="button"
+                  aria-label={`Show ${
+                    slide.kind === "video" ? "product video" : "product image"
+                  } ${i + 1} of ${slides.length}`}
+                  aria-pressed={i === activeSlide}
                   onClick={() => setActiveSlide(i)}
                   className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 bg-[var(--product-surface)] sm:h-20 sm:w-20 ${
                     i === activeSlide
@@ -235,13 +251,17 @@ export function ProductDetailClient({
                 >
                   {slide.kind === "video" ? (
                     <>
-                      <video
-                        src={slide.url}
-                        className="h-full w-full object-contain"
-                        muted
-                        playsInline
-                        preload="metadata"
-                      />
+                      {images[0]?.url ? (
+                        <Image
+                          src={images[0].url}
+                          alt=""
+                          fill
+                          quality={72}
+                          loading="lazy"
+                          sizes="80px"
+                          className="object-contain"
+                        />
+                      ) : null}
                       <span className="absolute inset-0 grid place-items-center bg-black/30">
                         <Play className="h-4 w-4 fill-white text-white sm:h-5 sm:w-5" />
                       </span>
@@ -251,6 +271,8 @@ export function ProductDetailClient({
                       src={slide.url}
                       alt={slide.alt}
                       fill
+                      quality={82}
+                      loading="lazy"
                       sizes="80px"
                       className="object-contain"
                     />
@@ -280,12 +302,19 @@ export function ProductDetailClient({
           )}
           {/* The style cards quote add-on deltas, so this is the only place the
               running total is spelled out — announce it when it moves. */}
-          <p
+          <div
             aria-live="polite"
-            className="mt-2 text-2xl font-bold text-[var(--primary)]"
+            className="mt-2 flex flex-wrap items-baseline gap-2"
           >
-            {formatPrice(currentPrice, currency)}
-          </p>
+            <span className="text-2xl font-bold text-[var(--primary)]">
+              {formatPrice(currentPrice, currency)}
+            </span>
+            {onSale && (
+              <span className="text-sm font-semibold text-[var(--foreground)]/45 line-through">
+                {formatPrice(compareAtPrice, currency)}
+              </span>
+            )}
+          </div>
         </div>
 
         <ProductOptions

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { Send } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { getSubscribers, getSubscriberStats } from "@/lib/admin/subscribers";
 import { SubscribersConsole } from "./SubscribersConsole";
@@ -21,7 +23,8 @@ export default async function AdminSubscribersPage() {
   ]);
 
   const cards = [
-    { label: "Active", value: stats.active },
+    { label: "Sendable", value: stats.active },
+    { label: "Needs re-consent", value: stats.unverified },
     { label: "Unsubscribed", value: stats.unsubscribed },
     { label: "Total", value: stats.total },
     { label: "New this week", value: stats.newThisWeek },
@@ -29,15 +32,24 @@ export default async function AdminSubscribersPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-black">Subscribers</h1>
-        <p className="mt-1 text-sm text-[var(--foreground)]/60">
-          Your marketing email list, captured from the welcome pop-up, footer
-          and checkout. Export to CSV for your email platform.
-        </p>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-black">Subscribers</h1>
+          <p className="mt-1 text-sm text-[var(--foreground)]/60">
+            Your consent ledger for the welcome pop-up, footer and checkout.
+            Provider opt-outs are reconciled before every campaign.
+          </p>
+        </div>
+        <Link
+          href="/admin/campaigns"
+          className="inline-flex items-center justify-center gap-2 self-start rounded-full bg-primary px-4 py-2 text-sm font-bold text-foreground transition hover:brightness-95"
+        >
+          <Send className="h-4 w-4" />
+          Create campaign
+        </Link>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
         {cards.map((c) => (
           <div
             key={c.label}

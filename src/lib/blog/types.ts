@@ -16,6 +16,8 @@ export type PostMeta = {
   excerpt: string;
   /** ISO date (YYYY-MM-DD). */
   date: string;
+  /** ISO modification timestamp when content changed after publication. */
+  modified?: string;
   author: string;
   tags: string[];
   /** Cover image path/URL for cards + OG. */
@@ -36,7 +38,7 @@ export type PostSummary = {
   meta: PostMeta;
 };
 
-/** Optional structured FAQ that renders as a FAQPage rich result. */
+/** Optional visible FAQ mirrored into FAQPage machine-readable context. */
 export type PostFaq = { question: string; answer: string };
 
 /**

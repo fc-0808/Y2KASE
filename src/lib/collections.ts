@@ -129,16 +129,29 @@ async function computeCollectionTree(): Promise<CollectionNode[]> {
   return roots;
 }
 
-/** Flattened map of every active collection by slug (for resolving filters). */
-export async function getCollectionBySlug(
-  slug: string,
-): Promise<Collection | null> {
-  if (!isDbConfigured()) return null;
+async function computeCollectionBySlug(slug: string): Promise<Collection | null> {
   const row = await db.query.collections.findFirst({
     where: and(eq(collections.slug, slug), eq(collections.status, "active")),
   });
   return row ?? null;
 }
+
+const getCollectionBySlugCached = unstable_cache(
+  computeCollectionBySlug,
+  ["active-collection-by-slug-v1"],
+  {
+    tags: [CACHE_TAGS.collections],
+    revalidate: 3600,
+  },
+);
+
+/** Active collection by slug, cached across requests and deduped within a render. */
+export const getCollectionBySlug = reactCache(async function getCollectionBySlug(
+  slug: string,
+): Promise<Collection | null> {
+  if (!isDbConfigured()) return null;
+  return getCollectionBySlugCached(slug);
+});
 
 /** Direct children of a collection (active), ordered for display. */
 export async function getCollectionChildren(
@@ -154,23 +167,31 @@ export async function getCollectionChildren(
   });
 }
 
-/** Ancestor chain (root → … → self) for breadcrumbs. */
+export type CollectionBreadcrumbItem = Pick<Collection, "id" | "slug" | "name">;
+
+/** Ancestor chain (root → … → self), derived from the already-cached tree. */
 export async function getCollectionBreadcrumb(
   collection: Collection,
-): Promise<Collection[]> {
+): Promise<CollectionBreadcrumbItem[]> {
   if (!isDbConfigured()) return [collection];
-  const chain: Collection[] = [collection];
-  let parentId = collection.parentId;
-  // Bounded walk (taxonomy depth is small); guard against cycles.
-  for (let i = 0; i < 8 && parentId; i++) {
-    const parent = await db.query.collections.findFirst({
-      where: eq(collections.id, parentId),
-    });
-    if (!parent) break;
-    chain.unshift(parent);
-    parentId = parent.parentId;
+
+  const tree = await getCollectionTree();
+  function pathTo(
+    nodes: CollectionNode[],
+    targetId: number,
+    ancestors: CollectionNode[] = [],
+  ): CollectionNode[] | null {
+    for (const node of nodes) {
+      const path = [...ancestors, node];
+      if (node.id === targetId) return path;
+      const nested = pathTo(node.children, targetId, path);
+      if (nested) return nested;
+    }
+    return null;
   }
-  return chain;
+
+  const path = pathTo(tree, collection.id);
+  return path?.map(({ id, slug, name }) => ({ id, slug, name })) ?? [collection];
 }
 
 /**

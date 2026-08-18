@@ -25,11 +25,11 @@ import {
 import { generateBlogCover, isCoverGenEnabled } from "./cover";
 
 /**
- * Publish generated posts immediately. Fully automatic by default — set
- * BLOG_AUTOPUBLISH="false" to switch to review mode (posts land as drafts in
- * /admin/blog and wait for a human to approve them).
+ * Generated editorial is draft-first. Publishing is an explicit production
+ * decision because factual errors, topic cannibalization and thin copy are
+ * quality risks that static validation cannot fully detect.
  */
-export const BLOG_AUTOPUBLISH = process.env.BLOG_AUTOPUBLISH !== "false";
+export const BLOG_AUTOPUBLISH = process.env.BLOG_AUTOPUBLISH === "true";
 
 /** Keep at least this many topics queued so the pipeline never starves. */
 export const BLOG_QUEUE_TARGET = Number(process.env.BLOG_QUEUE_TARGET ?? 12);

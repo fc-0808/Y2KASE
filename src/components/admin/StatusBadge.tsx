@@ -8,6 +8,7 @@ const STATUS_STYLES: Record<string, string> = {
   cancelled: "bg-gray-200 text-gray-600",
   refunded: "bg-rose-100 text-rose-700",
   active: "bg-emerald-100 text-emerald-700",
+  unverified: "bg-amber-100 text-amber-700",
   unsubscribed: "bg-gray-200 text-gray-600",
   // Social Studio creative lifecycle
   draft: "bg-amber-100 text-amber-700",

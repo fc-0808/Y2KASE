@@ -1,25 +1,12 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Nunito, Baloo_2, Press_Start_2P, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
-import { SiteHeader } from "@/components/SiteHeader";
-import { Footer } from "@/components/Footer";
-import { CartDrawer } from "@/components/CartDrawer";
-import { EmailCapturePopLoader } from "@/components/EmailCapturePopLoader";
-import { SupportWidgetLoader } from "@/components/support/SupportWidgetLoader";
-import { StorefrontOnly } from "@/components/StorefrontOnly";
-import { CheckoutFlowOnly } from "@/components/CheckoutFlowOnly";
-import { CheckoutHeader } from "@/components/checkout/CheckoutHeader";
-import { CheckoutFooter } from "@/components/checkout/CheckoutFooter";
 import { VisitorTracker } from "@/components/VisitorTracker";
-import { JsonLd } from "@/components/JsonLd";
-import { ConsentMode } from "@/components/analytics/ConsentMode";
-import { GoogleAnalytics } from "@/components/analytics/GoogleAnalytics";
-import { MetaPixel } from "@/components/analytics/MetaPixel";
-import { TikTokPixel } from "@/components/analytics/TikTokPixel";
-import { PinterestTag } from "@/components/analytics/PinterestTag";
-import { UtmCapture } from "@/components/analytics/UtmCapture";
-import { organizationJsonLd, websiteJsonLd } from "@/lib/seo";
+import { INDEXABLE_ROBOTS } from "@/lib/seo";
+import { SITE_NAME, SITE_URL } from "@/lib/site";
+import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
 
 // Body — rounded, friendly, highly legible. `swap` keeps text paintable while
 // the webfont loads (no invisible-text flash blocking FCP/LCP).
@@ -56,36 +43,26 @@ const geistMono = Geist_Mono({
   preload: false,
 });
 
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
-
-// Product imagery is served cross-origin from the Cloudflare R2 CDN. Opening
-// that connection (DNS + TCP + TLS) early — before the HTML parser discovers
-// the first <img> — shaves a full round-trip off the largest contentful paint.
-const IMAGE_CDN_ORIGIN = (() => {
-  try {
-    const base = process.env.R2_PUBLIC_URL;
-    return base ? new URL(base).origin : null;
-  } catch {
-    return null;
-  }
-})();
+const STORE_DESCRIPTION =
+  `Kawaii, Y2K & holographic phone cases, charms and accessories from Y2KASE. ${FREE_SHIPPING_OFFER}. Shop your vibe.`;
+const SOCIAL_DESCRIPTION =
+  "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
+  applicationName: SITE_NAME,
   title: {
     default: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
     template: "%s · Y2KASE",
   },
-  description:
-    "Welcome to the Y2KASE Club, bestie! Kawaii, Y2K & holographic phone cases, charms and accessories. Free shipping over $35. Express your vibe. ✨",
+  description: STORE_DESCRIPTION,
   openGraph: {
     type: "website",
     siteName: "Y2KASE",
     url: SITE_URL,
+    locale: "en_US",
     title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
-    description:
-      "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
+    description: SOCIAL_DESCRIPTION,
     images: [
       {
         url: "/brand/og.webp",
@@ -98,18 +75,61 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
-    description:
-      "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
+    description: SOCIAL_DESCRIPTION,
     images: ["/brand/og.webp"],
   },
+  authors: [{ name: SITE_NAME, url: "/about" }],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
+  category: "Shopping",
+  referrer: "strict-origin-when-cross-origin",
+  robots: INDEXABLE_ROBOTS,
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      {
+        url: "/brand/app-icon-192.png",
+        type: "image/png",
+        sizes: "192x192",
+      },
+    ],
+    apple: [
+      {
+        url: "/brand/app-icon-512.png",
+        type: "image/png",
+        sizes: "512x512",
+      },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    title: SITE_NAME,
+    statusBarStyle: "default",
+  },
+  formatDetection: { telephone: false, email: false, address: false },
+  pinterest: { richPin: true },
   // Site-ownership verification for search/social platforms. Pinterest reads
   // <meta name="p:domain_verify"> to claim y2kase.com (unlocks Rich Pins,
   // catalog ingestion and the Pinterest tag's full attribution).
   verification: {
+    ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+      ? { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }
+      : {}),
     other: {
       "p:domain_verify": "4efb02ceeb9f008aabe77ae8f6fed9d1",
+      ...(process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION
+        ? {
+            "msvalidate.01":
+              process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION,
+          }
+        : {}),
     },
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#fdf3fb",
+  colorScheme: "light",
 };
 
 export default function RootLayout({
@@ -123,43 +143,11 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className={`${nunito.variable} ${baloo.variable} ${pixel.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head>
-        {IMAGE_CDN_ORIGIN && (
-          <>
-            <link rel="preconnect" href={IMAGE_CDN_ORIGIN} crossOrigin="" />
-            <link rel="dns-prefetch" href={IMAGE_CDN_ORIGIN} />
-          </>
-        )}
-      </head>
       <body className="flex min-h-dvh flex-col">
-        <ConsentMode />
-        <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
-        {/* Storefront chrome is suppressed on /admin (own shell) and inside the
-            checkout funnel (/cart, /checkout/*), which gets the minimal,
-            distraction-free header/footer below instead. */}
-        <StorefrontOnly>
-          <SiteHeader />
-        </StorefrontOnly>
-        <CheckoutFlowOnly>
-          <CheckoutHeader />
-        </CheckoutFlowOnly>
-        <main className="flex-1">{children}</main>
-        <StorefrontOnly>
-          <Footer />
-          <CartDrawer />
-          <EmailCapturePopLoader />
-          <SupportWidgetLoader />
-        </StorefrontOnly>
-        <CheckoutFlowOnly>
-          <CheckoutFooter />
-        </CheckoutFlowOnly>
+        {children}
         <Analytics />
+        <SpeedInsights />
         <VisitorTracker />
-        <GoogleAnalytics />
-        <MetaPixel />
-        <TikTokPixel />
-        <PinterestTag />
-        <UtmCapture />
       </body>
     </html>
   );

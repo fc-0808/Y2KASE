@@ -30,6 +30,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { resolveLocalCoupon } from "@/lib/promotions";
+import { createSafeJsonStorage } from "@/lib/store/safe-storage";
 
 const STORAGE_KEY = "y2kase-promo";
 
@@ -48,7 +49,13 @@ const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
  * value stays reportable, and so a hand-edited localStorage entry can be
  * rejected instead of leaking into analytics.
  */
-const PROMO_SOURCES = ["welcome-popup", "welcome-gift", "manual"] as const;
+const PROMO_SOURCES = [
+  "welcome-popup",
+  "cart-recovery-popup",
+  "welcome-gift",
+  "footer",
+  "manual",
+] as const;
 
 export type PromoSource = (typeof PROMO_SOURCES)[number];
 
@@ -172,6 +179,7 @@ export const usePromoStore = create<PromoState>()(
     {
       name: STORAGE_KEY,
       version: 1,
+      storage: createSafeJsonStorage<SavedPromo>(),
       partialize: (s): SavedPromo => ({
         code: s.code,
         savedAt: s.savedAt,

@@ -1,0 +1,33 @@
+# Line endings are decided here, not by each contributor's core.autocrlf.
+#
+# Without this file, a Windows checkout rewrites every text file to CRLF while
+# the index and Linux CI keep LF. That surfaces as "LF will be replaced by
+# CRLF" noise on every git command, and eventually as a diff that touches every
+# line of a file nobody edited. Normalizing to LF in the repository AND in the
+# working tree keeps the bytes byte-identical everywhere the code is built:
+# a developer's machine, GitHub Actions and the Vercel build container.
+#
+# This matches what is already stored in the index, so adopting it produces no
+# renormalization commit.
+* text=auto eol=lf
+
+# Generated lockfile — never hand-merge it; regenerate with npm instead.
+package-lock.json -diff linguist-generated=true
+
+# Binary assets. Declared explicitly so Git never attempts EOL conversion or a
+# textual diff on brand art, catalog imagery, fonts or video.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.mp4 binary
+*.webm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+*.zip binary

@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createSafeJsonStorage } from "@/lib/store/safe-storage";
 
 export type CartItem = {
   productId: number;
@@ -26,6 +27,8 @@ type CartState = {
   toggle: () => void;
 };
 
+type PersistedCart = Pick<CartState, "items">;
+
 /** A cart line is unique per product + selected options. */
 export function lineKey(
   productId: number,
@@ -39,7 +42,7 @@ export function lineKey(
 }
 
 export const useCart = create<CartState>()(
-  persist(
+  persist<CartState, [], [], PersistedCart>(
     (set) => ({
       items: [],
       isOpen: false,
@@ -82,7 +85,21 @@ export const useCart = create<CartState>()(
       close: () => set({ isOpen: false }),
       toggle: () => set((s) => ({ isOpen: !s.isOpen })),
     }),
-    { name: "y2kase-cart" },
+    {
+      name: "y2kase-cart",
+      storage: createSafeJsonStorage<PersistedCart>(),
+      partialize: ({ items }) => ({ items }),
+      merge: (persisted, current) => {
+        const stored = persisted as Partial<PersistedCart> | undefined;
+        return {
+          ...current,
+          items: Array.isArray(stored?.items) ? stored.items : [],
+          // UI state is lifecycle-local. This also sanitizes legacy snapshots
+          // that persisted an open drawer across a hard reload.
+          isOpen: false,
+        };
+      },
+    },
   ),
 );
 

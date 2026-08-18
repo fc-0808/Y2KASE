@@ -21,13 +21,13 @@
 
 import { NextResponse } from "next/server";
 import { getCatalogFeedItems } from "@/lib/products";
+import { isDbConfigured } from "@/lib/db";
+import { absoluteUrl, BRAND } from "@/lib/seo";
+import { SITE_URL } from "@/lib/site";
+import { googleProductCategoryId } from "@/lib/catalog/merchant";
 
 export const runtime = "nodejs";
-export const revalidate = 3600;
-
-const BRAND = "Y2KASE";
-const GOOGLE_CATEGORY =
-  "Electronics > Communications > Telephony > Mobile Phone Accessories > Mobile Phone Cases";
+export const dynamic = "force-dynamic";
 
 function xmlEscape(str: string): string {
   return str
@@ -67,17 +67,32 @@ function feedDescription(item: {
 }
 
 export async function GET() {
-  const SITE =
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://y2kase.com";
+  if (!isDbConfigured()) return unavailableFeed();
 
-  const products = await getCatalogFeedItems();
+  let products: Awaited<ReturnType<typeof getCatalogFeedItems>>;
+  try {
+    products = await getCatalogFeedItems();
+  } catch (error) {
+    console.error("[pinterest-feed] catalog query failed:", error);
+    return unavailableFeed();
+  }
 
-  const items = products
-    .filter((p) => p.images.length > 0)
+  const eligibleProducts = products.filter(
+    (product) => product.images.length > 0 && toAmount(product.price) > 0,
+  );
+  const omittedItems = products.length - eligibleProducts.length;
+  if (omittedItems > 0) {
+    console.warn(
+      `[pinterest-feed] omitted ${omittedItems} product(s) with invalid price or imagery.`,
+    );
+  }
+
+  const items = eligibleProducts
     .map((p) => {
       const currency = p.currency ?? "USD";
-      const productUrl = `${SITE}/products/${p.slug}`;
+      const productUrl = `${SITE_URL}/products/${p.slug}`;
       const primaryImage = p.images[0];
+      const googleCategory = googleProductCategoryId(p.productType);
 
       const priceAmount = toAmount(p.price);
       const compareAmount = toAmount(p.compareAtPrice);
@@ -97,23 +112,27 @@ export async function GET() {
         `      <title>${xmlEscape(p.title)}</title>`,
         `      <description>${xmlEscape(feedDescription(p))}</description>`,
         `      <link>${xmlEscape(productUrl)}</link>`,
-        `      <g:image_link>${xmlEscape(primaryImage)}</g:image_link>`,
+        `      <g:image_link>${xmlEscape(absoluteUrl(primaryImage))}</g:image_link>`,
         ...additionalImages.map(
-          (img) => `      <g:additional_image_link>${xmlEscape(img)}</g:additional_image_link>`,
+          (img) =>
+            `      <g:additional_image_link>${xmlEscape(absoluteUrl(img))}</g:additional_image_link>`,
         ),
         `      <g:price>${regularPrice} ${currency}</g:price>`,
         ...(onSale
           ? [`      <g:sale_price>${salePrice} ${currency}</g:sale_price>`]
           : []),
-        `      <g:brand>${BRAND}</g:brand>`,
+        `      <g:brand>${BRAND.name}</g:brand>`,
         `      <g:condition>new</g:condition>`,
-        `      <g:availability>in stock</g:availability>`,
-        `      <g:google_product_category>${xmlEscape(GOOGLE_CATEGORY)}</g:google_product_category>`,
+        `      <g:availability>in_stock</g:availability>`,
+        ...(googleCategory
+          ? [
+              `      <g:google_product_category>${googleCategory}</g:google_product_category>`,
+            ]
+          : []),
         `      <g:product_type>${xmlEscape(p.productTypeLabel)}</g:product_type>`,
         // We don't carry manufacturer GTIN/MPN for these products — declare so
         // the catalog isn't penalised for missing unique identifiers.
         `      <g:identifier_exists>no</g:identifier_exists>`,
-        `      <g:item_group_id>${p.id}</g:item_group_id>`,
         `    </item>`,
       ];
 
@@ -124,8 +143,8 @@ export async function GET() {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss xmlns:g="http://base.google.com/ns/1.0" version="2.0">
   <channel>
-    <title>${xmlEscape(BRAND)} — Kawaii &amp; Y2K Phone Cases</title>
-    <link>${SITE}</link>
+    <title>${xmlEscape(BRAND.name)} — Kawaii &amp; Y2K Phone Cases</title>
+    <link>${SITE_URL}</link>
     <description>Kawaii, Y2K &amp; holographic phone cases, charms and accessories. Express your vibe. ✨</description>
 ${items}
   </channel>
@@ -135,6 +154,20 @@ ${items}
     headers: {
       "Content-Type": "application/rss+xml; charset=utf-8",
       "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+      "X-Robots-Tag": "noindex, follow",
+      "X-Catalog-Items-Omitted": String(omittedItems),
+    },
+  });
+}
+
+function unavailableFeed(): NextResponse {
+  return new NextResponse("Product feed temporarily unavailable.", {
+    status: 503,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": "300",
+      "X-Robots-Tag": "noindex",
     },
   });
 }

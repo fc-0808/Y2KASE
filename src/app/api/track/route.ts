@@ -13,11 +13,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth";
 import { parseUserAgent, recordPageView } from "@/lib/analytics";
+import { isTrackablePath } from "@/lib/analytics/paths";
+import { QA_EXCLUSION_COOKIE } from "@/lib/preview/visitor-state";
 import { hit } from "@/lib/rate-limit";
 
 /** First-party cookie holding the anonymous visitor id. */
 const VISITOR_COOKIE = "y2k_vid";
 const ONE_YEAR = 60 * 60 * 24 * 365;
+const SESSION_COOKIES = [
+  "better-auth.session_token",
+  "__Secure-better-auth.session_token",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Known crawler IP prefixes (first two octets).
@@ -105,6 +111,14 @@ export async function POST(req: NextRequest) {
   // reliable signal for these bots.
   if (isCrawlerIp(ip)) return new NextResponse(null, { status: 204 });
 
+  // An operator walking the storefront from a fresh-visit link is rehearsing,
+  // not shopping. Dropping the beacon before it mints `y2k_vid` keeps the run
+  // out of the Visitors dashboard *and* leaves the browser unidentified, so a
+  // second pass is as anonymous as the first.
+  if (req.cookies.has(QA_EXCLUSION_COOKIE)) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   let body: { path?: unknown; referrer?: unknown } = {};
   try {
     body = await req.json();
@@ -118,10 +132,9 @@ export async function POST(req: NextRequest) {
       : null;
   if (!path) return new NextResponse(null, { status: 204 });
 
-  // Never record the admin console or API calls in storefront analytics.
-  if (path.startsWith("/admin") || path.startsWith("/api")) {
-    return new NextResponse(null, { status: 204 });
-  }
+  // Never record the admin console, API calls or internal routes in storefront
+  // analytics — re-applied here because the client beacon is not trusted.
+  if (!isTrackablePath(path)) return new NextResponse(null, { status: 204 });
 
   const referrer =
     typeof body.referrer === "string" && body.referrer
@@ -141,11 +154,16 @@ export async function POST(req: NextRequest) {
 
   // Attribute the view to a user only if one is signed in.
   let userId: string | null = null;
-  try {
-    const session = await getSession(req.headers);
-    userId = session?.user?.id ?? null;
-  } catch {
-    userId = null;
+  const hasSessionCookie = SESSION_COOKIES.some((name) =>
+    req.cookies.has(name),
+  );
+  if (hasSessionCookie) {
+    try {
+      const session = await getSession(req.headers);
+      userId = session?.user?.id ?? null;
+    } catch {
+      userId = null;
+    }
   }
 
   const g = geo(req);

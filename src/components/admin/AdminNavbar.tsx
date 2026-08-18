@@ -23,6 +23,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Send,
 } from "lucide-react";
 import { signOut } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
@@ -83,9 +84,14 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Marketing",
     items: [
+      { href: "/admin/campaigns", label: "Email Campaigns", icon: Send },
       { href: "/admin/social", label: "Social", icon: Megaphone },
       { href: "/admin/blog", label: "Blog", icon: Newspaper },
     ],
+  },
+  {
+    label: "Tools",
+    items: [{ href: "/admin/fresh-visit", label: "Fresh visit", icon: Sparkles }],
   },
 ];
 

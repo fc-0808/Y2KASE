@@ -14,21 +14,20 @@
  * when CRON_SECRET is set. We reject anything else so the endpoint can't be
  * triggered to spam customers.
  *
- * Exactly-once: each order is atomically claimed via abandoned_email_sent_at
- * before sending, so overlapping runs never double-email.
+ * Delivery safety: each pending order is atomically claimed and every provider
+ * request carries a stable idempotency key, so overlapping/retried runs cannot
+ * intentionally send the same reminder twice.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { and, eq, gte, lte, isNull } from "drizzle-orm";
+import { and, asc, eq, gte, lte, isNull } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
-import { orders } from "@/lib/db/schema";
+import { emailSubscribers, orders } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { sendAbandonedCartEmail } from "@/lib/email";
+import { marketingMailReadiness } from "@/lib/marketing/compliance";
 import { unsubscribeUrl } from "@/lib/unsubscribe";
 
 export const runtime = "nodejs";
-
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -43,6 +42,22 @@ export async function GET(req: NextRequest) {
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: true, sent: 0, reason: "no-db" });
   }
+  // Now runs hourly, so settle the commercial-mail prerequisites once per run
+  // rather than per order. Claiming rows and retrieving Stripe sessions for a
+  // send that cannot legally happen wastes API quota and leaves the reason for
+  // an empty run invisible.
+  const readiness = marketingMailReadiness();
+  if (!readiness.ready) {
+    console.error(
+      `[cron:abandoned-cart] withheld; unmet prerequisites: ${readiness.missing.join(", ")}.`,
+    );
+    return NextResponse.json({
+      ok: true,
+      sent: 0,
+      reason: "marketing-not-ready",
+      missing: readiness.missing,
+    });
+  }
 
   const now = Date.now();
   const windowStart = new Date(now - 24 * 60 * 60 * 1000); // 24h ago
@@ -56,47 +71,83 @@ export async function GET(req: NextRequest) {
       lte(orders.createdAt, windowEnd),
     ),
     with: { items: { columns: { productTitle: true, quantity: true } } },
+    orderBy: [asc(orders.createdAt)],
     limit: 100,
   });
 
   let sent = 0;
   let skipped = 0;
+  let suppressed = 0;
 
   for (const order of candidates) {
-    // Resolve a resume URL + recipient from the live Stripe session.
-    let resumeUrl = `${SITE_URL}/cart`;
+    // A cart-link fallback cannot recreate a localStorage bag on another
+    // device. Only a live Stripe session is a valid one-click recovery target.
+    if (!order.stripeSessionId || !isStripeConfigured()) {
+      skipped++;
+      continue;
+    }
+
+    let resumeUrl = "";
     let email = order.email?.trim() || "";
 
-    if (order.stripeSessionId && isStripeConfigured()) {
-      try {
-        const sess = await getStripe().checkout.sessions.retrieve(
-          order.stripeSessionId,
-        );
-        // Already paid/expired → nothing to recover; mark claimed and move on.
-        if (sess.status === "complete" || sess.payment_status === "paid") {
-          await claim(order.id);
-          skipped++;
-          continue;
-        }
-        if (sess.url && sess.status === "open") resumeUrl = sess.url;
-        const discovered = sess.customer_details?.email || "";
-        email = email || discovered;
-        // Backfill the email we just learned so the admin console shows a real
-        // customer instead of a blank cell while the order is still pending.
-        if (discovered && !order.email) {
-          await db
-            .update(orders)
-            .set({ email: discovered, updatedAt: new Date() })
-            .where(eq(orders.id, order.id));
-        }
-      } catch {
-        // Session lookup failed — fall back to the cart link.
+    try {
+      const sess = await getStripe().checkout.sessions.retrieve(
+        order.stripeSessionId,
+      );
+      if (sess.status === "complete" || sess.payment_status === "paid") {
+        await claim(order.id);
+        skipped++;
+        continue;
       }
+      if (sess.status !== "open" || !sess.url) {
+        await claim(order.id);
+        skipped++;
+        continue;
+      }
+
+      resumeUrl = sess.url;
+      const discovered = sess.customer_details?.email || "";
+      email = email || discovered;
+      // Backfill the email we just learned so the admin console shows a real
+      // customer instead of a blank cell while the order is still pending.
+      if (discovered && !order.email) {
+        await db
+          .update(orders)
+          .set({ email: discovered, updatedAt: new Date() })
+          .where(eq(orders.id, order.id));
+      }
+    } catch {
+      // Stripe/network failures are retryable; never replace the secure resume
+      // link with a cart URL that cannot restore this server-side checkout.
+      skipped++;
+      continue;
     }
 
     if (!email) {
       skipped++;
       continue; // No way to reach this shopper; leave it for a future run.
+    }
+
+    // This email is classified and sent as marketing. Require affirmative list
+    // membership; an absent row is not consent, and an opt-out is suppression.
+    const normalizedEmail = email.trim().toLowerCase();
+    const subscriber = await db
+      .select({
+        status: emailSubscribers.status,
+        consentVersion: emailSubscribers.consentVersion,
+        consentRecordedAt: emailSubscribers.consentRecordedAt,
+      })
+      .from(emailSubscribers)
+      .where(eq(emailSubscribers.email, normalizedEmail))
+      .limit(1);
+    if (
+      subscriber[0]?.status !== "active" ||
+      !subscriber[0]?.consentVersion ||
+      !subscriber[0]?.consentRecordedAt
+    ) {
+      await claim(order.id);
+      suppressed++;
+      continue;
     }
 
     // Atomically claim before sending so concurrent runs can't double-email.
@@ -107,19 +158,31 @@ export async function GET(req: NextRequest) {
     }
 
     const ok = await sendAbandonedCartEmail({
-      to: email,
+      to: normalizedEmail,
       items: order.items.map((it) => ({
         title: it.productTitle,
         quantity: it.quantity,
       })),
       resumeUrl,
-      unsubscribeUrl: unsubscribeUrl(email),
+      unsubscribeUrl: unsubscribeUrl(normalizedEmail),
+      idempotencyKey: `abandoned-cart-order-${order.id}-v1`,
     });
     if (ok) sent++;
-    else skipped++;
+    else {
+      // Resend can reject without throwing. Release our claim so a later cron
+      // run can retry while the Stripe session is still recoverable.
+      await releaseClaim(order.id);
+      skipped++;
+    }
   }
 
-  return NextResponse.json({ ok: true, scanned: candidates.length, sent, skipped });
+  return NextResponse.json({
+    ok: true,
+    scanned: candidates.length,
+    sent,
+    skipped,
+    suppressed,
+  });
 }
 
 /** Atomically mark the reminder as sent. Returns true if this call won the claim. */
@@ -127,7 +190,20 @@ async function claim(orderId: number): Promise<boolean> {
   const rows = await db
     .update(orders)
     .set({ abandonedEmailSentAt: new Date() })
-    .where(and(eq(orders.id, orderId), isNull(orders.abandonedEmailSentAt)))
+    .where(
+      and(
+        eq(orders.id, orderId),
+        eq(orders.status, "pending"),
+        isNull(orders.abandonedEmailSentAt),
+      ),
+    )
     .returning({ id: orders.id });
   return rows.length > 0;
+}
+
+async function releaseClaim(orderId: number): Promise<void> {
+  await db
+    .update(orders)
+    .set({ abandonedEmailSentAt: null })
+    .where(and(eq(orders.id, orderId), eq(orders.status, "pending")));
 }

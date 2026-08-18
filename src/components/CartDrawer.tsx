@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { X, Minus, Plus, Trash2, Truck, Sparkles, Gift } from "lucide-react";
 import {
@@ -20,18 +19,9 @@ export function CartDrawer() {
   const { items, isOpen, close, removeItem, updateQuantity } = useCart();
   const savedCode = useSavedPromoCode();
   const [mounted, setMounted] = useState(false);
-  const pathname = usePathname();
   // Hydration guard: cart state lives in a persisted client store.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
-
-  // Never let the drawer outlive the page it was opened on. `isOpen` is part of
-  // the persisted store, so without this it could survive a reload — and since
-  // the checkout funnel doesn't render the drawer at all, a stale `isOpen`
-  // would make it pop open again the moment the shopper returns to the store.
-  useEffect(() => {
-    close();
-  }, [pathname, close]);
 
   if (!mounted) return null;
 

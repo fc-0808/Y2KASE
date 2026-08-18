@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Fires the GA4 `purchase` conversion exactly once for a confirmed order.
+ * Fires configured commerce purchase conversions exactly once for a confirmed
+ * order. Meta uses the same event id as server-side CAPI for deduplication.
  *
  * The success page is force-dynamic and a buyer may refresh or revisit it, so we
  * dedupe on the transaction id via sessionStorage — sending two purchase events
@@ -11,21 +12,23 @@
  */
 
 import { useEffect } from "react";
-import {
-  trackPurchase,
-  type PurchasePayload,
-} from "@/lib/analytics/gtag";
+import type { PurchasePayload } from "@/lib/analytics/gtag";
+import { trackCommercePurchase } from "@/lib/analytics/commerce";
+
+const trackedPurchases = new Set<string>();
 
 export function PurchaseTracking({ order }: { order: PurchasePayload }) {
   useEffect(() => {
     const key = `y2k_purchase_${order.transactionId}`;
+    if (trackedPurchases.has(key)) return;
     try {
       if (sessionStorage.getItem(key)) return;
       sessionStorage.setItem(key, "1");
     } catch {
-      // sessionStorage unavailable (private mode) — still fire once per mount.
+      // The module-level set still deduplicates strict/private storage modes.
     }
-    trackPurchase(order);
+    trackedPurchases.add(key);
+    trackCommercePurchase(order);
   }, [order]);
 
   return null;

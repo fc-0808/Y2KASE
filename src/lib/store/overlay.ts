@@ -45,6 +45,13 @@ export function useHasBlockingOverlay(): boolean {
   return useOverlayStore((s) => s.active.length > 0);
 }
 
+/** True when a blocking surface other than `id` owns the viewport. */
+export function useHasOtherBlockingOverlay(id: string): boolean {
+  return useOverlayStore((state) =>
+    state.active.some((activeId) => activeId !== id),
+  );
+}
+
 /**
  * Hold the lock for exactly as long as `active` is true. Releasing on unmount
  * means a surface that disappears mid-animation can never strand the lock.

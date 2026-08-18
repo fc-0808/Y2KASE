@@ -38,17 +38,21 @@ export function CatalogPagination({
       aria-label="Pagination"
       className="mt-12 flex items-center justify-center gap-1.5"
     >
-      <Link
-        href={buildCatalogHref(params, { page: params.page - 1 })}
-        aria-disabled={params.page <= 1}
-        className={`${STEP_BASE} ${
-          params.page <= 1
-            ? "pointer-events-none border-[var(--border)] text-[var(--foreground)]/30"
-            : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:text-[var(--primary)]"
-        }`}
-      >
-        Prev
-      </Link>
+      {params.page <= 1 ? (
+        <span
+          aria-disabled="true"
+          className={`${STEP_BASE} border-[var(--border)] text-[var(--foreground)]/30`}
+        >
+          Prev
+        </span>
+      ) : (
+        <Link
+          href={buildCatalogHref(params, { page: params.page - 1 })}
+          className={`${STEP_BASE} border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:text-[var(--primary)]`}
+        >
+          Prev
+        </Link>
+      )}
 
       {pageWindow(params.page, totalPages).map((p, i) =>
         p === "…" ? (
@@ -74,17 +78,21 @@ export function CatalogPagination({
         ),
       )}
 
-      <Link
-        href={buildCatalogHref(params, { page: params.page + 1 })}
-        aria-disabled={params.page >= totalPages}
-        className={`${STEP_BASE} ${
-          params.page >= totalPages
-            ? "pointer-events-none border-[var(--border)] text-[var(--foreground)]/30"
-            : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:text-[var(--primary)]"
-        }`}
-      >
-        Next
-      </Link>
+      {params.page >= totalPages ? (
+        <span
+          aria-disabled="true"
+          className={`${STEP_BASE} border-[var(--border)] text-[var(--foreground)]/30`}
+        >
+          Next
+        </span>
+      ) : (
+        <Link
+          href={buildCatalogHref(params, { page: params.page + 1 })}
+          className={`${STEP_BASE} border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:text-[var(--primary)]`}
+        >
+          Next
+        </Link>
+      )}
     </nav>
   );
 }

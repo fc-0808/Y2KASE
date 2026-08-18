@@ -9,27 +9,31 @@
  * impossible to desync from the page it describes.
  */
 
+import type { Metadata } from "next";
 import { SUPPORT_EMAIL } from "@/lib/legal";
+import { getProductEntryPrice } from "@/lib/pricing";
 import {
-  STYLE_OPTION_NAME,
-  orderStyles,
-  getStylePrice,
-} from "@/lib/pricing";
-import type { ProductWithRelations } from "@/lib/db/schema";
+  buildCatalogHref,
+  hasActiveFilters,
+  DEFAULT_SORT,
+  type CatalogParams,
+} from "@/lib/catalog/params";
+import type { ProductWithRelations, Review } from "@/lib/db/schema";
+import { SHIPPING_COUNTRIES, SHIPPING_REGIONS } from "@/lib/shipping";
+import { productTypeLabel } from "@/lib/catalog/product-types";
+import {
+  absoluteUrl,
+  IS_INDEXABLE_DEPLOYMENT,
+  SITE_NAME,
+  SITE_URL,
+} from "@/lib/site";
 
-export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
-
-/** Turn an app-relative path into an absolute, canonical URL. */
-export function absoluteUrl(path = "/"): string {
-  if (/^https?:\/\//i.test(path)) return path;
-  return `${SITE_URL}${path.startsWith("/") ? path : `/${path}`}`;
-}
+export { absoluteUrl, SITE_URL };
 
 /** Brand identity — reused across structured data, OG tags and emails. */
 export const BRAND = {
-  name: "Y2KASE",
-  legalName: "Y2KASE",
+  name: SITE_NAME,
+  legalName: SITE_NAME,
   description:
     "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
   logo: absoluteUrl("/brand/logo.png"),
@@ -45,14 +49,238 @@ export const BRAND = {
 
 type JsonLdObject = Record<string, unknown>;
 
+export const INDEXABLE_ROBOTS = {
+  index: IS_INDEXABLE_DEPLOYMENT,
+  follow: IS_INDEXABLE_DEPLOYMENT,
+  noarchive: !IS_INDEXABLE_DEPLOYMENT,
+  googleBot: {
+    index: IS_INDEXABLE_DEPLOYMENT,
+    follow: IS_INDEXABLE_DEPLOYMENT,
+    "max-image-preview": "large",
+    "max-snippet": -1,
+    "max-video-preview": -1,
+  },
+} as const satisfies NonNullable<Metadata["robots"]>;
+
+export const PRIVATE_PAGE_ROBOTS = {
+  index: false,
+  follow: false,
+  noarchive: true,
+  googleBot: { index: false, follow: false, noarchive: true },
+} as const satisfies NonNullable<Metadata["robots"]>;
+
+export const FACET_PAGE_ROBOTS = {
+  index: false,
+  follow: true,
+  googleBot: {
+    index: false,
+    follow: true,
+    "max-image-preview": "large",
+  },
+} as const satisfies NonNullable<Metadata["robots"]>;
+
+/** Collapse whitespace and truncate at a word boundary without splitting emoji. */
+export function truncateDescription(value: string, maxLength = 160): string {
+  const clean = value.replace(/\s+/g, " ").trim();
+  const points = Array.from(clean);
+  if (points.length <= maxLength) return clean;
+
+  const clipped = points.slice(0, maxLength + 1).join("");
+  const boundary = clipped.lastIndexOf(" ");
+  const safe = boundary >= Math.floor(maxLength * 0.65)
+    ? clipped.slice(0, boundary)
+    : points.slice(0, maxLength).join("");
+  return `${safe.replace(/[,:;\-–—]+$/u, "").trimEnd()}…`;
+}
+
+/** Complete metadata for a canonical, indexable static page. */
+export function publicPageMetadata(args: {
+  title: string;
+  description: string;
+  path: string;
+}): Metadata {
+  const description = truncateDescription(args.description);
+  return {
+    title: args.title,
+    description,
+    alternates: { canonical: args.path },
+    openGraph: {
+      type: "website",
+      siteName: BRAND.name,
+      locale: "en_US",
+      title: args.title,
+      description,
+      url: args.path,
+      images: [
+        {
+          url: "/brand/og.webp",
+          width: 1200,
+          height: 630,
+          alt: `${args.title} · Y2KASE`,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: args.title,
+      description,
+      images: ["/brand/og.webp"],
+    },
+  };
+}
+
+/** Whether a catalog URL is an indexable member of the core pagination series. */
+export function isIndexableCatalogPage(params: CatalogParams): boolean {
+  return !hasActiveFilters(params) && params.sort === DEFAULT_SORT;
+}
+
+/** Canonical URL for a catalog state, following Google's pagination guidance. */
+export function catalogCanonicalHref(params: CatalogParams): string {
+  return isIndexableCatalogPage(params)
+    ? buildCatalogHref(params)
+    : params.basePath;
+}
+
+/** Shared metadata policy for products, collections and device result grids. */
+export function catalogPageMetadata(args: {
+  title: string;
+  description: string;
+  params: CatalogParams;
+  /** null lets a colocated opengraph-image.tsx own the image field. */
+  openGraphImage?: string | null;
+}): Metadata {
+  const indexable = isIndexableCatalogPage(args.params);
+  const page = args.params.page;
+  const paginated = indexable && page > 1;
+  const canonical = catalogCanonicalHref(args.params);
+  const title = paginated ? `${args.title} — Page ${page}` : args.title;
+  const description = paginated
+    ? truncateDescription(`${args.description} Page ${page}.`)
+    : truncateDescription(args.description);
+
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      type: "website",
+      siteName: BRAND.name,
+      locale: "en_US",
+      title,
+      description,
+      url: canonical,
+      ...(args.openGraphImage === null
+        ? {}
+        : {
+            images: [
+              {
+                url: args.openGraphImage ?? "/brand/og.webp",
+                width: 1200,
+                height: 630,
+                alt: `${args.title} · Y2KASE`,
+              },
+            ],
+          }),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: ["/brand/og.webp"],
+    },
+    ...(indexable ? {} : { robots: FACET_PAGE_ROBOTS }),
+    ...(paginated
+      ? {
+          pagination: {
+            previous:
+              page === 2
+                ? args.params.basePath
+                : buildCatalogHref(args.params, { page: page - 1 }),
+          },
+        }
+      : {}),
+  };
+}
+
+export const MERCHANT_RETURN_POLICY_ANCHOR = "merchant-return-policy";
+export const SHIPPING_SERVICE_ANCHOR = "standard-shipping";
+
+const RETURN_POLICY_ID = absoluteUrl(
+  `/policies/refund-policy#${MERCHANT_RETURN_POLICY_ANCHOR}`,
+);
+const SHIPPING_SERVICE_ID = absoluteUrl(
+  `/policies/shipping-policy#${SHIPPING_SERVICE_ANCHOR}`,
+);
+
+function servicePeriod(minValue: number, maxValue: number): JsonLdObject {
+  return {
+    "@type": "ServicePeriod",
+    duration: {
+      "@type": "QuantitativeValue",
+      minValue,
+      maxValue,
+      unitCode: "DAY",
+    },
+  };
+}
+
+function shippingDestinations(countries: readonly string[]): JsonLdObject[] {
+  return countries.map((addressCountry) => ({
+    "@type": "DefinedRegion",
+    addressCountry,
+  }));
+}
+
+/** Global 30-day policy, restricted to facts stated on the public policy page. */
+export function merchantReturnPolicyJsonLd(): JsonLdObject {
+  return {
+    "@type": "MerchantReturnPolicy",
+    "@id": RETURN_POLICY_ID,
+    merchantReturnLink: absoluteUrl("/policies/refund-policy"),
+    applicableCountry: [...SHIPPING_COUNTRIES],
+    returnPolicyCategory:
+      "https://schema.org/MerchantReturnFiniteReturnWindow",
+    merchantReturnDays: 30,
+    itemCondition: "https://schema.org/NewCondition",
+    refundType: "https://schema.org/FullRefund",
+  };
+}
+
+/** Global delivery policy matching the processing and transit times we publish. */
+export function shippingServiceJsonLd(): JsonLdObject {
+  return {
+    "@type": "ShippingService",
+    "@id": SHIPPING_SERVICE_ID,
+    name: "Y2KASE standard shipping",
+    description:
+      "Tracked delivery to Y2KASE shipping markets, processed in 1–3 business days.",
+    fulfillmentType: "https://schema.org/FulfillmentTypeDelivery",
+    handlingTime: {
+      ...servicePeriod(1, 3),
+      businessDays: [
+        "https://schema.org/Monday",
+        "https://schema.org/Tuesday",
+        "https://schema.org/Wednesday",
+        "https://schema.org/Thursday",
+        "https://schema.org/Friday",
+      ],
+    },
+    shippingConditions: SHIPPING_REGIONS.map((region) => ({
+      "@type": "ShippingConditions",
+      shippingDestination: shippingDestinations(region.countries),
+      transitTime: servicePeriod(region.minDays, region.maxDays),
+    })),
+  };
+}
+
 /**
- * Organization entity. Emitted once site-wide so Google can build a brand
- * knowledge panel and associate reviews, logo and social profiles.
+ * OnlineStore entity. Emitted on the home page so search and answer engines can
+ * disambiguate the merchant and connect its official policies and profiles.
  */
 export function organizationJsonLd(): JsonLdObject {
   return {
     "@context": "https://schema.org",
-    "@type": "Organization",
+    "@type": "OnlineStore",
     "@id": `${SITE_URL}/#organization`,
     name: BRAND.name,
     legalName: BRAND.legalName,
@@ -60,13 +288,23 @@ export function organizationJsonLd(): JsonLdObject {
     logo: BRAND.logo,
     description: BRAND.description,
     email: BRAND.email,
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "Customer Service",
+      email: BRAND.email,
+      availableLanguage: "English",
+    },
+    areaServed: [...SHIPPING_COUNTRIES],
     sameAs: [...BRAND.sameAs],
+    hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
+    hasShippingService: shippingServiceJsonLd(),
   };
 }
 
 /**
- * WebSite entity with a Sitelinks Searchbox action, wiring Google's in-SERP
- * search box straight to our /products?search= endpoint.
+ * WebSite entity with the store's real search endpoint. Google retired the
+ * visual Sitelinks Searchbox, but SearchAction remains useful machine-readable
+ * site capability data for agents and other Schema.org consumers.
  */
 export function websiteJsonLd(): JsonLdObject {
   return {
@@ -75,12 +313,13 @@ export function websiteJsonLd(): JsonLdObject {
     "@id": `${SITE_URL}/#website`,
     name: BRAND.name,
     url: SITE_URL,
+    inLanguage: "en",
     publisher: { "@id": `${SITE_URL}/#organization` },
     potentialAction: {
       "@type": "SearchAction",
       target: {
         "@type": "EntryPoint",
-        urlTemplate: `${SITE_URL}/products?search={search_term_string}`,
+        urlTemplate: `${SITE_URL}/products?q={search_term_string}`,
       },
       "query-input": "required name=search_term_string",
     },
@@ -104,6 +343,28 @@ export function breadcrumbJsonLd(crumbs: Crumb[]): JsonLdObject {
   };
 }
 
+/** Generic public-page entity for About, Contact and policy surfaces. */
+export function webPageJsonLd(args: {
+  type?: "WebPage" | "AboutPage" | "ContactPage";
+  name: string;
+  description: string;
+  url: string;
+  mainEntity?: string;
+}): JsonLdObject {
+  const canonical = absoluteUrl(args.url);
+  return {
+    "@context": "https://schema.org",
+    "@type": args.type ?? "WebPage",
+    "@id": `${canonical}#webpage`,
+    name: args.name,
+    description: args.description,
+    url: canonical,
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    ...(args.mainEntity ? { mainEntity: { "@id": args.mainEntity } } : {}),
+    inLanguage: "en",
+  };
+}
+
 /** BlogPosting — article rich result + Google Discover eligibility. */
 export function articleJsonLd(args: {
   title: string;
@@ -111,24 +372,48 @@ export function articleJsonLd(args: {
   url: string;
   image?: string | null;
   datePublished: string;
+  dateModified?: string;
   author?: string;
 }): JsonLdObject {
+  const canonical = absoluteUrl(args.url);
+  const author =
+    !args.author || /y2kase/i.test(args.author)
+      ? {
+          "@type": "Organization",
+          "@id": `${SITE_URL}/#organization`,
+          name: BRAND.name,
+          url: absoluteUrl("/about"),
+        }
+      : {
+          "@type": "Person",
+          name: args.author,
+        };
   return {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
+    "@id": `${canonical}#article`,
     headline: args.title,
     description: args.description,
-    url: absoluteUrl(args.url),
-    mainEntityOfPage: absoluteUrl(args.url),
-    image: args.image ? [absoluteUrl(args.image)] : [BRAND.logo],
+    url: canonical,
+    mainEntityOfPage: canonical,
+    image: [
+      args.image ? absoluteUrl(args.image) : absoluteUrl("/brand/og.webp"),
+    ],
     datePublished: args.datePublished,
-    dateModified: args.datePublished,
-    author: { "@type": "Organization", name: args.author ?? BRAND.name },
+    dateModified: args.dateModified ?? args.datePublished,
+    author,
     publisher: { "@id": `${SITE_URL}/#organization` },
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    inLanguage: "en",
   };
 }
 
-/** FAQPage — eligible for the expandable FAQ rich result. */
+/**
+ * FAQPage machine-readable Q&A.
+ *
+ * Google limits visible FAQ rich results to authoritative government/health
+ * sites, so this is entity/context markup—not a promise of a special snippet.
+ */
 export function faqJsonLd(
   items: { question: string; answer: string }[],
 ): JsonLdObject {
@@ -144,45 +429,36 @@ export function faqJsonLd(
 }
 
 /**
- * Compute the offer price range for a product. Because price is driven by the
- * selected Style (Case Only → Case + Grip + Charm), a product with multiple
- * styles is an AggregateOffer spanning the cheapest to the most complete build;
- * a single-style product is a flat Offer. Falls back to the stored price.
+ * The offer is the price initially visible on the PDP and in merchant feeds.
+ * Bundle/add-on selectors can raise the price client-side, but marking a
+ * standalone charm as the low price of a phone-case Product would be misleading.
  */
-function offerFor(product: ProductWithRelations): JsonLdObject {
+type SeoProduct = Omit<ProductWithRelations, "variants">;
+
+function offerFor(product: SeoProduct): JsonLdObject {
   const currency = (product.currency || "USD").toUpperCase();
-  const availability =
-    product.status === "active"
-      ? "https://schema.org/InStock"
-      : "https://schema.org/OutOfStock";
+  const price = getProductEntryPrice(
+    product.productType,
+    product.price,
+    currency,
+  );
 
-  const styleOpt = product.options.find((o) => o.name === STYLE_OPTION_NAME);
-  const styles = orderStyles(styleOpt?.values ?? []);
-
-  const base: JsonLdObject = {
+  return {
+    "@type": "Offer",
+    price: price.toFixed(2),
     priceCurrency: currency,
-    availability,
+    availability:
+      product.status === "active"
+        ? "https://schema.org/InStock"
+        : "https://schema.org/OutOfStock",
     url: absoluteUrl(`/products/${product.slug}`),
     seller: { "@id": `${SITE_URL}/#organization` },
     itemCondition: "https://schema.org/NewCondition",
-  };
-
-  if (styles.length > 1) {
-    const prices = styles.map((s) => getStylePrice(s, currency));
-    return {
-      "@type": "AggregateOffer",
-      offerCount: styles.length,
-      lowPrice: Math.min(...prices).toFixed(2),
-      highPrice: Math.max(...prices).toFixed(2),
-      ...base,
-    };
-  }
-
-  const price = Number(product.price);
-  return {
-    "@type": "Offer",
-    price: (Number.isFinite(price) ? price : 0).toFixed(2),
-    ...base,
+    hasMerchantReturnPolicy: { "@id": RETURN_POLICY_ID },
+    shippingDetails: {
+      "@type": "OfferShippingDetails",
+      hasShippingService: { "@id": SHIPPING_SERVICE_ID },
+    },
   };
 }
 
@@ -197,21 +473,30 @@ export type RatingSummary = { count: number; average: number };
  * genuine, on-page reviews.
  */
 export function productJsonLd(
-  product: ProductWithRelations,
+  product: SeoProduct,
   rating?: RatingSummary,
+  reviews: Review[] = [],
 ): JsonLdObject {
   const images = product.images
     .map((i) => i.url)
     .filter((u): u is string => Boolean(u));
+  const canonical = absoluteUrl(`/products/${product.slug}`);
+  const description = product.description?.trim();
 
   return {
     "@context": "https://schema.org",
     "@type": "Product",
-    "@id": absoluteUrl(`/products/${product.slug}#product`),
+    "@id": `${canonical}#product`,
+    url: canonical,
+    mainEntityOfPage: canonical,
     name: product.title,
-    description: product.description?.trim() || BRAND.description,
-    image: images.length > 0 ? images : [BRAND.logo],
+    ...(description ? { description } : {}),
+    image:
+      images.length > 0
+        ? images.map((image) => absoluteUrl(image))
+        : [BRAND.logo],
     sku: product.slug,
+    category: productTypeLabel(product.productType),
     ...(product.materials ? { material: product.materials } : {}),
     brand: { "@type": "Brand", name: BRAND.name },
     offers: offerFor(product),
@@ -226,6 +511,23 @@ export function productJsonLd(
           },
         }
       : {}),
+    ...(reviews.length > 0
+      ? {
+          review: reviews.map((review) => ({
+            "@type": "Review",
+            author: { "@type": "Person", name: review.authorName },
+            datePublished: new Date(review.createdAt).toISOString(),
+            ...(review.title ? { name: review.title } : {}),
+            reviewBody: review.body,
+            reviewRating: {
+              "@type": "Rating",
+              ratingValue: review.rating,
+              bestRating: 5,
+              worstRating: 1,
+            },
+          })),
+        }
+      : {}),
   };
 }
 
@@ -237,21 +539,26 @@ export function collectionPageJsonLd(args: {
   name: string;
   description?: string | null;
   url: string;
-  productUrls: string[];
+  items: { name: string; url: string }[];
 }): JsonLdObject {
+  const canonical = absoluteUrl(args.url);
   return {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
+    "@id": `${canonical}#collection`,
     name: args.name,
     ...(args.description ? { description: args.description } : {}),
-    url: absoluteUrl(args.url),
+    url: canonical,
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    inLanguage: "en",
     mainEntity: {
       "@type": "ItemList",
-      numberOfItems: args.productUrls.length,
-      itemListElement: args.productUrls.map((url, i) => ({
+      numberOfItems: args.items.length,
+      itemListElement: args.items.map((item, i) => ({
         "@type": "ListItem",
         position: i + 1,
-        url: absoluteUrl(url),
+        name: item.name,
+        url: absoluteUrl(item.url),
       })),
     },
   };

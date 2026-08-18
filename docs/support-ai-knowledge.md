@@ -2,12 +2,11 @@
 
 Paste the block below into tawk.to → Administration → AI Assist → **Plain Text**.
 
-It exists as a file because it is a fourth copy of facts that already live in
-`src/lib/support/topics.ts`, `src/app/faq/page.tsx`, `src/lib/legal.ts`,
-`src/lib/pricing.ts` and `src/lib/promotions.ts` — and it is the only copy that
-answers customers with no deploy in the loop. Change a price, a shipping window
-or a return period and this file, plus the pasted copy in tawk, must move with
-it. Re-paste after every edit; tawk does not read this repository.
+It mirrors canonical facts from `src/lib/shipping.ts`, `src/lib/pricing.ts`,
+`src/lib/promotions.ts` and the public policy pages. It is the only copy that
+answers customers with no deploy in the loop, so a policy change is not complete
+until this file and the pasted tawk copy are updated. Re-paste after every edit;
+tawk does not read this repository.
 
 Everything below the line is the payload.
 
@@ -101,13 +100,14 @@ Orders are processed within 1–3 business days after payment is confirmed.
 Orders placed on weekends or public holidays are processed the next business
 day.
 
-Delivery times after dispatch, standard then express:
+Standard delivery times after dispatch:
 
-- Hong Kong: 1–3 days, or next day express.
-- United States: 7–14 days, or 3–5 days express.
-- United Kingdom: 7–14 days, or 3–5 days express.
-- European Union: 7–14 days, or 3–7 days express.
-- Rest of world: 10–21 days, or 5–10 days express.
+- Hong Kong: 1–3 days.
+- United States, United Kingdom, Germany, France and the Netherlands: 7–14 days.
+- Canada, Australia, Singapore, Japan and New Zealand: 10–21 days.
+
+These are the only markets currently enabled at checkout. Do not promise
+worldwide or express delivery.
 
 Standard shipping is free once the subtotal passes the threshold shown in the
 bag. Below it, a flat rate applies:

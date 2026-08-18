@@ -8,6 +8,7 @@
  */
 
 import { SUPPORT_EMAIL } from "@/lib/support/constants";
+import { SHIPPING_REGIONS, shippingDays } from "@/lib/shipping";
 
 export type LegalDoc = {
   slug: string;
@@ -19,6 +20,11 @@ export type LegalDoc = {
   /** Trusted, first-party HTML rendered inside `.legal-prose`. */
   body: string;
 };
+
+const SHIPPING_TABLE_ROWS = SHIPPING_REGIONS.map(
+  (region) =>
+    `<tr><td>${region.label}</td><td>${shippingDays(region)}</td></tr>`,
+).join("\n");
 
 export const LEGAL_DOCS: Record<string, LegalDoc> = {
   "refund-policy": {
@@ -48,20 +54,16 @@ export const LEGAL_DOCS: Record<string, LegalDoc> = {
     slug: "shipping-policy",
     title: "Shipping Policy",
     description:
-      "Processing times, worldwide shipping estimates, tracking, customs and rates.",
-    updated: "2026-06-04",
+      "Processing times, supported-market delivery estimates, tracking, customs and rates.",
+    updated: "2026-08-13",
     body: `
 <h2>Processing Time</h2>
 <p>Orders are processed within <strong>1–3 business days</strong> after payment confirmation. Orders placed on weekends or public holidays are processed the next business day.</p>
 <h2>Shipping Times</h2>
 <table>
-<thead><tr><th>Destination</th><th>Standard</th><th>Express</th></tr></thead>
+<thead><tr><th>Destination</th><th>Estimated delivery</th></tr></thead>
 <tbody>
-<tr><td>Hong Kong</td><td>1–3 days</td><td>Next day</td></tr>
-<tr><td>United States</td><td>7–14 days</td><td>3–5 days</td></tr>
-<tr><td>United Kingdom</td><td>7–14 days</td><td>3–5 days</td></tr>
-<tr><td>European Union</td><td>7–14 days</td><td>3–7 days</td></tr>
-<tr><td>Rest of World</td><td>10–21 days</td><td>5–10 days</td></tr>
+${SHIPPING_TABLE_ROWS}
 </tbody>
 </table>
 <h2>Shipping Rates</h2>

@@ -9,6 +9,27 @@ import { REDIRECTS, assertRedirectsAreResolvable } from "./src/lib/routes";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
+// Keep the optimizer's remote allow-list exact. The first host is the current
+// production R2 bucket; the environment-derived host lets a bucket/custom
+// domain move without a code release. Legacy import hosts remain allow-listed
+// while old catalog rows are migrated.
+const imageRemoteHosts = new Set([
+  "pub-ed7f8ed365ab49089eec8a6a7398124f.r2.dev",
+  "res.cloudinary.com",
+  "i.etsystatic.com",
+]);
+try {
+  if (process.env.R2_PUBLIC_URL) {
+    imageRemoteHosts.add(new URL(process.env.R2_PUBLIC_URL).hostname);
+  }
+} catch {
+  // A malformed R2 URL is reported by the code path that actually requires it.
+}
+
+const disableImageOptimization =
+  process.env.NODE_ENV === "development" ||
+  process.env.NEXT_IMAGE_UNOPTIMIZED === "true";
+
 const nextConfig: NextConfig = {
   // Drop the `X-Powered-By: Next.js` header — a few bytes off every response
   // and one less framework-fingerprint exposed.
@@ -19,11 +40,19 @@ const nextConfig: NextConfig = {
   // so a bad row surfaces as a build failure with a readable message.
   async redirects() {
     assertRedirectsAreResolvable(REDIRECTS);
-    return REDIRECTS.map(({ source, destination, permanent }) => ({
-      source,
-      destination,
-      permanent,
-    }));
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host" as const, value: "www.y2kase.com" }],
+        destination: "https://y2kase.com/:path*",
+        permanent: true,
+      },
+      ...REDIRECTS.map(({ source, destination, permanent }) => ({
+        source,
+        destination,
+        permanent,
+      })),
+    ];
   },
 
   // Pin the workspace root so Next.js doesn't pick up an unrelated lockfile
@@ -64,13 +93,31 @@ const nextConfig: NextConfig = {
   ],
 
   images: {
-    // Product images are already optimised to WebP at ingest time and served
-    // from Cloudflare R2's CDN, so Next's server-side optimiser adds no value.
-    // Disabling it serves the R2 URL directly to the browser, which also avoids
-    // the "resolved to private ip" failure when an outbound VPN maps the r2.dev
-    // hostname into a private range during local development, and avoids Vercel
-    // image-transform costs in production.
-    unoptimized: true,
+    // Production resizing is load-bearing for mobile Core Web Vitals: source
+    // catalog photos are 1024×1280, while a two-column phone card is ~180px
+    // wide. Development stays direct-to-R2 because some VPNs resolve r2.dev to
+    // a private address, which Next's secure optimizer correctly refuses.
+    // Self-hosted production and CI exercise the same path as Vercel; the env
+    // override remains an explicit operational escape hatch.
+    unoptimized: disableImageOptimization,
+    minimumCacheTTL: 86_400,
+    qualities: [72, 75, 82],
+    remotePatterns: [...imageRemoteHosts].map((hostname) => ({
+      protocol: "https" as const,
+      hostname,
+      port: "",
+      pathname: "/**",
+      search: "",
+    })),
+    // Next 16 rejects local Image sources with query strings unless they are
+    // explicitly allow-listed. Keep ordinary local images query-free, then
+    // permit cache-busting only inside the three generated brand-asset trees.
+    localPatterns: [
+      { pathname: "/**", search: "" },
+      { pathname: "/brand/collection-cards/**" },
+      { pathname: "/brand/collections/**" },
+      { pathname: "/brand/device-covers/**" },
+    ],
   },
 };
 

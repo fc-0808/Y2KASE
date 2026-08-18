@@ -2,9 +2,9 @@
  * /api/unsubscribe — RFC 8058 one-click unsubscribe endpoint.
  *
  * Mail clients POST here (triggered by the List-Unsubscribe-Post header) when a
- * recipient clicks the native "Unsubscribe" button. A GET is also honored and
- * redirects to the friendly confirmation page for anyone who opens the link in
- * a browser.
+ * recipient clicks the native "Unsubscribe" button. GET never mutates consent:
+ * security scanners routinely crawl links, so browser visits are redirected to
+ * an explicit confirmation screen.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { applyUnsubscribe } from "@/lib/unsubscribe";
@@ -22,13 +22,18 @@ function params(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { email, token } = params(req);
   const ok = await applyUnsubscribe(email, token);
+  if (req.headers.get("accept")?.includes("text/html")) {
+    const dest = new URL("/unsubscribe", req.url);
+    dest.searchParams.set("status", ok ? "ok" : "error");
+    return NextResponse.redirect(dest, 303);
+  }
   return NextResponse.json({ ok }, { status: ok ? 200 : 400 });
 }
 
 export async function GET(req: NextRequest) {
   const { email, token } = params(req);
-  const ok = await applyUnsubscribe(email, token);
   const dest = new URL("/unsubscribe", req.url);
-  dest.searchParams.set("status", ok ? "ok" : "error");
-  return NextResponse.redirect(dest);
+  dest.searchParams.set("e", email);
+  dest.searchParams.set("t", token);
+  return NextResponse.redirect(dest, 302);
 }

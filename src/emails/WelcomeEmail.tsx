@@ -24,6 +24,8 @@ interface WelcomeEmailProps {
   wonByScratch?: boolean;
   /** Signed one-click unsubscribe link (marketing email requirement). */
   unsubscribeUrl?: string;
+  /** Legally required physical sender address for commercial email. */
+  postalAddress: string;
 }
 
 export function WelcomeEmail({
@@ -32,6 +34,7 @@ export function WelcomeEmail({
   percentOff,
   wonByScratch,
   unsubscribeUrl,
+  postalAddress,
 }: WelcomeEmailProps) {
   const greeting = name ? `Hey ${name}! ✨` : "Welcome, bestie! ✨";
 
@@ -69,7 +72,7 @@ export function WelcomeEmail({
                 </>
               ) : (
                 <>
-                  As a thank-you for joining, here&apos;s your exclusive{" "}
+                  As a thank-you for joining, here&apos;s{" "}
                   <strong>{percentOff}% off your first order</strong>:
                 </>
               )}
@@ -102,6 +105,7 @@ export function WelcomeEmail({
 
           {/* Footer */}
           <Section style={footerStyle}>
+            <Text style={footerTextStyle}>{postalAddress}</Text>
             <Text style={footerTextStyle}>
               © {new Date().getFullYear()} Y2KASE · All rights reserved
             </Text>

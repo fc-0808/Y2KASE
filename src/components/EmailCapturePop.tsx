@@ -27,15 +27,33 @@
  *   offer   — both promotions, the copyable code, then the membership ask.
  *   success — membership confirmed, with the code repeated for convenience.
  *
- * Frequency: shown 3 s into the first visit, then throttled to once a week,
- * retired after two dismissals, and never shown again once subscribed.
+ * Frequency: shown after meaningful browsing time, then throttled to once a
+ * week, retired after two dismissals, and never shown again once subscribed.
+ * A non-empty cart hands priority to the dedicated recovery campaign, and a
+ * shared session claim guarantees shoppers never see both dialogs in one visit.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { X, Sparkles, Gift } from "lucide-react";
 import { PromoCodeBlock } from "@/components/PromoCodeBlock";
-import { useOverlayLock } from "@/lib/store/overlay";
+import {
+  useHasBlockingOverlay,
+  useOverlayLock,
+  useOverlayStore,
+} from "@/lib/store/overlay";
+import {
+  useBodyScrollLock,
+  useModalFocusTrap,
+} from "@/lib/hooks/use-modal-dialog";
+import { WELCOME_POPUP_POLICY } from "@/lib/marketing/popup-policy";
+import {
+  claimMarketingPopup,
+  hasMarketingPopupClaim,
+  isMarketingPopupPath,
+} from "@/lib/marketing/popup-session";
+import { useCart } from "@/lib/store/cart";
 import { usePromoActions } from "@/lib/store/promo";
 import { BUNDLE, WELCOME_COUPON, resolveLocalCoupon } from "@/lib/promotions";
 import { gaEvent } from "@/lib/analytics/gtag";
@@ -43,16 +61,10 @@ import { gaEvent } from "@/lib/analytics/gtag";
 const LS_KEY_SHOWN_AT = "y2k_popup_shown_at";
 const LS_KEY_DISMISS_COUNT = "y2k_popup_dismiss_count";
 const LS_KEY_SUBSCRIBED = "y2k_popup_subscribed";
-const THROTTLE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const MAX_DISMISSALS = 2; // hide forever after closing twice
-const DELAY_MS = 3_000; // show after 3 s
+const { delayMs: DELAY_MS, throttleMs: THROTTLE_MS, maxDismissals: MAX_DISMISSALS } =
+  WELCOME_POPUP_POLICY;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Elements the focus trap may land on. Disabled controls are unfocusable, so
- *  including them would let Tab escape the moment the submit button greys out. */
-const FOCUSABLE =
-  'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
 /** GA4 promotion identity — keeps the modal's funnel separable from the
  *  /welcome-gift landing page, which advertises the same offer at length. */
@@ -79,29 +91,17 @@ const PREVIEW_PARAM = "popup";
 function isPreview(): boolean {
   if (process.env.NODE_ENV === "production") return false;
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).has(PREVIEW_PARAM);
+  const value = new URLSearchParams(window.location.search).get(PREVIEW_PARAM);
+  return value !== null && value !== "cart";
 }
 
-/** Lock page scroll while the modal is open; compensate for scrollbar width. */
-function useBodyScrollLock(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-
-    const scrollbarWidth =
-      window.innerWidth - document.documentElement.clientWidth;
-    const prevOverflow = document.body.style.overflow;
-    const prevPadding = document.body.style.paddingRight;
-
-    document.body.style.overflow = "hidden";
-    if (scrollbarWidth > 0) {
-      document.body.style.paddingRight = `${scrollbarWidth}px`;
-    }
-
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      document.body.style.paddingRight = prevPadding;
-    };
-  }, [active]);
+function readStoredNumber(key: string): number {
+  try {
+    const value = Number.parseInt(localStorage.getItem(key) ?? "0", 10);
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
 }
 
 type PopupState = "hidden" | "offer" | "success";
@@ -124,101 +124,125 @@ export function EmailCapturePop() {
   const [preview] = useState(isPreview);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+  const previewAttemptedRef = useRef(false);
+  const submitAbortRef = useRef<AbortController | null>(null);
 
   const { autoApply } = usePromoActions();
+  const hasCartItems = useCart((cart) => cart.items.length > 0);
+  const cartOpen = useCart((cart) => cart.isOpen);
+  const blockingOverlay = useHasBlockingOverlay();
+  const pathname = usePathname();
+  const previousPathRef = useRef(pathname);
   const isOpen = state !== "hidden";
 
   useOverlayLock("email-capture", isOpen);
   useBodyScrollLock(isOpen);
 
   const dismiss = useCallback(() => {
+    submitAbortRef.current?.abort();
+    submitAbortRef.current = null;
+
     if (!preview) {
-      const prev = parseInt(
-        localStorage.getItem(LS_KEY_DISMISS_COUNT) ?? "0",
-        10,
-      );
-      localStorage.setItem(LS_KEY_DISMISS_COUNT, String(prev + 1));
+      try {
+        const prev = readStoredNumber(LS_KEY_DISMISS_COUNT);
+        localStorage.setItem(LS_KEY_DISMISS_COUNT, String(prev + 1));
+      } catch {
+        // Storage can be unavailable in privacy-restricted browsers.
+      }
       gaEvent("popup_dismiss", { ...PROMOTION, popup_stage: state });
     }
     setState("hidden");
   }, [preview, state]);
+  useModalFocusTrap(dialogRef, isOpen, dismiss, state);
+
+  useEffect(() => {
+    const pathnameChanged = previousPathRef.current !== pathname;
+    previousPathRef.current = pathname;
+    if (!pathnameChanged && isMarketingPopupPath(pathname)) return;
+    submitAbortRef.current?.abort();
+    submitAbortRef.current = null;
+    setState("hidden");
+  }, [pathname]);
+
+  useEffect(
+    () => () => {
+      submitAbortRef.current?.abort();
+    },
+    [],
+  );
 
   // Decide whether to show the pop-up. The offer is banked inside the timer
   // rather than in a follow-up effect so opening, applying and reporting happen
   // exactly once, in one place.
   useEffect(() => {
     if (!preview) {
-      if (localStorage.getItem(LS_KEY_SUBSCRIBED) === "1") return;
+      // Recovery owns cart-bearing sessions. This also stops two independent
+      // marketing surfaces from racing for the same shopper's attention.
+      if (
+        !isMarketingPopupPath(pathname) ||
+        hasCartItems ||
+        cartOpen ||
+        blockingOverlay ||
+        hasMarketingPopupClaim()
+      ) {
+        return;
+      }
 
-      const dismissCount = parseInt(
-        localStorage.getItem(LS_KEY_DISMISS_COUNT) ?? "0",
-        10,
-      );
-      if (dismissCount >= MAX_DISMISSALS) return;
+      try {
+        if (localStorage.getItem(LS_KEY_SUBSCRIBED) === "1") return;
 
-      const lastShownAt = parseInt(
-        localStorage.getItem(LS_KEY_SHOWN_AT) ?? "0",
-        10,
-      );
-      if (Date.now() - lastShownAt < THROTTLE_MS) return;
+        const dismissCount = readStoredNumber(LS_KEY_DISMISS_COUNT);
+        if (dismissCount >= MAX_DISMISSALS) return;
+
+        const lastShownAt = readStoredNumber(LS_KEY_SHOWN_AT);
+        if (Date.now() - lastShownAt < THROTTLE_MS) return;
+      } catch {
+        // Continue with the in-memory session claim when storage is blocked.
+      }
     }
 
     const timer = window.setTimeout(() => {
+      if (preview) {
+        if (previewAttemptedRef.current) return;
+        previewAttemptedRef.current = true;
+      } else {
+        // Read the stores synchronously at execution time. React effect cleanup
+        // can lose a same-tick race with add-to-cart or another overlay claim.
+        const liveCart = useCart.getState();
+        const overlayActive = useOverlayStore.getState().active.length > 0;
+        if (
+          !isMarketingPopupPath(window.location.pathname) ||
+          liveCart.items.length > 0 ||
+          liveCart.isOpen ||
+          overlayActive ||
+          hasMarketingPopupClaim() ||
+          !claimMarketingPopup("welcome")
+        ) {
+          return;
+        }
+      }
+
       autoApply(WELCOME_COUPON.code, "welcome-popup");
       setState("offer");
 
       if (preview) return;
-      localStorage.setItem(LS_KEY_SHOWN_AT, String(Date.now()));
+      try {
+        localStorage.setItem(LS_KEY_SHOWN_AT, String(Date.now()));
+      } catch {
+        // The session claim still prevents repeated dialogs in this lifecycle.
+      }
       gaEvent("view_promotion", PROMOTION);
     }, preview ? 0 : DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [autoApply, preview]);
-
-  // Move focus into the dialog on open and hand it back on close. The email
-  // field is deliberately NOT auto-focused: it is the last thing on this screen,
-  // and raising the mobile keyboard would bury the offer we just made.
-  useEffect(() => {
-    if (!isOpen) return;
-    const restoreTo = document.activeElement;
-    dialogRef.current?.focus();
-    return () => {
-      if (restoreTo instanceof HTMLElement) restoreTo.focus();
-    };
-  }, [isOpen]);
-
-  // Trap focus inside the dialog while open.
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        dismiss();
-        return;
-      }
-      if (e.key !== "Tab" || !dialogRef.current) return;
-
-      const focusable =
-        dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-
-      if (e.shiftKey) {
-        if (active === first || active === dialogRef.current) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, dismiss]);
+  }, [
+    autoApply,
+    blockingOverlay,
+    cartOpen,
+    hasCartItems,
+    pathname,
+    preview,
+  ]);
 
   function handleCopy() {
     if (!preview) gaEvent("select_promotion", PROMOTION);
@@ -238,14 +262,19 @@ export function EmailCapturePop() {
     }
     setError("");
     setLoading(true);
+    submitAbortRef.current?.abort();
+    const controller = new AbortController();
+    submitAbortRef.current = controller;
 
     try {
       const res = await fetch("/api/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: trimmed, source: "popup" }),
+        signal: controller.signal,
       });
       const data = await res.json();
+      if (controller.signal.aborted) return;
 
       if (!res.ok) {
         setError(data.error ?? "Something went wrong. Please try again.");
@@ -265,14 +294,28 @@ export function EmailCapturePop() {
       setState("success");
 
       if (!preview) {
-        localStorage.setItem(LS_KEY_SUBSCRIBED, "1");
+        try {
+          localStorage.setItem(LS_KEY_SUBSCRIBED, "1");
+        } catch {
+          // The successful server-side subscription remains authoritative.
+        }
         // Only count net-new signups as conversions — re-submits are acknowledgement.
         if (!returning) gaEvent("sign_up", { method: "welcome_popup" });
       }
-    } catch {
+    } catch (submitError) {
+      if (
+        controller.signal.aborted ||
+        (submitError instanceof DOMException &&
+          submitError.name === "AbortError")
+      ) {
+        return;
+      }
       setError("Connection error. Please try again.");
     } finally {
-      setLoading(false);
+      if (submitAbortRef.current === controller) {
+        submitAbortRef.current = null;
+        setLoading(false);
+      }
     }
   }
 
@@ -296,9 +339,9 @@ export function EmailCapturePop() {
         aria-modal="true"
         aria-labelledby="popup-title"
         tabIndex={-1}
-        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[51] mx-auto max-h-[min(100dvh-2rem,calc(100svh-2rem))] max-w-md overflow-y-auto animate-float-up overscroll-contain focus:outline-none sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2"
+        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[51] mx-auto max-h-[min(100dvh-2rem,calc(100svh-2rem))] max-w-md overflow-y-auto overscroll-contain focus:outline-none sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2"
       >
-        <div className="card-cute relative overflow-hidden">
+        <div className="card-cute relative overflow-hidden animate-float-up">
           <div className="h-1.5 w-full bg-holo-vivid" />
 
           <button
@@ -364,8 +407,8 @@ export function EmailCapturePop() {
                   id="popup-stacking-note"
                   className="mt-2 text-center text-[11px] leading-snug text-[var(--foreground)]/45"
                 >
-                  The best discount combination will be automatically applied at
-                  checkout.
+                  Bundle pricing and coupons cannot stack — checkout applies the
+                  offer your bag qualifies for.
                 </p>
 
                 <hr className="my-3 border-t border-[var(--border)]" />
@@ -426,7 +469,8 @@ export function EmailCapturePop() {
                   </button>
 
                   <p className="pt-0.5 text-center text-[11px] leading-snug text-[var(--foreground)]/40">
-                    No spam, unsubscribe anytime. See our{" "}
+                    By joining, you agree to receive marketing emails. Unsubscribe
+                    anytime. See our{" "}
                     <Link href="/policies/privacy-policy" className="underline">
                       Privacy Policy
                     </Link>

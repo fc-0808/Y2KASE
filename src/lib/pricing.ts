@@ -101,6 +101,31 @@ export const SHIPPING: Record<
   CNY: { freeOverCents: 25000, flatCents: 3500 },
 };
 
+/** Validated storefront currency used by public promotional copy. */
+export const STORE_CURRENCY = (() => {
+  const configured = (
+    process.env.NEXT_PUBLIC_STORE_CURRENCY ?? "USD"
+  ).toUpperCase();
+  return configured in SHIPPING ? configured : "USD";
+})();
+
+/** Human-readable threshold derived from the checkout shipping table. */
+export function formatShippingThreshold(
+  currency = STORE_CURRENCY,
+): string {
+  const normalized = currency.toUpperCase();
+  const selected = normalized in SHIPPING ? normalized : "USD";
+  const amount = SHIPPING[selected].freeOverCents / 100;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: selected,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+  }).format(amount);
+}
+
+export const FREE_SHIPPING_OFFER =
+  `Free standard shipping for orders over ${formatShippingThreshold()}`;
+
 export type ShippingQuote = {
   shippingCents: number;
   freeOverCents: number;
@@ -143,6 +168,25 @@ export function getStylePrice(style: string | undefined, currency: string): numb
 /** Entry ("from") price for a product — the default style's price. */
 export function getBasePrice(currency: string): number {
   return tableFor(currency)[DEFAULT_STYLE];
+}
+
+/**
+ * Canonical price first shown for a product.
+ *
+ * iPhone cases are priced from the live Style table, while every other product
+ * type uses its stored catalog price. Cards, PDP metadata, JSON-LD and merchant
+ * feeds all call this boundary so a crawler can never see a different price
+ * from the shopper.
+ */
+export function getProductEntryPrice(
+  productType: string,
+  storedPrice: string | number,
+  currency: string,
+): number {
+  if (productType === "iphone_case") return getBasePrice(currency);
+
+  const parsed = Number(storedPrice);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 /** The two option axes every phone-case product carries, in display order. */

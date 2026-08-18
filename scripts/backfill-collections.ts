@@ -11,9 +11,8 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { inArray } from "drizzle-orm";
 import { db } from "../src/lib/db";
-import { products, collections, productCollections } from "../src/lib/db/schema";
+import { productCollections } from "../src/lib/db/schema";
 import { matchCollectionSlugs } from "../src/lib/catalog/collections-config";
 
 async function main() {

@@ -9,12 +9,17 @@
  * Resubmit cadence is controlled by Merchant Center; we revalidate hourly so a
  * newly published product appears without a deploy.
  */
-import { and, eq, desc } from "drizzle-orm";
-import { db, isDbConfigured } from "@/lib/db";
-import { products } from "@/lib/db/schema";
+import { isDbConfigured } from "@/lib/db";
+import {
+  getCatalogFeedItems,
+  type CatalogFeedItem,
+} from "@/lib/products";
 import { absoluteUrl, BRAND } from "@/lib/seo";
+import { googleProductCategoryId } from "@/lib/catalog/merchant";
 
-export const revalidate = 3600;
+// Never bake an empty catalog into a deployment when the build environment
+// lacks database access. The CDN caches successful responses for one hour.
+export const dynamic = "force-dynamic";
 
 function xmlEscape(value: string): string {
   return value
@@ -25,84 +30,74 @@ function xmlEscape(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
-function item(p: {
-  slug: string;
-  title: string;
-  description: string | null;
-  price: string;
-  currency: string;
-  imageUrl: string | null;
-}): string {
+function item(p: CatalogFeedItem): string {
   const link = absoluteUrl(`/products/${p.slug}`);
-  const price = `${Number(p.price).toFixed(2)} ${p.currency.toUpperCase()}`;
+  const currency = p.currency.toUpperCase();
+  const currentPrice = Number(p.price);
+  const compareAtPrice = Number(p.compareAtPrice);
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+    console.error(`[merchant-feed] invalid price for ${p.slug}: ${p.price}`);
+    return "";
+  }
+  const onSale =
+    Number.isFinite(compareAtPrice) &&
+    compareAtPrice > currentPrice &&
+    currentPrice > 0;
+  const regularPrice = `${(onSale ? compareAtPrice : currentPrice).toFixed(2)} ${currency}`;
+  const salePrice = `${currentPrice.toFixed(2)} ${currency}`;
   const description =
     p.description?.trim().replace(/\s+/g, " ").slice(0, 5000) ||
     BRAND.description;
 
-  // Only emit items with an image — Merchant Center rejects items without one.
-  const imageTag = p.imageUrl
-    ? `<g:image_link>${xmlEscape(p.imageUrl)}</g:image_link>`
-    : "";
+  const [primaryImage, ...additionalImages] = p.images;
+  if (!primaryImage) return "";
+  const googleCategory = googleProductCategoryId(p.productType);
+  const imageTags = [
+    `<g:image_link>${xmlEscape(absoluteUrl(primaryImage))}</g:image_link>`,
+    ...additionalImages
+      .slice(0, 9)
+      .map(
+        (image) =>
+          `<g:additional_image_link>${xmlEscape(absoluteUrl(image))}</g:additional_image_link>`,
+      ),
+  ].join("\n      ");
 
   return `    <item>
       <g:id>${xmlEscape(p.slug)}</g:id>
       <g:title>${xmlEscape(p.title)}</g:title>
       <g:description>${xmlEscape(description)}</g:description>
       <g:link>${xmlEscape(link)}</g:link>
-      ${imageTag}
+      ${imageTags}
       <g:availability>in_stock</g:availability>
       <g:condition>new</g:condition>
-      <g:price>${xmlEscape(price)}</g:price>
+      <g:price>${xmlEscape(regularPrice)}</g:price>
+      ${onSale ? `<g:sale_price>${xmlEscape(salePrice)}</g:sale_price>` : ""}
       <g:brand>${xmlEscape(BRAND.name)}</g:brand>
       <g:identifier_exists>no</g:identifier_exists>
-      <g:product_type>Phone Cases &amp; Accessories</g:product_type>
-      <g:google_product_category>267</g:google_product_category>
+      <g:product_type>${xmlEscape(p.productTypeLabel)}</g:product_type>
+      ${googleCategory ? `<g:google_product_category>${googleCategory}</g:google_product_category>` : ""}
     </item>`;
 }
 
 export async function GET() {
-  let rows: {
-    slug: string;
-    title: string;
-    description: string | null;
-    price: string;
-    currency: string;
-    imageUrl: string | null;
-  }[] = [];
+  if (!isDbConfigured()) {
+    console.error("[merchant-feed] DATABASE_URL is not configured.");
+    return unavailableFeed();
+  }
 
-  if (isDbConfigured()) {
-    try {
-      const found = await db.query.products.findMany({
-        where: and(eq(products.status, "active")),
-        orderBy: desc(products.createdAt),
-        columns: {
-          slug: true,
-          title: true,
-          description: true,
-          price: true,
-          currency: true,
-        },
-        with: {
-          images: {
-            columns: { url: true },
-            orderBy: (img, { asc }) => asc(img.position),
-            limit: 1,
-          },
-        },
-      });
-      rows = found
-        .map((p) => ({
-          slug: p.slug,
-          title: p.title,
-          description: p.description,
-          price: p.price,
-          currency: p.currency,
-          imageUrl: p.images[0]?.url ?? null,
-        }))
-        .filter((p) => p.imageUrl);
-    } catch {
-      rows = [];
-    }
+  let catalogItems: CatalogFeedItem[];
+  try {
+    catalogItems = await getCatalogFeedItems();
+  } catch (error) {
+    console.error("[merchant-feed] catalog query failed:", error);
+    return unavailableFeed();
+  }
+  const renderedItems = catalogItems.map(item).filter(Boolean);
+  const omittedItems = catalogItems.length - renderedItems.length;
+  if (omittedItems > 0) {
+    console.warn(
+      `[merchant-feed] omitted ${omittedItems} product(s) with invalid price or imagery.`,
+    );
   }
 
   const body = `<?xml version="1.0" encoding="UTF-8"?>
@@ -111,7 +106,7 @@ export async function GET() {
     <title>${xmlEscape(BRAND.name)}</title>
     <link>${absoluteUrl("/")}</link>
     <description>${xmlEscape(BRAND.description)}</description>
-${rows.map(item).join("\n")}
+${renderedItems.join("\n")}
   </channel>
 </rss>`;
 
@@ -119,6 +114,20 @@ ${rows.map(item).join("\n")}
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "X-Robots-Tag": "noindex, follow",
+      "X-Catalog-Items-Omitted": String(omittedItems),
+    },
+  });
+}
+
+function unavailableFeed(): Response {
+  return new Response("Product feed temporarily unavailable.", {
+    status: 503,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": "300",
+      "X-Robots-Tag": "noindex",
     },
   });
 }

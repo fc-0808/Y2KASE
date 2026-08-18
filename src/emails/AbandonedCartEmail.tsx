@@ -16,6 +16,7 @@ interface AbandonedCartEmailProps {
   items: { title: string; quantity: number }[];
   resumeUrl: string;
   unsubscribeUrl?: string;
+  postalAddress: string;
 }
 
 export function AbandonedCartEmail({
@@ -23,6 +24,7 @@ export function AbandonedCartEmail({
   items,
   resumeUrl,
   unsubscribeUrl,
+  postalAddress,
 }: AbandonedCartEmailProps) {
   const greeting = name ? `Hey ${name}! ✨` : "You left something cute behind 🥺";
 
@@ -68,6 +70,7 @@ export function AbandonedCartEmail({
           </Section>
 
           <Section style={footerStyle}>
+            <Text style={footerTextStyle}>{postalAddress}</Text>
             <Text style={footerTextStyle}>
               © {new Date().getFullYear()} Y2KASE · All rights reserved
             </Text>

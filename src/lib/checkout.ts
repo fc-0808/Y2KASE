@@ -64,6 +64,9 @@ export async function priceCart(
 
   // Normalize + sanity-check quantities up front.
   const cleaned = items.map((it) => {
+    if (!it || typeof it !== "object" || Array.isArray(it)) {
+      throw new CheckoutError("Invalid product in cart.");
+    }
     const quantity = Math.floor(Number(it.quantity));
     if (!Number.isInteger(it.productId) || it.productId <= 0) {
       throw new CheckoutError("Invalid product in cart.");
@@ -71,9 +74,34 @@ export async function priceCart(
     if (!Number.isFinite(quantity) || quantity < 1 || quantity > MAX_QTY_PER_LINE) {
       throw new CheckoutError("Invalid quantity in cart.");
     }
+    if (
+      !it.options ||
+      typeof it.options !== "object" ||
+      Array.isArray(it.options)
+    ) {
+      throw new CheckoutError("Invalid product options in cart.");
+    }
+    const optionEntries = Object.entries(it.options);
+    if (optionEntries.length > 20) {
+      throw new CheckoutError("Invalid product options in cart.");
+    }
+    const options = Object.fromEntries(
+      optionEntries.map(([name, value]) => {
+        if (
+          !name ||
+          name.length > 120 ||
+          typeof value !== "string" ||
+          !value ||
+          value.length > 200
+        ) {
+          throw new CheckoutError("Invalid product options in cart.");
+        }
+        return [name, value];
+      }),
+    );
     return {
       productId: it.productId,
-      options: it.options ?? {},
+      options,
       quantity,
     };
   });
@@ -83,6 +111,7 @@ export async function priceCart(
     where: inArray(products.id, ids),
     with: {
       images: { orderBy: (img, { asc }) => [asc(img.position)], limit: 1 },
+      options: { columns: { name: true, values: true } },
     },
   });
 
@@ -95,6 +124,24 @@ export async function priceCart(
     }
     if (product.status !== "active") {
       throw new CheckoutError(`"${product.title}" is no longer available.`);
+    }
+
+    const offeredOptions = new Map(
+      product.options
+        .filter((option) => option.values.length > 0)
+        .map((option) => [option.name, new Set(option.values)]),
+    );
+    const selectedOptions = Object.entries(c.options);
+
+    if (
+      selectedOptions.length !== offeredOptions.size ||
+      selectedOptions.some(
+        ([name, value]) => !offeredOptions.get(name)?.has(value),
+      )
+    ) {
+      throw new CheckoutError(
+        `A saved option for "${product.title}" is no longer available. Please update your bag.`,
+      );
     }
 
     const currency = product.currency ?? "USD";

@@ -1,17 +1,24 @@
 import type { MetadataRoute } from "next";
 import { eq } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
-import { products, collections } from "@/lib/db/schema";
-import { LEGAL_SLUGS } from "@/lib/legal";
+import { products } from "@/lib/db/schema";
+import { LEGAL_DOCS, LEGAL_SLUGS } from "@/lib/legal";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { listPublishedPosts } from "@/lib/blog";
 import { ROUTES } from "@/lib/routes";
-
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+import { getCollectionTree, type CollectionNode } from "@/lib/collections";
+import { absoluteUrl, SITE_URL } from "@/lib/site";
 
 // Refresh the sitemap hourly so new products/collections appear without a deploy.
 export const revalidate = 3600;
+const SITEMAP_URL_LIMIT = 50_000;
+
+function flattenCollections(nodes: CollectionNode[]): CollectionNode[] {
+  return nodes.flatMap((node) => [
+    node,
+    ...flattenCollections(node.children),
+  ]);
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Live (stocked) device landing pages — high-intent SEO category pages.
@@ -26,12 +33,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }));
 
   // Blog index + posts — the organic content engine.
-  const blogPosts = await listPublishedPosts();
+  const [blogPosts, collectionTree] = await Promise.all([
+    listPublishedPosts(),
+    getCollectionTree(),
+  ]);
   const blogRoutes: MetadataRoute.Sitemap = [
     { url: `${SITE_URL}/blog`, changeFrequency: "weekly", priority: 0.7 },
     ...blogPosts.map((p) => ({
       url: `${SITE_URL}/blog/${p.slug}`,
-      lastModified: new Date(`${p.meta.date}T00:00:00Z`),
+      lastModified: new Date(
+        p.meta.modified ?? `${p.meta.date}T00:00:00Z`,
+      ),
       changeFrequency: "monthly" as const,
       priority: 0.6,
     })),
@@ -53,42 +65,65 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/contact`, changeFrequency: "monthly", priority: 0.4 },
     ...LEGAL_SLUGS.map((slug) => ({
       url: `${SITE_URL}/policies/${slug}`,
+      lastModified: new Date(`${LEGAL_DOCS[slug].updated}T00:00:00Z`),
       changeFrequency: "yearly" as const,
       priority: 0.3,
     })),
   ];
 
-  if (!isDbConfigured()) return staticRoutes;
+  // Active-but-empty taxonomy nodes are valid admin vocabulary, not useful
+  // landing pages. Submitting them created dozens of thin URLs; only stocked
+  // collection subtrees belong in the search sitemap.
+  const collectionRoutes: MetadataRoute.Sitemap = flattenCollections(
+    collectionTree,
+  )
+    .filter((collection) => collection.totalCount > 0)
+    .map((collection) => ({
+      url: `${SITE_URL}/collections/${collection.slug}`,
+      changeFrequency: "weekly",
+      priority: 0.6,
+      ...(collection.imageUrl
+        ? { images: [absoluteUrl(collection.imageUrl)] }
+        : {}),
+    }));
+
+  if (!isDbConfigured()) return [...staticRoutes, ...collectionRoutes];
 
   try {
-    const [prodRows, colRows] = await Promise.all([
-      db
-        .select({ slug: products.slug, updatedAt: products.updatedAt })
-        .from(products)
-        .where(eq(products.status, "active")),
-      db
-        .select({ slug: collections.slug, updatedAt: collections.updatedAt })
-        .from(collections)
-        .where(eq(collections.status, "active")),
-    ]);
+    const prodRows = await db.query.products.findMany({
+      where: eq(products.status, "active"),
+      columns: { slug: true, updatedAt: true },
+      with: {
+        images: {
+          columns: { url: true },
+          orderBy: (image, { asc }) => asc(image.position),
+          limit: 10,
+        },
+      },
+    });
 
     const productRoutes: MetadataRoute.Sitemap = prodRows.map((p) => ({
       url: `${SITE_URL}/products/${p.slug}`,
       lastModified: p.updatedAt ?? undefined,
       changeFrequency: "weekly",
       priority: 0.7,
+      ...(p.images.length > 0
+        ? { images: p.images.map((image) => absoluteUrl(image.url)) }
+        : {}),
     }));
 
-    const collectionRoutes: MetadataRoute.Sitemap = colRows.map((c) => ({
-      url: `${SITE_URL}/collections/${c.slug}`,
-      lastModified: c.updatedAt ?? undefined,
-      changeFrequency: "weekly",
-      priority: 0.6,
-    }));
-
-    return [...staticRoutes, ...collectionRoutes, ...productRoutes];
-  } catch {
-    // If the DB is unreachable at build/request time, still return static routes.
-    return staticRoutes;
+    const complete = [...staticRoutes, ...collectionRoutes, ...productRoutes];
+    if (complete.length > SITEMAP_URL_LIMIT) {
+      throw new Error(
+        `Sitemap has ${complete.length} URLs; split it with generateSitemaps() before exceeding ${SITEMAP_URL_LIMIT}.`,
+      );
+    }
+    return complete;
+  } catch (error) {
+    console.error("[sitemap] product query failed:", error);
+    // Do not replace a previously complete ISR sitemap with a successful but
+    // product-less response. At build time this fails the deployment; during
+    // revalidation Next keeps serving the last good cached sitemap.
+    throw new Error("Unable to build the product sitemap.", { cause: error });
   }
 }

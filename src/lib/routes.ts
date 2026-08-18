@@ -131,20 +131,9 @@ export function assertRedirectsAreResolvable(
 // Route classification
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Kept as pure predicates so the exact same rules can be reused from client
-// gates, server code or tests without drifting into three slightly different
-// string checks.
+// Kept as a pure predicate so admin-aware callers share one precise boundary.
 
 /** The /admin console, which ships its own shell (`AdminNavbar`). */
 export function isAdminRoute(pathname: string): boolean {
   return pathname === "/admin" || pathname.startsWith("/admin/");
-}
-
-/**
- * The focused checkout funnel: the bag-review page plus the post-Stripe result
- * pages. These deliberately render a stripped-back header/footer with no exit
- * points — the standard conversion pattern used by Shopify, Apple and Amazon.
- */
-export function isCheckoutFlowRoute(pathname: string): boolean {
-  return pathname === "/cart" || pathname.startsWith("/checkout/");
 }

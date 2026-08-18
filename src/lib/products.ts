@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { unstable_cache } from "next/cache";
+import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS } from "@/lib/cache";
 import { collections, products, productCollections } from "@/lib/db/schema";
@@ -19,7 +20,7 @@ import type { ProductWithRelations } from "@/lib/db/schema";
 import {
   MODEL_OPTION_NAME,
   STYLE_OPTION_NAME,
-  getBasePrice,
+  getProductEntryPrice,
   orderModels,
   orderStyles,
 } from "@/lib/pricing";
@@ -44,10 +45,7 @@ function listingPriceFor(
   storedPrice: string,
   currency: string,
 ): string {
-  if (productType === "iphone_case") {
-    return getBasePrice(currency).toFixed(2);
-  }
-  return storedPrice;
+  return getProductEntryPrice(productType, storedPrice, currency).toFixed(2);
 }
 
 /** Attach published-review summaries to a list of products for card star ratings. */
@@ -109,6 +107,45 @@ export type ProductQuery = {
   page?: number;
   sort?: "newest" | "price-asc" | "price-desc";
 };
+
+export type ProductPage = {
+  items: ProductListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type CatalogPage = ProductPage & {
+  facetCounts: CatalogFacetCounts;
+};
+
+function normalizeProductQuery(query: ProductQuery): ProductQuery {
+  const page = Math.min(
+    1_000,
+    Math.max(1, Math.trunc(Number.isFinite(query.page) ? (query.page ?? 1) : 1)),
+  );
+  const brands = query.brands
+    ? [...new Set(query.brands.filter(Boolean))].sort().slice(0, 24)
+    : undefined;
+  const search = query.search?.trim().replace(/\s+/g, " ").slice(0, 120);
+
+  return {
+    ...(search ? { search } : {}),
+    ...(query.tag ? { tag: query.tag } : {}),
+    ...(query.device ? { device: query.device } : {}),
+    ...(query.collection ? { collection: query.collection } : {}),
+    ...(brands && brands.length > 0 ? { brands } : {}),
+    ...(query.magsafe !== undefined ? { magsafe: query.magsafe } : {}),
+    page,
+    sort: query.sort ?? "newest",
+  };
+}
+
+function normalizeSlugs(slugs: string[] | undefined): string[] | undefined {
+  return slugs === undefined
+    ? undefined
+    : [...new Set(slugs.filter(Boolean))].sort();
+}
 
 /** `products.id IN (…)` for membership in any of these collections' subtrees. */
 async function collectionMembership(slugs: string[]): Promise<SQL> {
@@ -183,18 +220,33 @@ async function catalogFilters(
   return filters;
 }
 
-export async function getProducts(query: ProductQuery = {}): Promise<{
-  items: ProductListItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-}> {
+export function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
+  const normalized = normalizeProductQuery(query);
+  if (!isDbConfigured()) {
+    return Promise.resolve({
+      items: [],
+      total: 0,
+      page: normalized.page ?? 1,
+      pageSize: PAGE_SIZE,
+    });
+  }
+  return normalized.search
+    ? computeProducts(normalized)
+    : getProductsCached(normalized);
+}
+
+const getProductsCached = unstable_cache(
+  computeProducts,
+  ["catalog-product-page-v1"],
+  {
+    tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
+    revalidate: 300,
+  },
+);
+
+async function computeProducts(query: ProductQuery): Promise<ProductPage> {
   const page = Math.max(1, query.page ?? 1);
   const offset = (page - 1) * PAGE_SIZE;
-
-  if (!isDbConfigured()) {
-    return { items: [], total: 0, page, pageSize: PAGE_SIZE };
-  }
 
   const where = and(...(await catalogFilters(query)));
 
@@ -205,23 +257,24 @@ export async function getProducts(query: ProductQuery = {}): Promise<{
         ? sql`${products.price} desc`
         : desc(products.createdAt);
 
-  const rows = await db.query.products.findMany({
-    where,
-    orderBy,
-    limit: PAGE_SIZE,
-    offset,
-    with: {
-      images: {
-        orderBy: (img, { asc }) => asc(img.position),
-        limit: 1,
+  const [rows, [{ count }]] = await Promise.all([
+    db.query.products.findMany({
+      where,
+      orderBy,
+      limit: PAGE_SIZE,
+      offset,
+      with: {
+        images: {
+          orderBy: (img, { asc }) => asc(img.position),
+          limit: 1,
+        },
       },
-    },
-  });
-
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(products)
-    .where(where);
+    }),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(products)
+      .where(where),
+  ]);
 
   const items: ProductListItem[] = rows.map(toListItem);
 
@@ -269,6 +322,77 @@ export async function getCatalogFacetCounts(
   alsoCountSlugs?: string[],
 ): Promise<CatalogFacetCounts> {
   if (!isDbConfigured()) return EMPTY_FACET_COUNTS;
+  return computeCatalogFacetCounts(
+    normalizeProductQuery(query),
+    normalizeSlugs(facetSlugs),
+    normalizeSlugs(alsoCountSlugs),
+  );
+}
+
+/**
+ * Products and contextual facet counts share one cache entry so a warm catalog
+ * navigation performs one Data Cache read instead of repeating Neon queries.
+ * Free-text searches intentionally bypass this cache to keep user-controlled
+ * terms from creating an unbounded key space.
+ */
+export function getCatalogPage(
+  query: ProductQuery = {},
+  facetSlugs?: string[],
+  alsoCountSlugs?: string[],
+): Promise<CatalogPage> {
+  const normalized = normalizeProductQuery(query);
+  const normalizedFacetSlugs = normalizeSlugs(facetSlugs);
+  const normalizedAlsoCountSlugs = normalizeSlugs(alsoCountSlugs);
+
+  if (!isDbConfigured()) {
+    return Promise.resolve({
+      items: [],
+      total: 0,
+      page: normalized.page ?? 1,
+      pageSize: PAGE_SIZE,
+      facetCounts: EMPTY_FACET_COUNTS,
+    });
+  }
+
+  return normalized.search
+    ? computeCatalogPage(
+        normalized,
+        normalizedFacetSlugs,
+        normalizedAlsoCountSlugs,
+      )
+    : getCatalogPageCached(
+        normalized,
+        normalizedFacetSlugs,
+        normalizedAlsoCountSlugs,
+      );
+}
+
+const getCatalogPageCached = unstable_cache(
+  computeCatalogPage,
+  ["catalog-page-with-facets-v1"],
+  {
+    tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
+    revalidate: 300,
+  },
+);
+
+async function computeCatalogPage(
+  query: ProductQuery,
+  facetSlugs?: string[],
+  alsoCountSlugs?: string[],
+): Promise<CatalogPage> {
+  const [productPage, facetCounts] = await Promise.all([
+    computeProducts(query),
+    computeCatalogFacetCounts(query, facetSlugs, alsoCountSlugs),
+  ]);
+  return { ...productPage, facetCounts };
+}
+
+async function computeCatalogFacetCounts(
+  query: ProductQuery,
+  facetSlugs?: string[],
+  alsoCountSlugs?: string[],
+): Promise<CatalogFacetCounts> {
   const [magsafe, brands, extras] = await Promise.all([
     countCompatibilityFacet(query),
     facetSlugs
@@ -537,19 +661,35 @@ async function computeCollectionRail(
  * first, then topped up with other products of the same device/type. This lifts
  * AOV and pages-per-session, and deepens internal linking for crawlers.
  */
-export async function getRelatedProducts(opts: {
+export function getRelatedProducts(opts: {
   productId: number;
   productType: string;
   limit?: number;
 }): Promise<ProductListItem[]> {
-  if (!isDbConfigured()) return [];
-  const limit = opts.limit ?? 8;
+  if (!isDbConfigured()) return Promise.resolve([]);
+  const limit = Math.min(12, Math.max(1, Math.trunc(opts.limit ?? 8)));
+  return getRelatedProductsCached(opts.productId, opts.productType, limit);
+}
 
+const getRelatedProductsCached = unstable_cache(
+  computeRelatedProducts,
+  ["related-products-v1"],
+  {
+    tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
+    revalidate: 3600,
+  },
+);
+
+async function computeRelatedProducts(
+  productId: number,
+  productType: string,
+  limit: number,
+): Promise<ProductListItem[]> {
   // 1) Same-collection products (strongest relevance signal).
   const collRows = await db
     .select({ cid: productCollections.collectionId })
     .from(productCollections)
-    .where(eq(productCollections.productId, opts.productId));
+    .where(eq(productCollections.productId, productId));
   const collectionIds = collRows.map((r) => r.cid);
 
   let related: ProductListItem[] = [];
@@ -560,7 +700,7 @@ export async function getRelatedProducts(opts: {
       .where(
         and(
           inArray(productCollections.collectionId, collectionIds),
-          ne(productCollections.productId, opts.productId),
+          ne(productCollections.productId, productId),
         ),
       );
     const ids = idRows.map((r) => r.pid);
@@ -579,11 +719,11 @@ export async function getRelatedProducts(opts: {
 
   // 2) Top up with same-type products if we're short.
   if (related.length < limit) {
-    const exclude = [opts.productId, ...related.map((r) => r.id)];
+    const exclude = [productId, ...related.map((r) => r.id)];
     const more = await db.query.products.findMany({
       where: and(
         eq(products.status, "active"),
-        eq(products.productType, opts.productType),
+        eq(products.productType, productType),
         notInArray(products.id, exclude),
       ),
       orderBy: desc(products.createdAt),
@@ -598,20 +738,36 @@ export async function getRelatedProducts(opts: {
   return withRatings(related.slice(0, limit));
 }
 
-export async function getProductBySlug(
+export type StorefrontProduct = Omit<ProductWithRelations, "variants">;
+
+async function computeProductBySlug(
   slug: string,
-): Promise<ProductWithRelations | null> {
-  if (!isDbConfigured()) return null;
+): Promise<StorefrontProduct | null> {
   const product = await db.query.products.findFirst({
     where: and(eq(products.slug, slug), eq(products.status, "active")),
     with: {
       images: { orderBy: (img, { asc }) => asc(img.position) },
       options: { orderBy: (opt, { asc }) => asc(opt.position) },
-      variants: true,
     },
   });
   return product ?? null;
 }
+
+const getProductBySlugCached = unstable_cache(
+  computeProductBySlug,
+  ["storefront-product-by-slug-v1"],
+  {
+    tags: [CACHE_TAGS.products],
+    revalidate: 3600,
+  },
+);
+
+export const getProductBySlug = reactCache(async function getProductBySlug(
+  slug: string,
+): Promise<StorefrontProduct | null> {
+  if (!isDbConfigured()) return null;
+  return getProductBySlugCached(slug);
+});
 
 /**
  * Full product (any status) with ordered images + options for the admin
@@ -657,8 +813,8 @@ export async function getProductsByStatus(
  * description, product type and up to 10 ordered gallery images so the
  * feed can emit SEO-grade descriptions and additional_image_link entries.
  *
- * Prices are kept as the raw numeric strings from the DB (already in the
- * store's display currency, e.g. "19.99") — the feed formats them.
+ * `price` is the same canonical entry price shown on listing cards and in
+ * product structured data, not an ingest snapshot that may have gone stale.
  */
 export type CatalogFeedItem = {
   id: number;
@@ -675,12 +831,24 @@ export type CatalogFeedItem = {
   images: string[];
 };
 
-export async function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
-  if (!isDbConfigured()) return [];
+export function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
+  if (!isDbConfigured()) return Promise.resolve([]);
+  return getCatalogFeedItemsCached();
+}
+
+const getCatalogFeedItemsCached = unstable_cache(
+  computeCatalogFeedItems,
+  ["catalog-feed-items-v1"],
+  {
+    tags: [CACHE_TAGS.products],
+    revalidate: 3600,
+  },
+);
+
+async function computeCatalogFeedItems(): Promise<CatalogFeedItem[]> {
   const rows = await db.query.products.findMany({
     where: eq(products.status, "active"),
     orderBy: desc(products.createdAt),
-    limit: 1000,
     with: {
       images: {
         columns: { url: true, position: true },
@@ -696,7 +864,7 @@ export async function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
     description: p.description,
     productType: p.productType,
     productTypeLabel: productTypeLabel(p.productType),
-    price: p.price,
+    price: listingPriceFor(p.productType, p.price, p.currency),
     compareAtPrice: p.compareAtPrice,
     currency: p.currency,
     tags: p.tags ?? [],

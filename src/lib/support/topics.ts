@@ -6,10 +6,9 @@
  * an inbox round-trip on "when does it arrive". These five cover the bulk of
  * what /contact and the inbox actually receive.
  *
- * Answers are intentionally shorter and more actionable than the FAQ page —
- * but the FACTS must stay identical to `src/app/faq/page.tsx` and
- * `src/lib/legal.ts`. Change a shipping window or return period in one place
- * and change it in all three.
+ * Answers are intentionally shorter and more actionable than the FAQ page.
+ * Shared operational facts (such as delivery windows) come from their canonical
+ * registry rather than being copied here.
  *
  * A fourth copy is pasted into tawk's Apollo auto-reply (Administration → AI
  * Assist). It answers shoppers in our name with no deploy in the loop, so a
@@ -21,6 +20,7 @@ import type { ComponentType } from "react";
 import { Package, RotateCcw, Smartphone, Tag, Truck } from "lucide-react";
 import { BUNDLE, WELCOME_COUPON } from "@/lib/promotions";
 import { ROUTES } from "@/lib/routes";
+import { SHIPPING_ESTIMATE_SUMMARY } from "@/lib/shipping";
 
 export type SupportTopic = {
   id: string;
@@ -44,8 +44,7 @@ export const SUPPORT_TOPICS: SupportTopic[] = [
     id: "shipping",
     icon: Truck,
     question: "How long does shipping take?",
-    answer:
-      "7–14 business days worldwide, 1–3 days within Hong Kong, with express options at checkout. Standard shipping is free once your bag passes the threshold shown in your cart.",
+    answer: SHIPPING_ESTIMATE_SUMMARY,
     link: { label: "Shipping policy", href: "/policies/shipping-policy" },
   },
   {

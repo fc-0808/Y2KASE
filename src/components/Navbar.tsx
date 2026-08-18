@@ -84,7 +84,9 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
           <button
             type="button"
             onClick={() => setMobileOpen((v) => !v)}
-            aria-label="Menu"
+            aria-label={mobileOpen ? "Close menu" : "Open menu"}
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-navigation"
             className="grid h-10 w-10 place-items-center rounded-full hover:bg-[var(--muted)] md:hidden"
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -131,7 +133,7 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
         <div className="flex items-center gap-1 justify-self-end">
           <Link
             href="/products"
-            aria-label="Search products"
+            aria-label="Browse products"
             className="grid h-10 w-10 place-items-center rounded-full hover:bg-[var(--muted)]"
           >
             <Search className="h-5 w-5" />
@@ -365,7 +367,10 @@ function MobileMenu({ brands }: { brands: MenuCollection[] }) {
   ]);
 
   return (
-    <div className="max-h-[70vh] overflow-y-auto border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 md:hidden">
+    <div
+      id="mobile-navigation"
+      className="max-h-[70vh] overflow-y-auto border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 md:hidden"
+    >
       <MobileSection title="Devices">
         <div className="grid grid-cols-2 gap-1.5">
           {DEVICE_FAMILIES.flatMap((f) => f.devices).map((d) => (

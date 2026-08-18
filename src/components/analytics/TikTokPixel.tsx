@@ -3,26 +3,34 @@
 /**
  * TikTok Pixel — client-side conversion tracking.
  *
- * Loaded on mount when `NEXT_PUBLIC_TIKTOK_PIXEL_ID` is set (no consent gate).
+ * Loaded after page load, during idle time, when `NEXT_PUBLIC_TIKTOK_PIXEL_ID`
+ * is set (no consent gate).
  *
  * Standard events fired:
  *  - PageView  — every page navigation
  *  - ViewContent — product detail page (fired from ProductDetailClient)
- *  - AddToCart  — cart add (fired from CartContext)
+ *  - AddToCart  — cart add (fired from ProductDetailClient)
  *  - InitiateCheckout — checkout start (fired from CartClient)
- *  - Purchase  — order confirmed (fired from PurchaseTracking)
+ *  - CompletePayment — order confirmed (fired from PurchaseTracking)
  */
 
-import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { Suspense, useEffect } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { scheduleAfterLoad } from "@/lib/analytics/idle";
 
 export const TIKTOK_PIXEL_ID = process.env.NEXT_PUBLIC_TIKTOK_PIXEL_ID;
+const pendingTikTokEvents: {
+  event: string;
+  data?: Record<string, unknown>;
+}[] = [];
 
 declare global {
   interface Window {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ttq?: any;
     TiktokAnalyticsObject?: string;
+    __y2kTikTokPage?: string;
+    __y2kTikTokPendingPage?: string;
   }
 }
 
@@ -70,6 +78,12 @@ function loadTikTokScript(pixelId: string): void {
 
   ttq.load(pixelId);
   ttq.page();
+  window.__y2kTikTokPage =
+    window.location.pathname + window.location.search;
+  window.__y2kTikTokPendingPage = undefined;
+  for (const pending of pendingTikTokEvents.splice(0)) {
+    ttq.track(pending.event, pending.data ?? {});
+  }
 }
 
 /** Fire a TikTok standard event if the pixel is loaded. */
@@ -77,22 +91,46 @@ export function trackTtEvent(
   event: string,
   data?: Record<string, unknown>,
 ): void {
-  if (typeof window === "undefined" || !window.ttq) return;
+  if (!TIKTOK_PIXEL_ID || typeof window === "undefined") return;
+  if (!window.ttq) {
+    if (pendingTikTokEvents.length < 100) {
+      pendingTikTokEvents.push({ event, data });
+    }
+    return;
+  }
   window.ttq.track(event, data ?? {});
 }
 
-export function TikTokPixel() {
+function TikTokPageviewTracker() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const query = searchParams.toString();
+  const pageKey = query ? `${pathname}?${query}` : pathname;
 
   useEffect(() => {
     if (!TIKTOK_PIXEL_ID) return;
-    loadTikTokScript(TIKTOK_PIXEL_ID);
-  }, []);
-
-  useEffect(() => {
-    if (!TIKTOK_PIXEL_ID || !window.ttq) return;
+    if (!window.ttq) {
+      window.__y2kTikTokPendingPage = pageKey;
+      return;
+    }
+    if (window.__y2kTikTokPage === pageKey) return;
     window.ttq.page();
-  }, [pathname]);
+    window.__y2kTikTokPage = pageKey;
+  }, [pageKey]);
 
   return null;
+}
+
+export function TikTokPixel() {
+  useEffect(() => {
+    if (!TIKTOK_PIXEL_ID) return;
+    return scheduleAfterLoad(() => loadTikTokScript(TIKTOK_PIXEL_ID));
+  }, []);
+
+  if (!TIKTOK_PIXEL_ID) return null;
+  return (
+    <Suspense fallback={null}>
+      <TikTokPageviewTracker />
+    </Suspense>
+  );
 }

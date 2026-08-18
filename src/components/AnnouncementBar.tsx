@@ -1,37 +1,11 @@
-import { SHIPPING } from "@/lib/pricing";
+import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
 import { BUNDLE } from "@/lib/promotions";
-import { DEFAULT_FORMAT_LOCALE } from "@/lib/utils";
-
-/**
- * The currency the offers are quoted in. Validated against the shipping table
- * before it reaches `Intl`, because an unrecognised code there throws — and a
- * bad env var must not be able to take the whole storefront header down.
- */
-const CURRENCY = (() => {
-  const configured = (
-    process.env.NEXT_PUBLIC_STORE_CURRENCY ?? "USD"
-  ).toUpperCase();
-  return configured in SHIPPING ? configured : "USD";
-})();
-
-/** `3500` → `"$35"`. A whole threshold drops the `.00`; an odd one keeps it. */
-function formatThreshold(cents: number): string {
-  const amount = cents / 100;
-  return new Intl.NumberFormat(DEFAULT_FORMAT_LOCALE, {
-    style: "currency",
-    currency: CURRENCY,
-    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
-  }).format(amount);
-}
 
 /**
  * Both offers are DERIVED from the pricing and promotions engines rather than
  * retyped, so the bar can never advertise a threshold or a bundle that
  * checkout does not actually honour.
  */
-const FREE_SHIPPING_OFFER = `Free standard shipping for orders over ${formatThreshold(
-  SHIPPING[CURRENCY].freeOverCents,
-)}`;
 const BUNDLE_OFFER = `Y2KASE Special: Buy ${BUNDLE.groupSize} Phone Cases—Pay For ${
   BUNDLE.groupSize - BUNDLE.freePerGroup
 }`;

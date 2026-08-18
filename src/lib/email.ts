@@ -9,6 +9,9 @@
  *     orders.confirmation_email_sent_at column before sending, and release the
  *     claim if the send fails so a later webhook redelivery can retry.
  */
+import "server-only";
+
+import { createHash } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { render } from "@react-email/components";
 import { Resend } from "resend";
@@ -21,6 +24,9 @@ import { AbandonedCartEmail } from "@/emails/AbandonedCartEmail";
 import { ReviewRequestEmail } from "@/emails/ReviewRequestEmail";
 import { trackingLink } from "@/lib/carriers";
 import { SUPPORT_EMAIL } from "@/lib/support/constants";
+import { SITE_URL } from "@/lib/site";
+import { listUnsubscribeHeaders } from "@/lib/unsubscribe";
+import { marketingMailReadiness } from "@/lib/marketing/compliance";
 
 let _resend: Resend | null = null;
 
@@ -78,7 +84,7 @@ export type MailStream = "transactional" | "marketing";
  * shopper, which is a failure mode that looks like success from the outside.
  */
 export const EMAIL_FROM =
-  process.env.EMAIL_FROM ?? "Y2KASE <orders@send.y2kase.com>";
+  process.env.EMAIL_FROM?.trim() || "Y2KASE <orders@send.y2kase.com>";
 
 /**
  * Marketing sender.
@@ -98,7 +104,7 @@ export const EMAIL_FROM =
  * single domain.
  */
 export const EMAIL_FROM_MARKETING =
-  process.env.EMAIL_FROM_MARKETING ?? EMAIL_FROM;
+  process.env.EMAIL_FROM_MARKETING?.trim() || EMAIL_FROM;
 
 /**
  * Replies land with a human.
@@ -112,9 +118,6 @@ export const EMAIL_REPLY_TO = SUPPORT_EMAIL;
 export function senderFor(stream: MailStream): string {
   return stream === "marketing" ? EMAIL_FROM_MARKETING : EMAIL_FROM;
 }
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
-
 /**
  * Send the order-confirmation email exactly once. Safe to call on every webhook
  * delivery — only the first successful caller actually sends.
@@ -140,18 +143,15 @@ export async function sendOrderConfirmationOnce(
 
   if (claimed.length === 0) return "skipped";
 
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.id, orderId),
-    with: { items: true },
-  });
-
-  if (!order || !order.email) {
-    // Can't send without a recipient — release the claim for a future retry.
-    await releaseClaim(orderId);
-    return "failed";
-  }
-
   try {
+    const order = await db.query.orders.findFirst({
+      where: eq(orders.id, orderId),
+      with: { items: true },
+    });
+    if (!order || !order.email) {
+      throw new Error("Order or recipient email is missing.");
+    }
+
     // Render to HTML + plain text ourselves (more reliable than the Resend
     // SDK's built-in React rendering, which depends on package resolution).
     const element = OrderConfirmation({
@@ -175,14 +175,18 @@ export async function sendOrderConfirmationOnce(
       render(element, { plainText: true }),
     ]);
 
-    await resend.emails.send({
-      from: senderFor("transactional"),
-      replyTo: EMAIL_REPLY_TO,
-      to: order.email,
-      subject: `Your Y2KASE order #${order.id} is confirmed ✨`,
-      html,
-      text,
-    });
+    const { error } = await resend.emails.send(
+      {
+        from: senderFor("transactional"),
+        replyTo: EMAIL_REPLY_TO,
+        to: order.email,
+        subject: `Your Y2KASE order #${order.id} is confirmed ✨`,
+        html,
+        text,
+      },
+      { idempotencyKey: `order-confirmation-${order.id}-v1` },
+    );
+    if (error) throw new Error(error.message);
     return "sent";
   } catch (err) {
     console.error(`[email] failed to send confirmation for order ${orderId}:`, err);
@@ -213,17 +217,15 @@ export async function sendShipmentNotificationOnce(
 
   if (claimed.length === 0) return "skipped";
 
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.id, orderId),
-    with: { items: true },
-  });
-
-  if (!order || !order.email) {
-    await releaseShipmentClaim(orderId);
-    return "failed";
-  }
-
   try {
+    const order = await db.query.orders.findFirst({
+      where: eq(orders.id, orderId),
+      with: { items: true },
+    });
+    if (!order || !order.email) {
+      throw new Error("Order or recipient email is missing.");
+    }
+
     const element = ShipmentEmail({
       orderId: order.id,
       name: order.shippingAddress?.name,
@@ -245,14 +247,18 @@ export async function sendShipmentNotificationOnce(
       render(element, { plainText: true }),
     ]);
 
-    await resend.emails.send({
-      from: senderFor("transactional"),
-      replyTo: EMAIL_REPLY_TO,
-      to: order.email,
-      subject: `Your Y2KASE order #${order.id} has shipped 📦✨`,
-      html,
-      text,
-    });
+    const { error } = await resend.emails.send(
+      {
+        from: senderFor("transactional"),
+        replyTo: EMAIL_REPLY_TO,
+        to: order.email,
+        subject: `Your Y2KASE order #${order.id} has shipped 📦✨`,
+        html,
+        text,
+      },
+      { idempotencyKey: `shipment-notification-${order.id}-v1` },
+    );
+    if (error) throw new Error(error.message);
     return "sent";
   } catch (err) {
     console.error(`[email] failed to send shipment email for order ${orderId}:`, err);
@@ -289,16 +295,23 @@ export async function sendMagicLinkEmail(params: {
     render(element, { plainText: true }),
   ]);
 
-  await resend.emails.send({
-    // Always transactional, and the stream that matters most: if a sign-in link
-    // lands in spam the shopper cannot get into their account at all.
-    from: senderFor("transactional"),
-    replyTo: EMAIL_REPLY_TO,
-    to: params.email,
-    subject: "Your Y2KASE sign-in link ✨",
-    html,
-    text,
-  });
+  const idempotencyKey = createHash("sha256")
+    .update(params.url)
+    .digest("hex");
+  const { error } = await resend.emails.send(
+    {
+      // Always transactional, and the stream that matters most: if a sign-in link
+      // lands in spam the shopper cannot get into their account at all.
+      from: senderFor("transactional"),
+      replyTo: EMAIL_REPLY_TO,
+      to: params.email,
+      subject: "Your Y2KASE sign-in link ✨",
+      html,
+      text,
+    },
+    { idempotencyKey: `magic-link-${idempotencyKey}` },
+  );
+  if (error) throw new Error(error.message);
 }
 
 /**
@@ -312,9 +325,21 @@ export async function sendAbandonedCartEmail(params: {
   items: { title: string; quantity: number }[];
   resumeUrl: string;
   unsubscribeUrl?: string;
+  idempotencyKey: string;
 }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return false;
+  if (!resend) {
+    console.error("[email] RESEND_API_KEY is missing; abandoned-cart mail skipped.");
+    return false;
+  }
+  const readiness = marketingMailReadiness();
+  if (!readiness.ready) {
+    console.error(
+      `[email] abandoned-cart mail withheld; unmet prerequisites: ${readiness.missing.join(", ")}.`,
+    );
+    return false;
+  }
+  const { postalAddress, topicId } = readiness;
 
   try {
     const element = AbandonedCartEmail({
@@ -322,27 +347,32 @@ export async function sendAbandonedCartEmail(params: {
       items: params.items,
       resumeUrl: params.resumeUrl,
       unsubscribeUrl: params.unsubscribeUrl,
+      postalAddress,
     });
     const [html, text] = await Promise.all([
       render(element),
       render(element, { plainText: true }),
     ]);
 
-    await resend.emails.send({
-      from: senderFor("marketing"),
-      replyTo: EMAIL_REPLY_TO,
-      to: params.to,
-      subject: "You left something cute in your bag 🥺✨",
-      html,
-      text,
-      ...(params.unsubscribeUrl
-        ? {
-            headers: {
-              "List-Unsubscribe": `<${params.unsubscribeUrl}>`,
-            },
-          }
-        : {}),
-    });
+    const { error } = await resend.emails.send(
+      {
+        from: senderFor("marketing"),
+        replyTo: EMAIL_REPLY_TO,
+        to: params.to,
+        subject: "You left something cute in your bag 🥺✨",
+        topicId,
+        html,
+        text,
+        // Abandoned-cart mail is intentionally classified as marketing, so it
+        // must carry RFC 8058 one-click headers in addition to the body link.
+        headers: listUnsubscribeHeaders(params.to),
+      },
+      { idempotencyKey: params.idempotencyKey },
+    );
+    if (error) {
+      console.error("[email] Resend rejected abandoned-cart send:", error);
+      return false;
+    }
     return true;
   } catch (err) {
     console.error("[email] abandoned-cart send failed:", err);
@@ -361,9 +391,21 @@ export async function sendReviewRequestEmail(params: {
   productTitle: string;
   reviewUrl: string;
   unsubscribeUrl?: string;
+  idempotencyKey: string;
 }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return false;
+  if (!resend) {
+    console.error("[email] RESEND_API_KEY is missing; review-request mail skipped.");
+    return false;
+  }
+  const readiness = marketingMailReadiness();
+  if (!readiness.ready) {
+    console.error(
+      `[email] review-request mail withheld; unmet prerequisites: ${readiness.missing.join(", ")}.`,
+    );
+    return false;
+  }
+  const { postalAddress, topicId } = readiness;
 
   try {
     const element = ReviewRequestEmail({
@@ -371,23 +413,30 @@ export async function sendReviewRequestEmail(params: {
       productTitle: params.productTitle,
       reviewUrl: params.reviewUrl,
       unsubscribeUrl: params.unsubscribeUrl,
+      postalAddress,
     });
     const [html, text] = await Promise.all([
       render(element),
       render(element, { plainText: true }),
     ]);
 
-    await resend.emails.send({
-      from: senderFor("marketing"),
-      replyTo: EMAIL_REPLY_TO,
-      to: params.to,
-      subject: "How are you loving your Y2KASE order? ⭐",
-      html,
-      text,
-      ...(params.unsubscribeUrl
-        ? { headers: { "List-Unsubscribe": `<${params.unsubscribeUrl}>` } }
-        : {}),
-    });
+    const { error } = await resend.emails.send(
+      {
+        from: senderFor("marketing"),
+        replyTo: EMAIL_REPLY_TO,
+        to: params.to,
+        subject: "How are you loving your Y2KASE order? ⭐",
+        topicId,
+        html,
+        text,
+        headers: listUnsubscribeHeaders(params.to),
+      },
+      { idempotencyKey: params.idempotencyKey },
+    );
+    if (error) {
+      console.error("[email] Resend rejected review-request send:", error);
+      return false;
+    }
     return true;
   } catch (err) {
     console.error("[email] review-request send failed:", err);

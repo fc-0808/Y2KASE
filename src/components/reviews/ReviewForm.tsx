@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Star, Loader2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { submitReviewAction } from "@/app/products/[slug]/review-actions";
+import { submitReviewAction } from "@/app/(storefront)/products/[slug]/review-actions";
 
 /**
  * "Write a review" form. Interactive star picker + optimistic feedback. On a

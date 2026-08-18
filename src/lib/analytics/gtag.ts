@@ -3,12 +3,11 @@
  *
  * A thin, strongly-typed wrapper over gtag so every conversion event across the
  * funnel (view_item → add_to_cart → begin_checkout → purchase) is emitted with
- * GA4's recommended ecommerce schema. Centralizing it here means the event
- * contract lives in one place and can later fan out to Meta/TikTok CAPI or a
- * server-side Measurement Protocol call without touching the call sites.
+ * GA4's recommended ecommerce schema. `commerce.ts` fans the same typed
+ * contract out to the configured ad pixels.
  *
  * Safe to import anywhere: every function no-ops when GA isn't configured or
- * when running on the server, so call sites never need to guard.
+ * when running on the server, and queues events while gtag.js is still loading.
  */
 
 export const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
@@ -24,7 +23,29 @@ declare global {
   interface Window {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
+    __y2kGaConfigured?: boolean;
   }
+}
+
+/**
+ * Install the tiny official dataLayer queue before the network script arrives.
+ * This prevents fast add-to-cart/checkout/purchase effects from being dropped
+ * during the race between React hydration and `lazyOnload` gtag loading.
+ */
+function getGtag(): NonNullable<Window["gtag"]> | null {
+  if (!isGaEnabled()) return null;
+  window.dataLayer = window.dataLayer ?? [];
+  window.gtag =
+    window.gtag ??
+    ((...args: unknown[]) => {
+      window.dataLayer!.push(args);
+    });
+  if (!window.__y2kGaConfigured && GA_ID) {
+    window.__y2kGaConfigured = true;
+    window.gtag("js", new Date());
+    window.gtag("config", GA_ID, { send_page_view: false });
+  }
+  return window.gtag;
 }
 
 /** GA4 recommended ecommerce item shape. */
@@ -40,14 +61,13 @@ export type GaItem = {
 
 /** Low-level passthrough to gtag('event', …). No-ops when GA is disabled. */
 export function gaEvent(name: string, params: GtagParams = {}): void {
-  if (!isGaEnabled() || typeof window.gtag !== "function") return;
-  window.gtag("event", name, params);
+  getGtag()?.("event", name, params);
 }
 
 /** Manual SPA page_view — paired with `send_page_view: false` in the config. */
 export function gaPageview(url: string): void {
-  if (!isGaEnabled() || typeof window.gtag !== "function" || !GA_ID) return;
-  window.gtag("event", "page_view", {
+  if (!GA_ID) return;
+  getGtag()?.("event", "page_view", {
     page_path: url,
     page_location: window.location.origin + url,
     page_title: document.title,
@@ -111,10 +131,11 @@ export function trackBeginCheckout(
   items: TrackableItem[],
   currency: string,
   coupon?: string,
+  value?: number,
 ): void {
   gaEvent("begin_checkout", {
     currency: currency.toUpperCase(),
-    value: itemsValue(items),
+    value: value != null ? round2(value) : itemsValue(items),
     ...(coupon ? { coupon } : {}),
     items: items.map(toGaItem),
   });

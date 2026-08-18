@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Globe } from "lucide-react";
 import { Wordmark, PixelHeart, Sparkle } from "@/components/brand/Decor";
+import { FooterSubscribe } from "@/components/FooterSubscribe";
 
 /** lucide v1 dropped brand glyphs (trademark), so we inline them. */
 function InstagramIcon() {
@@ -44,6 +45,7 @@ export function Footer() {
               <Globe className="h-4 w-4" />
             </Social>
           </div>
+          <FooterSubscribe />
         </div>
 
         <FooterCol
@@ -130,9 +132,9 @@ function FooterCol({
 }) {
   return (
     <div>
-      <p className="mb-3 font-display text-sm font-extrabold uppercase tracking-wide">
+      <h2 className="mb-3 font-display text-sm font-extrabold uppercase tracking-wide">
         {title}
-      </p>
+      </h2>
       <ul className="space-y-2 text-sm text-[var(--foreground)]/70">
         {links.map((l) => (
           <li key={l.label}>

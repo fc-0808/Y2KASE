@@ -2,11 +2,11 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Download, Loader2, UserX, UserCheck } from "lucide-react";
+import { Search, Download, Loader2, UserX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import type { EmailSubscriber } from "@/lib/db/schema";
-import { setSubscriberStatus } from "./actions";
+import type { AdminSubscriber } from "@/lib/admin/subscribers";
+import { unsubscribeSubscriber } from "./actions";
 
 const dateFmt = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -14,21 +14,43 @@ const dateFmt = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
+function effectiveStatus(
+  subscriber: AdminSubscriber,
+): "active" | "unverified" | "unsubscribed" {
+  if (subscriber.status !== "active") return "unsubscribed";
+  return subscriber.consentVersion && subscriber.consentRecordedAt
+    ? "active"
+    : "unverified";
+}
+
+function csvCell(value: unknown): string {
+  const raw = String(value);
+  // Spreadsheet applications can execute formula-prefixed imported cells even
+  // when CSV quoting is correct. Prefix an apostrophe to force literal text.
+  const safe = /^\s*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
 export function SubscribersConsole({
   subscribers,
 }: {
-  subscribers: EmailSubscriber[];
+  subscribers: AdminSubscriber[];
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(
+    null,
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return subscribers.filter((s) => {
-      if (statusFilter !== "all" && s.status !== statusFilter) return false;
+      if (statusFilter !== "all" && effectiveStatus(s) !== statusFilter) {
+        return false;
+      }
       if (!q) return true;
       return (
         s.email.toLowerCase().includes(q) ||
@@ -37,28 +59,62 @@ export function SubscribersConsole({
     });
   }, [subscribers, query, statusFilter]);
 
-  function toggle(s: EmailSubscriber) {
-    const next = s.status === "active" ? "unsubscribed" : "active";
+  function unsubscribe(s: AdminSubscriber) {
+    if (s.status !== "active") return;
+    if (
+      !confirm(
+        `Unsubscribe ${s.email}? Only a new customer opt-in can restore consent.`,
+      )
+    ) {
+      return;
+    }
     setBusyId(s.id);
+    setNotice(null);
     startTransition(async () => {
-      await setSubscriberStatus(s.id, next);
-      router.refresh();
-      setBusyId(null);
+      try {
+        const result = await unsubscribeSubscriber(s.id);
+        setNotice(result);
+        if (result.ok) router.refresh();
+      } catch {
+        setNotice({
+          ok: false,
+          message: "The request failed. Refresh and try again.",
+        });
+      } finally {
+        setBusyId(null);
+      }
     });
   }
 
   function exportCsv() {
-    const header = ["email", "name", "source", "status", "discount_code", "subscribed_at"];
+    const header = [
+      "email",
+      "name",
+      "source",
+      "status",
+      "discount_code",
+      "consent_version",
+      "consent_country",
+      "subscribed_at",
+      "resubscribed_at",
+      "unsubscribed_at",
+      "unsubscribe_reason",
+    ];
     const rows = filtered.map((s) =>
       [
         s.email,
         s.name ?? "",
         s.source,
-        s.status,
+        effectiveStatus(s),
         s.discountCode ?? "",
+        s.consentVersion ?? "",
+        s.consentCountry ?? "",
         new Date(s.subscribedAt).toISOString(),
+        s.resubscribedAt ? new Date(s.resubscribedAt).toISOString() : "",
+        s.unsubscribedAt ? new Date(s.unsubscribedAt).toISOString() : "",
+        s.unsubscribeReason ?? "",
       ]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .map(csvCell)
         .join(","),
     );
     const csv = [header.join(","), ...rows].join("\n");
@@ -77,6 +133,7 @@ export function SubscribersConsole({
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--foreground)]/40" />
           <input
+            aria-label="Search subscribers by email or name"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search email or name…"
@@ -84,14 +141,16 @@ export function SubscribersConsole({
           />
         </div>
         <div className="flex gap-1.5">
-          {["all", "active", "unsubscribed"].map((s) => (
+          {["all", "active", "unverified", "unsubscribed"].map((s) => (
             <button
+              type="button"
               key={s}
               onClick={() => setStatusFilter(s)}
+              aria-pressed={statusFilter === s}
               className={cn(
                 "rounded-full px-3 py-1.5 text-sm font-semibold capitalize transition",
                 statusFilter === s
-                  ? "bg-[var(--primary)] text-white"
+                  ? "bg-[var(--primary)] text-[var(--foreground)]"
                   : "bg-[var(--muted)] text-[var(--foreground)]/70 hover:bg-[var(--border)]",
               )}
             >
@@ -100,6 +159,7 @@ export function SubscribersConsole({
           ))}
         </div>
         <button
+          type="button"
           onClick={exportCsv}
           disabled={filtered.length === 0}
           className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:opacity-50"
@@ -107,6 +167,20 @@ export function SubscribersConsole({
           <Download className="h-4 w-4" /> Export CSV
         </button>
       </div>
+
+      {notice && (
+        <p
+          role="status"
+          className={cn(
+            "mb-4 rounded-xl border px-4 py-3 text-sm font-semibold",
+            notice.ok
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-rose-200 bg-rose-50 text-rose-800",
+          )}
+        >
+          {notice.message}
+        </p>
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
         <div className="overflow-x-auto">
@@ -138,31 +212,34 @@ export function SubscribersConsole({
                     {s.discountCode || "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={s.status} />
+                    <StatusBadge status={effectiveStatus(s)} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-[var(--foreground)]/60">
                     {dateFmt.format(new Date(s.subscribedAt))}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => toggle(s)}
-                      disabled={pending && busyId === s.id}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50",
-                        s.status === "active"
-                          ? "border-rose-200 text-rose-600 hover:bg-rose-50"
-                          : "border-emerald-200 text-emerald-600 hover:bg-emerald-50",
-                      )}
-                    >
-                      {pending && busyId === s.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : s.status === "active" ? (
-                        <UserX className="h-3.5 w-3.5" />
-                      ) : (
-                        <UserCheck className="h-3.5 w-3.5" />
-                      )}
-                      {s.status === "active" ? "Unsubscribe" : "Reactivate"}
-                    </button>
+                    {s.status === "active" ? (
+                      <button
+                        type="button"
+                        onClick={() => unsubscribe(s)}
+                        disabled={pending}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        {pending && busyId === s.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <UserX className="h-3.5 w-3.5" />
+                        )}
+                        Unsubscribe
+                      </button>
+                    ) : (
+                      <span
+                        className="inline-block max-w-40 text-xs leading-5 text-[var(--foreground)]/45"
+                        title="Only a new customer signup can restore marketing consent."
+                      >
+                        Customer opt-in required
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

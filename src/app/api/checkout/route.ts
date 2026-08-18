@@ -24,6 +24,11 @@ import { priceCart, CheckoutError, type CheckoutLineInput } from "@/lib/checkout
 import { computePromotions } from "@/lib/promotions";
 import { getSession } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { SHIPPING_COUNTRIES } from "@/lib/shipping";
+import {
+  sanitizeUtmParams,
+  utmToMetadata,
+} from "@/lib/analytics/utm";
 
 // Stripe's SDK needs Node APIs (crypto) — not the edge runtime.
 export const runtime = "nodejs";
@@ -31,10 +36,6 @@ export const runtime = "nodejs";
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ??
   "http://localhost:3000";
-
-// Where Stripe Checkout can ship to. Expand as the brand opens new markets.
-const SHIPPING_COUNTRIES: Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[] =
-  ["US", "CA", "GB", "AU", "HK", "SG", "JP", "DE", "FR", "NL", "NZ"];
 
 export async function POST(request: NextRequest) {
   // Each session create costs a Stripe API call + a DB write, so cap bursts.
@@ -51,11 +52,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { items?: CheckoutLineInput[]; couponCode?: string };
+  let parsed: unknown;
   try {
-    body = await request.json();
+    parsed = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+  const body = parsed as {
+    items?: CheckoutLineInput[];
+    couponCode?: string;
+    attribution?: unknown;
+  };
+  if (body.couponCode != null && typeof body.couponCode !== "string") {
+    return NextResponse.json({ error: "Invalid coupon code." }, { status: 400 });
   }
 
   try {
@@ -84,6 +96,9 @@ export async function POST(request: NextRequest) {
     // still quoted off the GROSS subtotal (same as the cart preview), so the
     // final total is: discounted subtotal + shipping.
     const totalCents = promo.totalAfterDiscountCents + cart.shippingCents;
+    const attribution = utmToMetadata(
+      sanitizeUtmParams(body.attribution),
+    );
 
     // 1) Persist a pending order first so we never lose a paid transaction.
     // `subtotalCents` stays gross; `totalCents` reflects the applied discount so
@@ -170,10 +185,11 @@ export async function POST(request: NextRequest) {
               amount: cart.shippingCents,
               currency: cart.currency.toLowerCase(),
             },
-            delivery_estimate: {
-              minimum: { unit: "business_day", value: 5 },
-              maximum: { unit: "business_day", value: 12 },
-            },
+            // Delivery windows vary by destination (HK 1–3 days; supported
+            // international markets up to 21). Stripe applies one estimate to
+            // every allowed country, so omitting it is more accurate than
+            // publishing a globally false 5–12 day promise. The linked shipping
+            // policy and structured data carry the destination-specific ranges.
           },
         },
       ];
@@ -184,7 +200,11 @@ export async function POST(request: NextRequest) {
       mode: "payment",
       line_items: lineItems,
       shipping_options: shippingOptions,
-      shipping_address_collection: { allowed_countries: SHIPPING_COUNTRIES },
+      shipping_address_collection: {
+        allowed_countries: [
+          ...SHIPPING_COUNTRIES,
+        ] as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+      },
       phone_number_collection: { enabled: true },
       billing_address_collection: "auto",
       // Discounts are computed locally and already baked into the line items, so
@@ -193,8 +213,10 @@ export async function POST(request: NextRequest) {
       automatic_tax: { enabled: false },
       // Reconstruct & fulfill the order in the webhook.
       client_reference_id: String(order.id),
-      metadata: { orderId: String(order.id) },
-      payment_intent_data: { metadata: { orderId: String(order.id) } },
+      metadata: { orderId: String(order.id), ...attribution },
+      payment_intent_data: {
+        metadata: { orderId: String(order.id), ...attribution },
+      },
       ...(session?.user?.email
         ? { customer_email: session.user.email }
         : {}),

@@ -10,6 +10,7 @@ import {
   UploadCloud,
   TrendingUp,
   ArrowRight,
+  Sparkles,
 } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { getOrderStats, getOrders } from "@/lib/admin/orders";
@@ -30,6 +31,12 @@ const SECTIONS = [
   { href: "/admin/subscribers", label: "Subscribers", desc: "Email marketing list", icon: Mail },
   { href: "/admin/visitors", label: "Visitors", desc: "Traffic & geography", icon: Globe },
   { href: "/admin/upload", label: "Upload", desc: "Add product media", icon: UploadCloud },
+  {
+    href: "/admin/fresh-visit",
+    label: "Fresh visit",
+    desc: "Preview as a new shopper",
+    icon: Sparkles,
+  },
 ] as const;
 
 export default async function AdminDashboardPage() {

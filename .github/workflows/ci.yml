@@ -2,12 +2,12 @@ name: CI
 
 # Gate every push and pull request on the same checks we run locally, so a
 # regression can never reach a deploy. Mirrors the "lint → typecheck → build"
-# pipeline a production DTC team runs on each commit, plus an assertion pass
-# over the pure catalog guards (English-only copy, MagSafe decision table).
+# pipeline a production DTC team runs on each commit, plus offline assertions
+# over catalog integrity, localization parity and crawler-visible SEO contracts.
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 # Cancel superseded runs on the same ref to save CI minutes.
@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Production dependency security
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Lint
         run: npm run lint
 
@@ -42,6 +45,21 @@ jobs:
       - name: Catalog copy + MagSafe guards
         run: npm run check:guards
 
+      - name: Localization catalog parity
+        run: npm run i18n:check
+
+      - name: Marketing email safety invariants
+        run: npm run marketing:check
+
+      - name: Fresh-visit preview invariants
+        run: npm run preview:check
+
+      - name: SEO metadata and schema invariants
+        run: npm run seo:check
+
+      - name: Storefront performance invariants
+        run: npm run performance:check
+
       - name: Build
         run: npm run build
         env:
@@ -49,3 +67,6 @@ jobs:
           # states when services aren't configured. A placeholder keeps the
           # Next.js metadataBase / canonical URLs deterministic in CI.
           NEXT_PUBLIC_SITE_URL: https://y2kase.com
+
+      - name: Storefront bundle budgets
+        run: npm run bundle:check

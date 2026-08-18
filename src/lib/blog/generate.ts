@@ -22,6 +22,8 @@ import { estimateReadingMinutes, type PostFaq } from "./types";
 
 /** Max posts generated per rolling 24h — a spend + quality guardrail. */
 export const BLOG_DAILY_LIMIT = Number(process.env.BLOG_DAILY_LIMIT ?? 5);
+const MIN_ARTICLE_WORDS = 500;
+const MAX_ARTICLE_TITLE_LENGTH = 70;
 
 /**
  * Resolve the text-model client for article writing. Defaults to your existing
@@ -362,10 +364,18 @@ export async function generateArticle(
     typeof parsed.title === "string" && parsed.title.trim()
       ? parsed.title.trim().slice(0, 120)
       : topic.title;
+  if (Array.from(title).length > MAX_ARTICLE_TITLE_LENGTH) {
+    throw new Error(
+      `Model returned a title longer than ${MAX_ARTICLE_TITLE_LENGTH} characters.`,
+    );
+  }
 
   const rawBody = typeof parsed.body === "string" ? parsed.body.trim() : "";
-  if (rawBody.length < 200) {
-    throw new Error("Model returned an empty or too-short article body.");
+  const wordCount = rawBody.split(/\s+/).filter(Boolean).length;
+  if (wordCount < MIN_ARTICLE_WORDS) {
+    throw new Error(
+      `Model returned a thin article (${wordCount} words; minimum ${MIN_ARTICLE_WORDS}).`,
+    );
   }
   const body = sanitizeLinks(rawBody, ctx.allowedLinks);
 

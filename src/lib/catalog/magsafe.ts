@@ -32,11 +32,10 @@ export const MAGSAFE_LINE =
  * primary categorisation axis (the /collections index and the nav drawer both
  * lead with them).
  *
- * These are catalog QUERIES, not collections: "Non-MagSafe" has no collection
- * row to link to because it is the *negation* of {@link MAGSAFE_TAG}. Both sides
- * are expressed through the tri-state `magsafe` facet on `/products` (see
- * `ProductQuery`), so they live here — beside the tag they are derived from —
- * rather than being restated by each surface that offers the choice.
+ * MagSafe has a synchronized, indexable collection landing page; Non-MagSafe
+ * has no collection row because it is the *negation* of {@link MAGSAFE_TAG} and
+ * remains a noindex catalog query. Both still use the tri-state facet inside
+ * the catalog toolbar.
  */
 export const MAGSAFE_FACETS = [
   {
@@ -55,12 +54,12 @@ export const MAGSAFE_FACETS = [
 ] as const;
 
 /**
- * Catalog URL for one side of the MagSafe facet. Built here rather than stored
- * on {@link MAGSAFE_FACETS} so a facet's label and the query it runs cannot
- * disagree; `/products` parses exactly `"true"` / `"false"`.
+ * Preferred browse URL for one side of the MagSafe facet. The positive side
+ * earns a substantive canonical landing page; the negative side remains a
+ * functional filter because there is no positive entity to describe.
  */
 export function magsafeFacetHref(magsafe: boolean): string {
-  return `/products?magsafe=${magsafe}`;
+  return magsafe ? "/collections/magsafe" : "/products?magsafe=false";
 }
 
 /** How sure the vision model is that the photos show a MagSafe case. */

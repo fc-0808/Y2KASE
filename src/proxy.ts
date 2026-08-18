@@ -47,12 +47,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Run on /admin and all its sub-routes.
-  // Skip Next.js internals and static files.
-  matcher: [
-    "/admin/:path*",
-    // Never run the proxy on auth or Stripe webhook endpoints — webhooks must
-    // reach the route handler with their raw body and signature untouched.
-    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/webhooks).*)",
-  ],
+  // This proxy only implements optimistic admin redirects. Keeping the matcher
+  // equally narrow lets public pages and cached assets bypass the Node runtime.
+  matcher: ["/admin/:path*"],
 };

@@ -35,7 +35,7 @@ const SLIDES: Slide[] = [
     eyebrow: "New season ✨",
     title: (
       <>
-        Cases that match
+        Cases that match{" "}
         <br />
         <span className="text-holo">your vibe</span>.
       </>
@@ -51,7 +51,7 @@ const SLIDES: Slide[] = [
     eyebrow: "Bundle & save 🎁",
     title: (
       <>
-        Buy 2,
+        Buy 2,{" "}
         <br />
         get <span className="text-holo">2 free</span>.
       </>
@@ -67,7 +67,7 @@ const SLIDES: Slide[] = [
     eyebrow: "Holographic series",
     title: (
       <>
-        Shine in
+        Shine in{" "}
         <br />
         <span className="text-holo">every light</span>.
       </>
@@ -82,7 +82,7 @@ const SLIDES: Slide[] = [
     eyebrow: "Your faves, together",
     title: (
       <>
-        Meet the whole
+        Meet the whole{" "}
         <br />
         <span className="text-holo">crew</span>.
       </>
@@ -99,25 +99,48 @@ const INTERVAL = 6000;
 export function HeroCarousel() {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
-  // Only the first slide's image is part of the LCP. The remaining slides are
-  // off-screen (opacity-0) yet still in the initial viewport, so the browser
-  // would eagerly fetch all of them and compete for bandwidth with the hero.
-  // We defer mounting their <Image> until after hydration, so the first paint
-  // downloads a single hero image; the rest load a tick later, well before the
-  // 6s auto-advance needs them.
-  const [hydrated, setHydrated] = useState(false);
+  const [autoPlayArmed, setAutoPlayArmed] = useState(false);
+  // Only the current slide and its successor need media. Keeping already-seen
+  // slides mounted preserves the crossfade, while progressively adding one
+  // successor avoids downloading the full carousel immediately after hydration.
+  const [loadedSlides, setLoadedSlides] = useState<ReadonlySet<number>>(
+    () => new Set([0]),
+  );
   const touchStartX = useRef<number | null>(null);
 
   const go = useCallback((next: number) => {
     setIndex((next + SLIDES.length) % SLIDES.length);
   }, []);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setHydrated(true), []);
-
-  // Auto-advance.
   useEffect(() => {
-    if (paused) return;
+    const next = (index + 1) % SLIDES.length;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadedSlides((loaded) => {
+      if (loaded.has(index) && loaded.has(next)) return loaded;
+      return new Set([...loaded, index, next]);
+    });
+  }, [index]);
+
+  // Rotating a full-viewport image before the first user input creates a new,
+  // later LCP candidate. Arm autoplay only after interaction has finalized LCP;
+  // manual controls and swipe remain available immediately.
+  useEffect(() => {
+    const arm = () => {
+      setAutoPlayArmed(true);
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+    };
+    window.addEventListener("pointerdown", arm, { once: true, passive: true });
+    window.addEventListener("keydown", arm, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+    };
+  }, []);
+
+  // Auto-advance after the visitor has interacted with the document.
+  useEffect(() => {
+    if (!autoPlayArmed || paused) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduce) return;
     const t = window.setInterval(
@@ -125,7 +148,7 @@ export function HeroCarousel() {
       INTERVAL,
     );
     return () => window.clearInterval(t);
-  }, [paused]);
+  }, [autoPlayArmed, paused]);
 
   function onTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
@@ -160,17 +183,17 @@ export function HeroCarousel() {
             }`}
           >
             {/* Background art with slow zoom while active. The first slide is
-                the LCP (priority); the rest mount after hydration. */}
-            {(i === 0 || hydrated) && (
+                the deterministic LCP; the rest mount after hydration. */}
+            {(active || loadedSlides.has(i)) && (
               <Image
                 src={slide.image}
                 alt=""
                 fill
-                priority={i === 0}
+                loading={i === 0 ? "eager" : "lazy"}
                 fetchPriority={i === 0 ? "high" : "low"}
                 sizes="100vw"
                 className={`object-cover transition-transform duration-[7000ms] ease-out ${
-                  active ? "scale-110" : "scale-100"
+                  active && autoPlayArmed ? "scale-110" : "scale-100"
                 }`}
               />
             )}
@@ -204,9 +227,15 @@ export function HeroCarousel() {
                   <span className="sticker font-pixel text-[9px] uppercase tracking-tight">
                     {slide.eyebrow}
                   </span>
-                  <h1 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
-                    {slide.title}
-                  </h1>
+                  {i === 0 ? (
+                    <h1 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
+                      {slide.title}
+                    </h1>
+                  ) : (
+                    <h2 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
+                      {slide.title}
+                    </h2>
+                  )}
                   <p
                     className={`mt-5 text-base text-[var(--foreground)]/75 sm:text-lg ${
                       slide.align === "right" ? "ml-auto" : ""

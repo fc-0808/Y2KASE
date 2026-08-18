@@ -13,10 +13,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { User, LogOut, Package } from "lucide-react";
 
 export function UserButton() {
+  const router = useRouter();
   const { data: session, isPending } = useSession();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -102,7 +104,8 @@ export function UserButton() {
             onClick={async () => {
               setOpen(false);
               await signOut();
-              window.location.href = "/";
+              router.push("/");
+              router.refresh();
             }}
             className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 transition"
           >
