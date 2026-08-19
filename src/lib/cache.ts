@@ -1,4 +1,4 @@
-import { revalidateTag } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 
 /**
  * Stable cache tags for the storefront Data Cache.
@@ -8,7 +8,8 @@ import { revalidateTag } from "next/cache";
  * constants so a single admin mutation can invalidate every cached surface that
  * depends on the changed data — instead of waiting out the per-route ISR window.
  *
- * Keep these in sync with the `tags` passed to each `unstable_cache(...)` call.
+ * Keep these in sync with the `tags` passed to each `cachedCatalogRead(...)`
+ * call.
  */
 export const CACHE_TAGS = {
   /** Anything derived from the products table (cards, featured, counts). */
@@ -18,6 +19,39 @@ export const CACHE_TAGS = {
   /** Published-review summaries that feed listing-card star ratings. */
   reviews: "catalog:reviews",
 } as const;
+
+/**
+ * `unstable_cache` requires a Next.js incremental cache, which only exists
+ * inside a request. Node entry points — the CLI scripts in `scripts/` that
+ * generate blog articles, backfill imagery and audit the catalog — have no
+ * request, so it throws an "incrementalCache missing" invariant.
+ *
+ * That failure is dangerous because it is silent: callers that defensively wrap
+ * catalog reads in try/catch degrade to an empty result and carry on, which is
+ * how a blog article was generated with no catalog data and therefore no
+ * product links. Falling back to the uncached function keeps scripts correct;
+ * they are one-shot processes, so losing the cache costs nothing.
+ */
+export function cachedCatalogRead<Args extends unknown[], Result>(
+  fn: (...args: Args) => Promise<Result>,
+  keyParts: string[],
+  options: { tags?: string[]; revalidate?: number | false },
+): (...args: Args) => Promise<Result> {
+  const memoized = unstable_cache(fn, keyParts, options);
+  return async (...args: Args): Promise<Result> => {
+    try {
+      return await memoized(...args);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes("incrementalCache missing")
+      ) {
+        return fn(...args);
+      }
+      throw err;
+    }
+  };
+}
 
 /**
  * Invalidate every storefront catalog cache after a catalog mutation. Call this

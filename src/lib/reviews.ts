@@ -8,9 +8,8 @@
  * customer- or crawler-facing.
  */
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/lib/db";
-import { CACHE_TAGS } from "@/lib/cache";
+import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
 import { reviews, orders, orderItems } from "@/lib/db/schema";
 import type { Review } from "@/lib/db/schema";
 
@@ -38,7 +37,7 @@ export function getReviewSummary(productId: number): Promise<ReviewSummary> {
   return getReviewSummaryCached(productId);
 }
 
-const getReviewSummaryCached = unstable_cache(
+const getReviewSummaryCached = cachedCatalogRead(
   computeReviewSummary,
   ["published-review-summary-v1"],
   { tags: [CACHE_TAGS.reviews], revalidate: 300 },
@@ -70,7 +69,7 @@ export function getPublishedReviews(
   return getPublishedReviewsCached(productId, boundedLimit);
 }
 
-const getPublishedReviewsCached = unstable_cache(
+const getPublishedReviewsCached = cachedCatalogRead(
   computePublishedReviews,
   ["published-product-reviews-v1"],
   { tags: [CACHE_TAGS.reviews], revalidate: 300 },

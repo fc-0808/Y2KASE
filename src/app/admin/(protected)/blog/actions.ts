@@ -10,6 +10,7 @@ import {
   enqueueTopics,
   deleteTopic,
   getPostById,
+  getPostCollectionSlug,
 } from "@/lib/blog/store";
 import {
   runBlogGeneration,
@@ -22,6 +23,7 @@ import {
   isBlogDailyLimitReached,
   BLOG_DAILY_LIMIT,
 } from "@/lib/blog/generate";
+import { resolvePostFigures } from "@/lib/blog/media";
 
 export type BlogActionResult = {
   ok: boolean;
@@ -184,6 +186,46 @@ export async function editPost(input: {
   });
   revalidateBlog(post?.slug);
   return { ok: true, message: "Post updated." };
+}
+
+/**
+ * Re-derive a post's in-body catalog photography from its current copy.
+ *
+ * Cheap and deterministic — it re-reads the product links in the body and looks
+ * their primary photos up, with no model call — so it is safe to run inline
+ * from the console after editing an article, or to repair a post whose products
+ * have since been re-photographed or discontinued.
+ *
+ * The AI hero is deliberately NOT regenerated here: that step polls an image
+ * gateway for up to 150s, which does not belong in a synchronous admin request.
+ * Use `npm run blog:images:covers` for that.
+ */
+export async function refreshPostImages(
+  id: number,
+): Promise<BlogActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  if (!Number.isFinite(id)) return { ok: false, message: "Invalid post." };
+
+  const post = await getPostById(id);
+  if (!post) return { ok: false, message: "Post not found." };
+
+  const figures = await resolvePostFigures({
+    body: post.body,
+    collectionSlug: await getPostCollectionSlug(id),
+  });
+  await updatePost(id, { images: figures.length > 0 ? figures : null });
+  revalidateBlog(post.slug);
+
+  return figures.length > 0
+    ? {
+        ok: true,
+        message: `Attached ${figures.length} product photo${figures.length === 1 ? "" : "s"} 🖼️`,
+      }
+    : {
+        ok: false,
+        message:
+          "No catalog photos matched — the article links no live products.",
+      };
 }
 
 export async function removePost(id: number): Promise<BlogActionResult> {

@@ -849,7 +849,9 @@ export type ProductWithRelations = Product & {
  * subscription entry-points. Used for marketing campaigns and discount delivery.
  *
  * Keeps a `status` column so we can honour unsubscribe requests without losing
- * the record (for legal/GDPR compliance logging).
+ * the record (for legal/GDPR compliance logging). `status = 'active'` is the
+ * sendable audience; consent ledger columns are audit evidence, not a second
+ * eligibility gate.
  */
 export const emailSubscribers = pgTable(
   "email_subscribers",
@@ -1093,6 +1095,21 @@ export const blogPosts = pgTable(
     body: text("body").notNull(),
     /** Cover image URL (R2/remote or a /public path). Nullable → gradient hero. */
     cover: text("cover"),
+    /**
+     * In-body figures — real catalog photography keyed to the article's
+     * sections (see src/lib/blog/media.ts and the PostFigure type). Stored
+     * structurally rather than as Markdown image syntax so the renderer never
+     * has to trust a URL that came out of a model.
+     */
+    images: jsonb("images").$type<
+      {
+        url: string;
+        alt: string;
+        caption?: string;
+        href?: string;
+        section: number;
+      }[]
+    >(),
     tags: text("tags").array().notNull().default([]),
     author: text("author").notNull().default("The Y2KASE Team"),
     /** draft | published | archived */

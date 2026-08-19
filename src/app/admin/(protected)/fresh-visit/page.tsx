@@ -19,6 +19,7 @@ import { FreshVisitConsole } from "./FreshVisitConsole";
 import type { FreshVisitLink } from "./actions";
 import {
   CART_RECOVERY_POLICY,
+  MARKETING_POPUP_POLICY,
   WELCOME_POPUP_POLICY,
 } from "@/lib/marketing/popup-policy";
 import { freshVisitPath, mintFreshVisitToken } from "@/lib/preview/fresh-visit";
@@ -35,8 +36,14 @@ export const dynamic = "force-dynamic";
 const DEFAULT_PATH = "/";
 const DEFAULT_EXCLUDE_FROM_ANALYTICS = true;
 
-const seconds = (ms: number) => Math.round(ms / 1_000);
+/** Kept to one decimal — a sub-second trigger rounded to "3 seconds" is a
+ *  tester waiting for something that already happened. */
+const seconds = (ms: number) => {
+  const value = Math.round(ms / 100) / 10;
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+};
 const days = (ms: number) => Math.round(ms / (24 * 60 * 60 * 1_000));
+const percent = (ratio: number) => `${Math.round(ratio * 100)}%`;
 
 /**
  * The origin the operator is actually browsing.
@@ -74,19 +81,25 @@ export default async function AdminFreshVisitPage() {
   const timings = [
     {
       label: "Welcome pop-up",
-      value: `${seconds(WELCOME_POPUP_POLICY.delayMs)} seconds`,
-      detail: `On any discovery page with an empty bag. Then once a week, and never again after ${WELCOME_POPUP_POLICY.maxDismissals} dismissals.`,
+      value: `${seconds(WELCOME_POPUP_POLICY.delayMs)}s, or ${percent(WELCOME_POPUP_POLICY.scrollIntentRatio)} scrolled`,
+      detail: `On any discovery page with an empty bag — whichever comes first, but never inside the first ${seconds(WELCOME_POPUP_POLICY.minDwellMs)} seconds. Then once a week, and never again after ${WELCOME_POPUP_POLICY.maxDismissals} dismissals.`,
     },
     {
       label: "Cart recovery — desktop",
       value: `${seconds(CART_RECOVERY_POLICY.exitArmDelayMs)} seconds, then exit intent`,
       detail:
-        "Add something to the bag, wait, then move the pointer up out of the top of the window.",
+        "Add something to the bag, wait, then move the pointer up and out through the top of the window — toward the tab strip, address bar or close button. Leaving through a side or the bottom does not count.",
     },
     {
       label: "Cart recovery — touch",
       value: `${seconds(CART_RECOVERY_POLICY.touchIdleDelayMs)} seconds idle`,
-      detail: `Needs items in the bag. Then once every ${days(CART_RECOVERY_POLICY.throttleMs)} days.`,
+      detail: `Needs items in the bag, and only on devices with no mouse pointer to watch. Then once every ${days(CART_RECOVERY_POLICY.throttleMs)} days.`,
+    },
+    {
+      label: "Both in one session",
+      value: `${seconds(MARKETING_POPUP_POLICY.handoverMs)} seconds after the first closes`,
+      detail:
+        "Cart recovery may follow the welcome offer once the bag is no longer empty, never the reverse, and never twice for the same campaign.",
     },
   ];
 

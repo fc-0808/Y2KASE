@@ -6,6 +6,10 @@ import { Search, Download, Loader2, UserX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import type { AdminSubscriber } from "@/lib/admin/subscribers";
+import {
+  isMarketingSendable,
+  subscriberLifecycleStatus,
+} from "@/lib/marketing/audience";
 import { unsubscribeSubscriber } from "./actions";
 
 const dateFmt = new Intl.DateTimeFormat("en-US", {
@@ -14,14 +18,8 @@ const dateFmt = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
-function effectiveStatus(
-  subscriber: AdminSubscriber,
-): "active" | "unverified" | "unsubscribed" {
-  if (subscriber.status !== "active") return "unsubscribed";
-  return subscriber.consentVersion && subscriber.consentRecordedAt
-    ? "active"
-    : "unverified";
-}
+const STATUS_FILTERS = ["all", "active", "unsubscribed"] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 function csvCell(value: unknown): string {
   const raw = String(value);
@@ -38,7 +36,7 @@ export function SubscribersConsole({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(
@@ -48,7 +46,7 @@ export function SubscribersConsole({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return subscribers.filter((s) => {
-      if (statusFilter !== "all" && effectiveStatus(s) !== statusFilter) {
+      if (statusFilter !== "all" && subscriberLifecycleStatus(s) !== statusFilter) {
         return false;
       }
       if (!q) return true;
@@ -60,7 +58,7 @@ export function SubscribersConsole({
   }, [subscribers, query, statusFilter]);
 
   function unsubscribe(s: AdminSubscriber) {
-    if (s.status !== "active") return;
+    if (!isMarketingSendable(s)) return;
     if (
       !confirm(
         `Unsubscribe ${s.email}? Only a new customer opt-in can restore consent.`,
@@ -105,7 +103,7 @@ export function SubscribersConsole({
         s.email,
         s.name ?? "",
         s.source,
-        effectiveStatus(s),
+        subscriberLifecycleStatus(s),
         s.discountCode ?? "",
         s.consentVersion ?? "",
         s.consentCountry ?? "",
@@ -141,7 +139,7 @@ export function SubscribersConsole({
           />
         </div>
         <div className="flex gap-1.5">
-          {["all", "active", "unverified", "unsubscribed"].map((s) => (
+          {STATUS_FILTERS.map((s) => (
             <button
               type="button"
               key={s}
@@ -212,13 +210,13 @@ export function SubscribersConsole({
                     {s.discountCode || "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={effectiveStatus(s)} />
+                    <StatusBadge status={subscriberLifecycleStatus(s)} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-[var(--foreground)]/60">
                     {dateFmt.format(new Date(s.subscribedAt))}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {s.status === "active" ? (
+                    {isMarketingSendable(s) ? (
                       <button
                         type="button"
                         onClick={() => unsubscribe(s)}

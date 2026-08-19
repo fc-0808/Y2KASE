@@ -18,10 +18,15 @@ import {
 } from "@/lib/hooks/use-modal-dialog";
 import {
   claimMarketingPopup,
-  hasMarketingPopupClaim,
   isMarketingPopupPath,
+  releaseMarketingPopup,
 } from "@/lib/marketing/popup-session";
 import { CART_RECOVERY_POLICY } from "@/lib/marketing/popup-policy";
+import {
+  observeTopEdgeExit,
+  supportsExitIntent,
+} from "@/lib/marketing/exit-intent";
+import { readPopupPreview } from "@/lib/marketing/popup-preview";
 import { BUNDLE, computePromotions, WELCOME_COUPON } from "@/lib/promotions";
 import { cartCount, useCart } from "@/lib/store/cart";
 import {
@@ -58,13 +63,12 @@ const PROMOTION = {
 type RecoveryTrigger = "exit-intent" | "touch-idle" | "preview";
 type DismissReason = "close-button" | "backdrop" | "escape" | "keep-shopping";
 
-function isPreview(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
-  if (typeof window === "undefined") return false;
-  const params = new URLSearchParams(window.location.search);
-  return (
-    params.get("popup") === "cart" || params.get("cart-popup") === "1"
-  );
+/** The two QA modes this dialog answers to; see `@/lib/marketing/popup-preview`. */
+type CartPreviewMode = "cart" | "cart-exit";
+
+function readCartPreviewMode(): CartPreviewMode | null {
+  const mode = readPopupPreview();
+  return mode === "cart" || mode === "cart-exit" ? mode : null;
 }
 
 function readStoredNumber(key: string): number {
@@ -133,13 +137,24 @@ export function CartRecoveryPop() {
 
   const [isOpen, setIsOpen] = useState(false);
   const [trigger, setTrigger] = useState<RecoveryTrigger>("exit-intent");
-  const [preview] = useState(isPreview);
+  /** Read once, so the override survives a navigation that drops the query. */
+  const [previewMode] = useState(readCartPreviewMode);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const enteredAtRef = useRef(0);
   const shownThisLifecycleRef = useRef(false);
   const previousPathRef = useRef(pathname);
 
+  /**
+   * Either QA mode stands the frequency counters down. Otherwise reviewing the
+   * dialog would burn the three-day throttle, and previewing the pop-up would
+   * be the fastest way to stop being able to preview the pop-up.
+   */
+  const isPreview = previewMode !== null;
+  /** `?popup=cart` renders it now; `?popup=cart-exit` still wants the gesture. */
+  const forceOpen = previewMode === "cart";
+
+  const hasItems = items.length > 0;
   const itemCount = cartCount(items);
   const currency = items[0]?.currency ?? "USD";
   const promo = computePromotions(
@@ -159,11 +174,26 @@ export function CartRecoveryPop() {
     enteredAtRef.current = Date.now();
   }, []);
 
+  // Close the claim when the dialog leaves the screen. Nothing outranks
+  // recovery today, so nothing is waiting on this stamp — but a lifecycle
+  // where only one of two participants reports its end is the version that
+  // goes wrong the moment a third campaign is added.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (isOpen) {
+      wasOpenRef.current = true;
+      return;
+    }
+    if (!wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    if (!isPreview) releaseMarketingPopup("cart-recovery");
+  }, [isOpen, isPreview]);
+
   const dismiss = useCallback(
     (reason: DismissReason) => {
       if (!isOpen) return;
 
-      if (!preview) {
+      if (!isPreview) {
         markDismissed(Date.now());
         gaEvent("popup_dismiss", {
           ...PROMOTION,
@@ -176,7 +206,7 @@ export function CartRecoveryPop() {
       }
       setIsOpen(false);
     },
-    [currency, isOpen, itemCount, payableSubtotal, preview, trigger],
+    [currency, isOpen, isPreview, itemCount, payableSubtotal, trigger],
   );
 
   const dismissFromKeyboard = useCallback(
@@ -192,15 +222,13 @@ export function CartRecoveryPop() {
       const liveCart = useCart.getState();
       const liveItemCount = cartCount(liveCart.items);
       const overlayActive = useOverlayStore.getState().active.length > 0;
-      const livePath =
-        typeof window !== "undefined"
-          ? window.location.pathname
-          : pathname;
 
+      // `shownThisLifecycleRef` covers the open dialog too — it is set on the
+      // way in and never cleared — so this callback has no render-scope
+      // dependencies and its identity stays stable while the shopper shops.
       if (
-        isOpen ||
         shownThisLifecycleRef.current ||
-        !isMarketingPopupPath(livePath) ||
+        !isMarketingPopupPath(window.location.pathname) ||
         liveItemCount === 0 ||
         liveCart.isOpen ||
         overlayActive ||
@@ -210,9 +238,9 @@ export function CartRecoveryPop() {
       }
 
       const now = Date.now();
-      if (!preview) {
-        if (!canShowRecovery(now) || hasMarketingPopupClaim()) return false;
-        if (!claimMarketingPopup("cart-recovery")) return false;
+      if (!isPreview) {
+        if (!canShowRecovery(now)) return false;
+        if (!claimMarketingPopup("cart-recovery", now)) return false;
         markShown(now);
       }
 
@@ -223,7 +251,7 @@ export function CartRecoveryPop() {
       setTrigger(nextTrigger);
       setIsOpen(true);
 
-      if (!preview) {
+      if (!isPreview) {
         const promoState = usePromoStore.getState();
         const liveCode = selectSavedCode(promoState);
         const livePromo = computePromotions(
@@ -236,79 +264,63 @@ export function CartRecoveryPop() {
         gaEvent("view_promotion", {
           ...PROMOTION,
           popup_trigger: nextTrigger,
-          currency: (liveCart.items[0]?.currency ?? currency).toUpperCase(),
+          currency: (liveCart.items[0]?.currency ?? "USD").toUpperCase(),
           value: livePromo.totalAfterDiscountCents / 100,
           item_count: liveItemCount,
         });
       }
       return true;
     },
-    [autoApply, currency, isOpen, pathname, preview],
+    [autoApply, isPreview],
   );
 
   // QA override: add an item, then open `?popup=cart` or `?cart-popup=1`.
   useEffect(() => {
-    if (!preview) return;
+    if (!forceOpen) return;
     const timer = window.setTimeout(() => openPopup("preview"), 0);
     return () => window.clearTimeout(timer);
-  }, [openPopup, preview]);
+  }, [forceOpen, openPopup]);
 
-  // Fine-pointer devices provide a reliable signal when the pointer leaves
-  // through the browser chrome. Internal element transitions are filtered by
-  // `relatedTarget`, preventing false positives while moving around the page.
+  // Desktop exit intent. `observeTopEdgeExit` owns the browser quirks — the
+  // sampling, the stale exit coordinate, the synthetic exit a refocused window
+  // emits — so this effect only decides when the detector may run.
+  //
+  // It keys off `hasItems` rather than `itemCount` on purpose: adding a second
+  // case must not tear the detector down and hand the shopper a fresh arming
+  // delay for a bag they only made more valuable.
   useEffect(() => {
-    if (
-      preview ||
-      isOpen ||
-      shownThisLifecycleRef.current ||
-      !isMarketingPopupPath(pathname) ||
-      itemCount === 0
-    ) {
-      return;
-    }
+    if (forceOpen || isOpen || shownThisLifecycleRef.current) return;
+    if (!isMarketingPopupPath(pathname) || !hasItems) return;
 
-    const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)");
-    if (!finePointer.matches) return;
+    return observeTopEdgeExit({
+      shouldTrigger: () =>
+        isPreview || Date.now() - enteredAtRef.current >= EXIT_ARM_DELAY_MS,
+      onExitIntent: () => {
+        openPopup("exit-intent");
+      },
+    });
+  }, [forceOpen, hasItems, isOpen, isPreview, openPopup, pathname]);
 
-    function onMouseOut(event: MouseEvent) {
-      if (Date.now() - enteredAtRef.current < EXIT_ARM_DELAY_MS) return;
-      if (event.relatedTarget !== null || event.clientY > 12) return;
-      openPopup("exit-intent");
-    }
-    function onVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        enteredAtRef.current = Date.now();
-      }
-    }
-
-    document.addEventListener("mouseout", onMouseOut);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      document.removeEventListener("mouseout", onMouseOut);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [isOpen, itemCount, openPopup, pathname, preview]);
-
-  // Touch browsers do not expose dependable exit intent. After 45 seconds of
-  // genuine inactivity, a cart-bearing shopper gets one contextual reminder.
-  // Any interaction restarts the clock; hiding the tab pauses it completely.
+  // Touch browsers cannot produce an exit gesture at all, so a cart-bearing
+  // shopper gets one contextual reminder after 45 seconds of genuine
+  // inactivity instead. Any interaction restarts the clock; hiding the tab
+  // pauses it completely.
   useEffect(() => {
+    if (isPreview || isOpen || shownThisLifecycleRef.current) return;
     if (
-      preview ||
-      isOpen ||
-      shownThisLifecycleRef.current ||
       !isMarketingPopupPath(pathname) ||
-      itemCount === 0 ||
+      !hasItems ||
       cartOpen ||
       blockingOverlay
     ) {
       return;
     }
 
-    const coarsePointer = window.matchMedia(
-      "(hover: none), (pointer: coarse)",
-    );
-    if (!coarsePointer.matches) return;
+    // Paired with the effect above so exactly one trigger arms per device.
+    // Asking the same question both places also closes the gap the old
+    // coarse-pointer test left: a device that is neither fine-pointer nor
+    // coarse — a mouse-driven TV browser, say — used to get no trigger at all.
+    if (supportsExitIntent()) return;
 
     let timer: number | undefined;
     const clear = () => {
@@ -370,11 +382,11 @@ export function CartRecoveryPop() {
   }, [
     blockingOverlay,
     cartOpen,
+    hasItems,
     isOpen,
-    itemCount,
+    isPreview,
     openPopup,
     pathname,
-    preview,
   ]);
 
   // Root-layout client components survive normal storefront navigation.
@@ -388,7 +400,7 @@ export function CartRecoveryPop() {
   }, [pathname]);
 
   function handleCheckoutClick() {
-    if (!preview) {
+    if (!isPreview) {
       gaEvent("select_promotion", {
         ...PROMOTION,
         popup_trigger: trigger,

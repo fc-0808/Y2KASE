@@ -98,10 +98,20 @@ export function publicPageMetadata(args: {
   title: string;
   description: string;
   path: string;
+  /**
+   * Bypass the root `%s · Y2KASE` title template. Homepage only — its title
+   * already carries the brand, so applying the template would duplicate it.
+   */
+  absoluteTitle?: boolean;
 }): Metadata {
   const description = truncateDescription(args.description);
+  const imageAlt = args.absoluteTitle
+    ? args.title
+    : `${args.title} · Y2KASE`;
   return {
-    title: args.title,
+    title: args.absoluteTitle
+      ? { absolute: args.title }
+      : args.title,
     description,
     alternates: { canonical: args.path },
     openGraph: {
@@ -116,7 +126,7 @@ export function publicPageMetadata(args: {
           url: "/brand/og.webp",
           width: 1200,
           height: 630,
-          alt: `${args.title} · Y2KASE`,
+          alt: imageAlt,
         },
       ],
     },

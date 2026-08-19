@@ -6,7 +6,12 @@ import type { NextRequest } from "next/server";
 import { emailSubscribers } from "@/lib/db/schema";
 import { clientIp } from "@/lib/rate-limit";
 
-/** Bump whenever the storefront's marketing-consent disclosure materially changes. */
+/**
+ * Bump whenever the storefront's marketing-consent disclosure materially changes.
+ * Ledger fields captured here are audit evidence written at signup, not a
+ * sendability gate — campaigns, admin stats, and provider sync use
+ * `isMarketingSendable` in `@/lib/marketing/audience` (`status === "active"`).
+ */
 export const MARKETING_CONSENT_VERSION = "2026-08-14-v1";
 
 /**

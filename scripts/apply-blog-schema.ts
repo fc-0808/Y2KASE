@@ -25,6 +25,7 @@ async function main() {
       "excerpt" text NOT NULL,
       "body" text NOT NULL,
       "cover" text,
+      "images" jsonb,
       "tags" text[] NOT NULL DEFAULT '{}',
       "author" text NOT NULL DEFAULT 'The Y2KASE Team',
       "status" text NOT NULL DEFAULT 'draft',
@@ -38,6 +39,9 @@ async function main() {
       "published_at" timestamptz
     )
   `;
+  // Added after the table shipped — brings existing deployments up to date.
+  await sql`ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "images" jsonb`;
+
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS "blog_posts_slug_idx" ON "blog_posts" ("slug")`;
   await sql`CREATE INDEX IF NOT EXISTS "blog_posts_status_idx" ON "blog_posts" ("status")`;
   await sql`CREATE INDEX IF NOT EXISTS "blog_posts_published_idx" ON "blog_posts" ("published_at")`;

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
+import { BlogFigure } from "@/components/BlogFigure";
+import type { PostFigure } from "@/lib/blog/types";
 
 /**
  * A tiny, safe Markdown renderer for database-backed blog posts.
@@ -197,78 +199,136 @@ function parseBlocks(markdown: string): Block[] {
   return blocks;
 }
 
-export function Markdown({ source }: { source: string }) {
+const isHeading = (block: Block) =>
+  block.kind === "h2" || block.kind === "h3";
+
+/**
+ * Decide which block each figure is rendered after.
+ *
+ * A figure is anchored to its section's heading and then pushed past that
+ * section's opening paragraph, so the heading stays attached to the copy it
+ * introduces instead of being separated from it by an image.
+ *
+ * `figure.section` counts both `##` and `###` headings — see `sectionOffsets`
+ * in src/lib/blog/media.ts, which assigns the index this reads.
+ *
+ * Placement is resolved against the parsed blocks rather than trusted from the
+ * stored index: a post edited after its figures were resolved can have fewer
+ * sections than it did, and clamping keeps every figure on the page.
+ */
+function planFigures(
+  blocks: Block[],
+  figures: PostFigure[],
+): Map<number, PostFigure[]> {
+  const plan = new Map<number, PostFigure[]>();
+  if (figures.length === 0 || blocks.length === 0) return plan;
+
+  const headings: number[] = [];
+  blocks.forEach((block, i) => {
+    if (isHeading(block)) headings.push(i);
+  });
+
+  for (const figure of figures) {
+    const anchor =
+      figure.section >= 0 && headings.length > 0
+        ? headings[Math.min(figure.section, headings.length - 1)]
+        : -1;
+
+    let at = anchor;
+    for (let i = anchor + 1; i < blocks.length; i++) {
+      if (isHeading(blocks[i])) break;
+      if (blocks[i].kind === "p") {
+        at = i;
+        break;
+      }
+    }
+    if (at < 0) at = 0;
+
+    const existing = plan.get(at);
+    if (existing) existing.push(figure);
+    else plan.set(at, [figure]);
+  }
+
+  return plan;
+}
+
+export function Markdown({
+  source,
+  figures = [],
+}: {
+  source: string;
+  /** In-body catalog photography, interleaved between the parsed blocks. */
+  figures?: PostFigure[];
+}) {
   const blocks = parseBlocks(source);
+  const plan = planFigures(blocks, figures);
+
+  function renderBlock(block: Block, key: string): ReactNode {
+    switch (block.kind) {
+      case "h2":
+        return (
+          <h2 className="mt-10 scroll-mt-24 text-2xl font-black sm:text-3xl">
+            {renderInline(block.text, key)}
+          </h2>
+        );
+      case "h3":
+        return (
+          <h3 className="mt-8 text-xl font-extrabold">
+            {renderInline(block.text, key)}
+          </h3>
+        );
+      case "p":
+        return (
+          <p className="mt-4 leading-relaxed text-[var(--foreground)]/80">
+            {renderInline(block.text, key)}
+          </p>
+        );
+      case "blockquote":
+        return (
+          <blockquote className="mt-6 border-l-4 border-[var(--primary)] bg-[var(--muted)] px-5 py-3 italic text-[var(--foreground)]/75">
+            {renderInline(block.text, key)}
+          </blockquote>
+        );
+      case "hr":
+        return <hr className="my-10 border-[var(--border)]" />;
+      case "ul":
+        return (
+          <ul className="mt-4 list-disc space-y-2 pl-6 text-[var(--foreground)]/80">
+            {block.items.map((item, j) => (
+              <li key={`${key}-${j}`} className="leading-relaxed">
+                {renderInline(item, `${key}-${j}`)}
+              </li>
+            ))}
+          </ul>
+        );
+      case "ol":
+        return (
+          <ol className="mt-4 list-decimal space-y-2 pl-6 text-[var(--foreground)]/80">
+            {block.items.map((item, j) => (
+              <li key={`${key}-${j}`} className="leading-relaxed">
+                {renderInline(item, `${key}-${j}`)}
+              </li>
+            ))}
+          </ol>
+        );
+      default:
+        return null;
+    }
+  }
 
   return (
     <>
       {blocks.map((block, i) => {
         const key = `b-${i}`;
-        switch (block.kind) {
-          case "h2":
-            return (
-              <h2
-                key={key}
-                className="mt-10 scroll-mt-24 text-2xl font-black sm:text-3xl"
-              >
-                {renderInline(block.text, key)}
-              </h2>
-            );
-          case "h3":
-            return (
-              <h3 key={key} className="mt-8 text-xl font-extrabold">
-                {renderInline(block.text, key)}
-              </h3>
-            );
-          case "p":
-            return (
-              <p
-                key={key}
-                className="mt-4 leading-relaxed text-[var(--foreground)]/80"
-              >
-                {renderInline(block.text, key)}
-              </p>
-            );
-          case "blockquote":
-            return (
-              <blockquote
-                key={key}
-                className="mt-6 border-l-4 border-[var(--primary)] bg-[var(--muted)] px-5 py-3 italic text-[var(--foreground)]/75"
-              >
-                {renderInline(block.text, key)}
-              </blockquote>
-            );
-          case "hr":
-            return <hr key={key} className="my-10 border-[var(--border)]" />;
-          case "ul":
-            return (
-              <ul
-                key={key}
-                className="mt-4 list-disc space-y-2 pl-6 text-[var(--foreground)]/80"
-              >
-                {block.items.map((item, j) => (
-                  <li key={`${key}-${j}`} className="leading-relaxed">
-                    {renderInline(item, `${key}-${j}`)}
-                  </li>
-                ))}
-              </ul>
-            );
-          case "ol":
-            return (
-              <ol
-                key={key}
-                className="mt-4 list-decimal space-y-2 pl-6 text-[var(--foreground)]/80"
-              >
-                {block.items.map((item, j) => (
-                  <li key={`${key}-${j}`} className="leading-relaxed">
-                    {renderInline(item, `${key}-${j}`)}
-                  </li>
-                ))}
-              </ol>
-            );
-          default:
-            return <Fragment key={key} />;
-        }
+        const attached = plan.get(i);
+        return (
+          <Fragment key={key}>
+            {renderBlock(block, key)}
+            {attached?.map((figure, j) => (
+              <BlogFigure key={`${key}-fig-${j}`} figure={figure} />
+            ))}
+          </Fragment>
+        );
       })}
     </>
   );

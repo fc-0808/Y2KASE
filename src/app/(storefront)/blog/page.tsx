@@ -7,17 +7,15 @@ import {
   breadcrumbJsonLd,
   publicPageMetadata,
 } from "@/lib/seo";
+import { PAGE_COPY } from "@/lib/seo/copy";
 
 // Refresh hourly so newly published (incl. AI-generated) posts appear without a
 // deploy, while still serving a cached, instant response to shoppers.
 export const revalidate = 3600;
 
-const BLOG_DESCRIPTION =
-  "Style guides, trend reports and how-tos for kawaii & Y2K phone cases, charms and accessories — from the Y2KASE team.";
-
 export const metadata = publicPageMetadata({
-  title: "The Y2KASE Edit — Blog",
-  description: BLOG_DESCRIPTION,
+  title: PAGE_COPY.blog.title,
+  description: PAGE_COPY.blog.description,
   path: "/blog",
 });
 
@@ -38,7 +36,7 @@ export default async function BlogIndexPage() {
             "@type": "Blog",
             "@id": absoluteUrl("/blog#blog"),
             name: "The Y2KASE Edit",
-            description: BLOG_DESCRIPTION,
+            description: PAGE_COPY.blog.description,
             url: absoluteUrl("/blog"),
             publisher: { "@id": absoluteUrl("/#organization") },
             isPartOf: { "@id": absoluteUrl("/#website") },
@@ -58,7 +56,7 @@ export default async function BlogIndexPage() {
           The Y2KASE Edit
         </p>
         <h1 className="mt-2 text-3xl font-black sm:text-4xl">
-          Style guides, trends & how-tos
+          {PAGE_COPY.blog.heading}
         </h1>
         <p className="mt-3 text-[var(--foreground)]/70">
           Everything you need to style your phone like a main character —

@@ -19,6 +19,7 @@ import {
   FACET_PAGE_ROBOTS,
   isIndexableCatalogPage,
 } from "@/lib/seo";
+import { collectionSeo } from "@/lib/seo/copy";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
 import {
   CatalogSummary,
@@ -50,12 +51,10 @@ export async function generateMetadata({
     searchParams,
   ]);
   if (!collection) return { title: "Collection not found" };
-  const description =
-    collection.description ??
-    `Shop the ${collection.name} collection at Y2KASE.`;
+  const copy = collectionSeo(collection);
   const catalogMetadata = catalogPageMetadata({
-    title: collection.name,
-    description,
+    title: copy.title,
+    description: copy.description,
     params: parseCatalogParams(rawSearchParams, `/collections/${slug}`),
     openGraphImage: null,
   });
@@ -169,9 +168,7 @@ export default async function CollectionPage({
   const rangeEnd = Math.min(catalogParams.page * pageSize, total);
   const filtered = hasActiveFilters(catalogParams);
   const chips = buildCatalogChips(catalogParams, { brands: children });
-  const description =
-    collection.description ??
-    `Shop the ${collection.name} collection at Y2KASE.`;
+  const copy = collectionSeo(collection);
 
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
@@ -188,8 +185,8 @@ export default async function CollectionPage({
           ...(indexable && total > 0
             ? [
                 collectionPageJsonLd({
-                  name: collection.name,
-                  description,
+                  name: copy.heading,
+                  description: copy.description,
                   url: canonical,
                   items: items.map((product) => ({
                     name: product.title,
@@ -249,10 +246,10 @@ export default async function CollectionPage({
           })}
         </nav>
         <h1 className="mt-1.5 text-2xl font-black sm:text-3xl">
-          {collection.name}
+          {copy.heading}
         </h1>
         <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:text-base">
-          {description}
+          {copy.tagline}
         </p>
       </header>
 

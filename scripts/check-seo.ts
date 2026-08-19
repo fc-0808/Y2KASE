@@ -14,9 +14,18 @@ import {
   merchantReturnPolicyJsonLd,
   organizationJsonLd,
   productJsonLd,
+  publicPageMetadata,
   truncateDescription,
   websiteJsonLd,
 } from "../src/lib/seo";
+import {
+  BRAND_TITLE_SUFFIX,
+  BRAND_TITLE_TEMPLATE,
+  PAGE_COPY,
+  SERP_TITLE_MAX,
+  collectionSeo,
+  productSerpTitle,
+} from "../src/lib/seo/copy";
 import type { CatalogParams } from "../src/lib/catalog/params";
 import {
   SHIPPING_COUNTRIES,
@@ -185,5 +194,70 @@ const emojiText = "A".repeat(158) + " ✨ ending";
 const truncated = truncateDescription(emojiText, 160);
 assert.ok(!truncated.includes("\uFFFD"));
 assert.ok(Array.from(truncated).length <= 161);
+
+const homeMeta = publicPageMetadata({
+  title: PAGE_COPY.home.title,
+  description: PAGE_COPY.home.description,
+  path: "/",
+  absoluteTitle: true,
+});
+assert.deepEqual(homeMeta.title, { absolute: PAGE_COPY.home.title });
+assert.equal("keywords" in homeMeta, false);
+
+const kuromi = collectionSeo({
+  name: "Kuromi",
+  slug: "kuromi",
+  kind: "character",
+});
+assert.equal(kuromi.heading, "Kuromi Phone Cases");
+assert.equal(kuromi.primary, "kuromi phone cases");
+assert.match(kuromi.description, /Kuromi Phone Cases/);
+assert.ok(!kuromi.heading.toLowerCase().includes("phone cases phone cases"));
+
+const kawaii = collectionSeo({
+  name: "Kawaii",
+  slug: "kawaii",
+  kind: "genre",
+  description: "Soft, cute and undeniably kawaii.",
+});
+assert.equal(kawaii.heading, "Kawaii Phone Cases");
+assert.equal(kawaii.tagline, "Soft, cute and undeniably kawaii.");
+assert.match(kawaii.description, /Kawaii Phone Cases/);
+
+const characters = collectionSeo({
+  name: "Characters",
+  slug: "characters",
+  kind: "genre",
+});
+assert.equal(characters.heading, "Character Phone Cases");
+
+const magsafe = collectionSeo({
+  name: "MagSafe",
+  slug: "magsafe",
+  kind: "feature",
+});
+assert.equal(magsafe.heading, "MagSafe Phone Cases");
+
+const alreadyNamed = collectionSeo({
+  name: "Hello Kitty Phone Cases",
+  slug: "hello-kitty-custom",
+  kind: "character",
+});
+assert.equal(alreadyNamed.heading, "Hello Kitty Phone Cases");
+
+assert.notEqual(PAGE_COPY.catalog.primary, kawaii.primary);
+assert.notEqual(PAGE_COPY.catalog.title, PAGE_COPY.home.title);
+assert.notEqual(PAGE_COPY.collections.primary, characters.primary);
+assert.notEqual(PAGE_COPY.catalog.primary, magsafe.primary);
+
+const longTitle =
+  "Rilakkuma Mint Green Kawaii Bear Phone Case for iPhone 17 16 15 Pro Max — MagSafe";
+const serp = productSerpTitle(longTitle);
+assert.ok(serp.endsWith("…"));
+assert.ok(
+  Array.from(`${serp}${BRAND_TITLE_SUFFIX}`).length <= SERP_TITLE_MAX,
+);
+assert.equal(productSerpTitle("Kuromi Bow Case"), "Kuromi Bow Case");
+assert.equal(BRAND_TITLE_TEMPLATE, "%s · Y2KASE");
 
 console.log("SEO invariants passed.");

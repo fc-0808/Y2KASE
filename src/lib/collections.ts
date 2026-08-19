@@ -1,8 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { unstable_cache } from "next/cache";
 import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
-import { CACHE_TAGS } from "@/lib/cache";
+import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
 import {
   collections,
   productCollections,
@@ -57,13 +56,13 @@ async function activeMembership(): Promise<Map<number, Set<number>>> {
  *
  * This runs in the shared `SiteHeader` (root layout) on *every* page, so its
  * cost is paid site-wide. It is therefore wrapped in two cache layers:
- *  - `unstable_cache` — a cross-request Data Cache entry, tagged so admin edits
+ *  - `cachedCatalogRead` — a cross-request Data Cache entry, tagged so admin edits
  *    invalidate it on demand (otherwise it refreshes hourly), turning a full
  *    `product_collections ⨝ products` scan into a single cached read.
  *  - React `cache` — request-level memoization so the layout and the page that
  *    both call this within one render share a single computation.
  */
-const getCollectionTreeCached = unstable_cache(
+const getCollectionTreeCached = cachedCatalogRead(
   computeCollectionTree,
   ["collection-tree"],
   { tags: [CACHE_TAGS.collections, CACHE_TAGS.products], revalidate: 3600 },
@@ -136,7 +135,7 @@ async function computeCollectionBySlug(slug: string): Promise<Collection | null>
   return row ?? null;
 }
 
-const getCollectionBySlugCached = unstable_cache(
+const getCollectionBySlugCached = cachedCatalogRead(
   computeCollectionBySlug,
   ["active-collection-by-slug-v1"],
   {
@@ -419,7 +418,7 @@ export async function getCollectionImagePools(): Promise<
   return new Map(await getCollectionImagePoolEntries());
 }
 
-const getCollectionImagePoolEntries = unstable_cache(
+const getCollectionImagePoolEntries = cachedCatalogRead(
   computeCollectionImagePoolEntries,
   ["collection-image-pools"],
   { tags: [CACHE_TAGS.collections, CACHE_TAGS.products], revalidate: 3600 },

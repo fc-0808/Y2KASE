@@ -5,8 +5,8 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { VisitorTracker } from "@/components/VisitorTracker";
 import { INDEXABLE_ROBOTS } from "@/lib/seo";
+import { BRAND_TITLE_TEMPLATE, PAGE_COPY } from "@/lib/seo/copy";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
-import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
 
 // Body — rounded, friendly, highly legible. `swap` keeps text paintable while
 // the webfont loads (no invisible-text flash blocking FCP/LCP).
@@ -43,26 +43,21 @@ const geistMono = Geist_Mono({
   preload: false,
 });
 
-const STORE_DESCRIPTION =
-  `Kawaii, Y2K & holographic phone cases, charms and accessories from Y2KASE. ${FREE_SHIPPING_OFFER}. Shop your vibe.`;
-const SOCIAL_DESCRIPTION =
-  "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨";
-
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: SITE_NAME,
   title: {
-    default: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
-    template: "%s · Y2KASE",
+    default: PAGE_COPY.home.title,
+    template: BRAND_TITLE_TEMPLATE,
   },
-  description: STORE_DESCRIPTION,
+  description: PAGE_COPY.home.description,
   openGraph: {
     type: "website",
     siteName: "Y2KASE",
     url: SITE_URL,
     locale: "en_US",
-    title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
-    description: SOCIAL_DESCRIPTION,
+    title: PAGE_COPY.home.title,
+    description: PAGE_COPY.home.socialDescription,
     images: [
       {
         url: "/brand/og.webp",
@@ -74,8 +69,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
-    description: SOCIAL_DESCRIPTION,
+    title: PAGE_COPY.home.title,
+    description: PAGE_COPY.home.socialDescription,
     images: ["/brand/og.webp"],
   },
   authors: [{ name: SITE_NAME, url: "/about" }],
@@ -144,6 +139,9 @@ export default function RootLayout({
       className={`${nunito.variable} ${baloo.variable} ${pixel.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-dvh flex-col">
+        {/* Decorative only — see `.bg-ambient` in globals.css for why the brand
+            gradients are a fixed layer instead of a body background. */}
+        <div className="bg-ambient" aria-hidden="true" />
         {children}
         <Analytics />
         <SpeedInsights />

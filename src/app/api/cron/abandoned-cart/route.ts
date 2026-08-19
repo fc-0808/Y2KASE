@@ -34,6 +34,7 @@ import { emailSubscribers, orders } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { sendAbandonedCartEmail } from "@/lib/email";
 import { marketingMailReadiness } from "@/lib/marketing/compliance";
+import { isMarketingSendable } from "@/lib/marketing/audience";
 import { unsubscribeUrl } from "@/lib/unsubscribe";
 
 export const runtime = "nodejs";
@@ -137,23 +138,17 @@ export async function GET(req: NextRequest) {
       continue; // No way to reach this shopper; leave it for a future run.
     }
 
-    // This email is classified and sent as marketing. Require affirmative list
+    // This email is classified and sent as marketing. Require an active list
     // membership; an absent row is not consent, and an opt-out is suppression.
     const normalizedEmail = email.trim().toLowerCase();
     const subscriber = await db
       .select({
         status: emailSubscribers.status,
-        consentVersion: emailSubscribers.consentVersion,
-        consentRecordedAt: emailSubscribers.consentRecordedAt,
       })
       .from(emailSubscribers)
       .where(eq(emailSubscribers.email, normalizedEmail))
       .limit(1);
-    if (
-      subscriber[0]?.status !== "active" ||
-      !subscriber[0]?.consentVersion ||
-      !subscriber[0]?.consentRecordedAt
-    ) {
+    if (!isMarketingSendable(subscriber[0])) {
       await claim(order.id);
       suppressed++;
       continue;

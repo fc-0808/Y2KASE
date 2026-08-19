@@ -8,13 +8,28 @@
  * and gives search/answer engines explicit, visible Q&A context. Google limits
  * FAQ rich-result display to authoritative government and health sites.
  */
-import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
+import { FREE_SHIPPING_OFFER, IPHONE_MODELS } from "@/lib/pricing";
 
 export type DeviceSeo = {
   /** <title> + H1 base, e.g. "iPhone Cases". */
   heading: string;
-  /** Meta description + on-page intro. */
+  /**
+   * One-line subtitle for the page's identity band.
+   *
+   * Deliberately short, and deliberately not {@link DeviceSeo.intro}: every
+   * line above the filter toolbar is a line the first row of products doesn't
+   * get. The long-form copy still ships — it just sits below the grid, where
+   * length costs nothing.
+   */
+  tagline: string;
+  /** Meta description + the long-form copy rendered below the grid. */
   intro: string;
+  /**
+   * Exact models this device's cases fit. Rendered below the grid as unique,
+   * long-tail-relevant content ("iPhone 15 Pro Max case"), and kept here rather
+   * than branched on in the page so a second device is data, not a code change.
+   */
+  models?: readonly string[];
   /** Device-specific FAQ — rendered visibly and as FAQPage structured data. */
   faqs: { question: string; answer: string }[];
 };
@@ -22,7 +37,10 @@ export type DeviceSeo = {
 const DEVICE_SEO: Record<string, DeviceSeo> = {
   iphone: {
     heading: "iPhone Cases",
+    tagline:
+      "Kawaii and Y2K designs for iPhone 13 through iPhone 17 — MagSafe-ready and drop-protective.",
     intro: `Shop kawaii and Y2K iPhone cases at Y2KASE — holographic, glittery and character-themed designs for iPhone 13 through iPhone 17, including Pro and Pro Max. MagSafe-compatible, drop-protective, and made to express your vibe. ${FREE_SHIPPING_OFFER}.`,
+    models: IPHONE_MODELS,
     faqs: [
       {
         question: "Which iPhone models do your cases fit?",
@@ -53,6 +71,7 @@ export function deviceSeo(id: string, label: string): DeviceSeo {
   return (
     DEVICE_SEO[id] ?? {
       heading: `${label} Cases`,
+      tagline: `Kawaii and Y2K ${label} designs, made to express your vibe.`,
       intro: `Shop kawaii and Y2K ${label} cases and accessories at Y2KASE — holographic, glittery and character-themed designs made to express your vibe. ${FREE_SHIPPING_OFFER}.`,
       faqs: [],
     }

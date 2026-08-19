@@ -79,7 +79,7 @@ export default async function BlogPostPage({
   const post = await getPublishedPost(slug);
   if (!post) notFound();
 
-  const { meta, Content, body, faq } = post;
+  const { meta, Content, body, faq, images } = post;
   const related = await getRelatedPosts(slug);
 
   return (
@@ -150,9 +150,14 @@ export default async function BlogPostPage({
       )}
 
       {/* Body — MDX flagship posts render a component; DB posts render Markdown.
-          Both inherit the same styles (see src/mdx-components.tsx). */}
+          Both inherit the same styles (see src/mdx-components.tsx). DB posts
+          also carry catalog photography, interleaved between their sections. */}
       <div className="mt-2">
-        {Content ? <Content /> : body ? <Markdown source={body} /> : null}
+        {Content ? (
+          <Content />
+        ) : body ? (
+          <Markdown source={body} figures={images} />
+        ) : null}
       </div>
 
       {/* FAQ (DB posts) — mirrors the FAQPage structured data above. */}

@@ -15,6 +15,10 @@ import {
   sanitizeUtmParams,
   utmToMetadata,
 } from "../src/lib/analytics/utm";
+import {
+  isMarketingSendable,
+  subscriberLifecycleStatus,
+} from "../src/lib/marketing/audience";
 
 const starter = createStarterDraft("promotion");
 assert.match(MARKETING_TEMPLATE_VERSION, /^\d{4}-\d{2}-\d{2}\.\d+$/);
@@ -158,5 +162,26 @@ assert.equal(
   false,
   "only preparing rows are recoverable through the stale-claim path",
 );
+
+assert.equal(
+  isMarketingSendable({ status: "active" }),
+  true,
+  "active members are sendable even when consent ledger columns were never backfilled",
+);
+assert.equal(isMarketingSendable({ status: "unsubscribed" }), false);
+assert.equal(isMarketingSendable(null), false);
+assert.equal(isMarketingSendable(undefined), false);
+assert.equal(isMarketingSendable({ status: "pending" }), false);
+assert.equal(
+  subscriberLifecycleStatus({
+    status: "active",
+  }),
+  "active",
+);
+assert.equal(
+  subscriberLifecycleStatus({ status: "unsubscribed" }),
+  "unsubscribed",
+);
+assert.equal(subscriberLifecycleStatus({ status: "unknown" }), "unsubscribed");
 
 console.log("✓ marketing template safety checks passed");

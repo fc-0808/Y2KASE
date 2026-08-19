@@ -11,6 +11,8 @@ import {
   claimNextTopic,
   countQueuedTopics,
   enqueueTopics,
+  getPostById,
+  getPostCollectionSlug,
   insertPost,
   updatePost,
   markTopicDone,
@@ -23,6 +25,7 @@ import {
   type TopicSeed,
 } from "./generate";
 import { generateBlogCover, isCoverGenEnabled } from "./cover";
+import { resolveCoverReferences, resolvePostFigures } from "./media";
 
 /**
  * Generated editorial is draft-first. Publishing is an explicit production
@@ -52,6 +55,41 @@ export async function ensureQueue(
 }
 
 /**
+ * Generate a hero conditioned on the article's own catalog photos, and store it.
+ *
+ * Best-effort in both directions. Generation is skipped outright when no
+ * catalog references resolve, because an unreferenced hero is exactly the
+ * invented-product image this pipeline exists to prevent — the post keeps its
+ * real catalog-photo cover instead, which is always the safer of the two.
+ * Returns the new cover URL, or null when nothing changed.
+ */
+async function refreshCover(opts: {
+  postId: number;
+  title: string;
+  body: string;
+  collectionSlug?: string | null;
+  theme?: string | null;
+  fallbackCover?: string | null;
+}): Promise<string | null> {
+  if (!isCoverGenEnabled()) return null;
+
+  const referenceImages = await resolveCoverReferences({
+    body: opts.body,
+    collectionSlug: opts.collectionSlug,
+    fallbackCover: opts.fallbackCover,
+  });
+  if (referenceImages.length === 0) return null;
+
+  const cover = await generateBlogCover({
+    title: opts.title,
+    theme: opts.theme,
+    referenceImages,
+  });
+  if (cover) await updatePost(opts.postId, { cover });
+  return cover;
+}
+
+/**
  * Generate one article from a seed and persist it. Returns the new post id +
  * slug. Shared by the batch loop and the admin "Generate now" action so both
  * produce identical, validated output. Throws on generation failure.
@@ -63,6 +101,13 @@ export async function generateAndStore(
   const article = await generateArticle(seed);
   const status = autoPublish ? "published" : "draft";
 
+  // In-body illustrations, resolved from the products the copy links to. Cheap
+  // (one query, no generation) and authentic — these are the actual listings.
+  const figures = await resolvePostFigures({
+    body: article.body,
+    collectionSlug: seed.collectionSlug,
+  });
+
   // Persist first with the catalog-photo fallback cover, so a slow or failed
   // hero-image step can never block the article from being saved/published.
   const postId = await insertPost({
@@ -72,6 +117,7 @@ export async function generateAndStore(
     excerpt: article.excerpt,
     body: article.body,
     cover: article.cover,
+    images: figures.length > 0 ? figures : null,
     tags: article.tags,
     status,
     faq: article.faq.length > 0 ? article.faq : null,
@@ -81,16 +127,86 @@ export async function generateAndStore(
     readingMinutes: article.readingMinutes,
   });
 
-  // Best-effort bespoke hero via Nano Banana Pro; upgrade the cover if it lands.
-  if (isCoverGenEnabled()) {
-    const coverUrl = await generateBlogCover({
-      title: article.title,
-      theme: article.collectionName ?? article.keyword,
-    });
-    if (coverUrl) await updatePost(postId, { cover: coverUrl });
-  }
+  await refreshCover({
+    postId,
+    title: article.title,
+    body: article.body,
+    collectionSlug: seed.collectionSlug,
+    theme: article.collectionName ?? article.keyword,
+    fallbackCover: article.cover,
+  });
 
   return { postId, slug: article.slug, status };
+}
+
+export type RegenerateResult = {
+  slug: string;
+  words: number;
+  figures: number;
+  coverRegenerated: boolean;
+};
+
+/**
+ * Rewrite an existing post in place, from the topic it was originally written
+ * for.
+ *
+ * Slug, title, status and publication date are preserved: this refreshes the
+ * content behind a URL that may already be indexed rather than minting a new
+ * one, so inbound links and rankings survive. Only the body and everything
+ * derived from it changes.
+ *
+ * The rewrite runs through the same validation as a fresh article, which is the
+ * point: posts written before a quality gate existed either come up to the
+ * current standard or throw and are left exactly as they were.
+ */
+export async function regeneratePost(
+  postId: number,
+  opts?: { regenerateCover?: boolean },
+): Promise<RegenerateResult> {
+  const post = await getPostById(postId);
+  if (!post) throw new Error(`Post ${postId} not found.`);
+
+  const collectionSlug = await getPostCollectionSlug(postId);
+
+  // The article's own freshly-minted slug is discarded — see above.
+  const article = await generateArticle({
+    title: post.keyword ?? post.title,
+    collectionSlug,
+  });
+
+  const figures = await resolvePostFigures({
+    body: article.body,
+    collectionSlug,
+  });
+
+  await updatePost(postId, {
+    description: article.description,
+    excerpt: article.excerpt,
+    body: article.body,
+    tags: article.tags,
+    faq: article.faq.length > 0 ? article.faq : null,
+    images: figures.length > 0 ? figures : null,
+    model: article.model,
+    readingMinutes: article.readingMinutes,
+  });
+
+  const cover = opts?.regenerateCover
+    ? await refreshCover({
+        postId,
+        title: post.title,
+        body: article.body,
+        collectionSlug,
+        theme: article.collectionName ?? article.keyword,
+        fallbackCover: post.cover,
+      })
+    : null;
+
+  return {
+    slug: post.slug,
+    words: article.body.split(/\s+/).filter(Boolean).length,
+    figures: figures.length,
+    coverRegenerated: Boolean(cover),
+  };
 }
 
 export type BlogGenResult = {

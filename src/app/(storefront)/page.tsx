@@ -20,11 +20,15 @@ import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail"
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
 import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
 import { JsonLd } from "@/components/JsonLd";
-import { organizationJsonLd, websiteJsonLd } from "@/lib/seo";
+import { organizationJsonLd, publicPageMetadata, websiteJsonLd } from "@/lib/seo";
+import { PAGE_COPY } from "@/lib/seo/copy";
 
-export const metadata: Metadata = {
-  alternates: { canonical: "/" },
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: PAGE_COPY.home.title,
+  description: PAGE_COPY.home.description,
+  path: "/",
+  absoluteTitle: true,
+});
 
 // ISR: pre-render the homepage and refresh it hourly (matching the catalog,
 // collection and PDP routes). Admin catalog edits invalidate it on demand via
@@ -90,6 +94,7 @@ export default async function HomePage() {
   return (
     <div className="flex flex-col">
       <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
+      <h1 className="sr-only">{PAGE_COPY.home.heading}</h1>
 
       {/* ── Hero (full viewport, rotatable) ───────────────────────────────── */}
       <HeroCarousel />

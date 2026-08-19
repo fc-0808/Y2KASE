@@ -37,6 +37,36 @@ const COLLECTION_TEMPLATES: {
   },
 ];
 
+/**
+ * Informational cluster topics that support the commercial landing pages
+ * without targeting the same query. Checked for existing slugs like the
+ * collection templates, so they enqueue once.
+ */
+const EVERGREEN_TOPICS: {
+  title: string;
+  angle: string;
+  collectionSlug: string | null;
+}[] = [
+  {
+    title: "MagSafe Phone Cases: What Compatibility Actually Means",
+    angle:
+      "Explain MagSafe magnets, charging and wallets in plain language, then point readers to MagSafe-ready cases. Informational — do not compete with the MagSafe shop page.",
+    collectionSlug: "magsafe",
+  },
+  {
+    title: "Cute iPhone Case Ideas for 2026",
+    angle:
+      "A trend roundup of kawaii, Y2K and character iPhone cases. Informational — do not compete with the iPhone Cases shop page.",
+    collectionSlug: null,
+  },
+  {
+    title: "How to Style a Phone Charm With Your Case",
+    angle:
+      "A practical how-to for attaching and pairing charms and grips without cluttering the look.",
+    collectionSlug: null,
+  },
+];
+
 /** Flatten the active collection tree to a de-duplicated node list. */
 function flatten(nodes: CollectionNode[]): CollectionNode[] {
   const out: CollectionNode[] = [];
@@ -81,6 +111,20 @@ export async function planTopics(limit: number): Promise<PlannedTopic[]> {
 
   const planned: PlannedTopic[] = [];
   const usedTitles = new Set<string>();
+
+  for (const topic of EVERGREEN_TOPICS) {
+    if (planned.length >= limit) break;
+    const slug = slugify(topic.title);
+    if (!slug || usedTitles.has(topic.title)) continue;
+    if (await slugExists(slug)) continue;
+    usedTitles.add(topic.title);
+    planned.push({
+      title: topic.title,
+      angle: topic.angle,
+      collectionSlug: topic.collectionSlug,
+      priority: 15,
+    });
+  }
 
   // Interleave templates across collections so early picks stay varied
   // (guide about Sanrio, styling about Hello Kitty, …) rather than four

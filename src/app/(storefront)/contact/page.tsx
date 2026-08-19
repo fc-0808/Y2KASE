@@ -9,13 +9,11 @@ import {
   publicPageMetadata,
   webPageJsonLd,
 } from "@/lib/seo";
-
-const DESCRIPTION =
-  "Get in touch with the Y2KASE team — we reply within 24 hours.";
+import { PAGE_COPY } from "@/lib/seo/copy";
 
 export const metadata = publicPageMetadata({
-  title: "Contact",
-  description: DESCRIPTION,
+  title: PAGE_COPY.contact.title,
+  description: PAGE_COPY.contact.description,
   path: "/contact",
 });
 
@@ -26,7 +24,7 @@ export default function ContactPage() {
         data={webPageJsonLd({
           type: "ContactPage",
           name: "Contact Y2KASE",
-          description: DESCRIPTION,
+          description: PAGE_COPY.contact.description,
           url: "/contact",
           mainEntity: absoluteUrl("/#organization"),
         })}

@@ -227,15 +227,9 @@ export function HeroCarousel() {
                   <span className="sticker font-pixel text-[9px] uppercase tracking-tight">
                     {slide.eyebrow}
                   </span>
-                  {i === 0 ? (
-                    <h1 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
-                      {slide.title}
-                    </h1>
-                  ) : (
-                    <h2 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
-                      {slide.title}
-                    </h2>
-                  )}
+                  <h2 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
+                    {slide.title}
+                  </h2>
                   <p
                     className={`mt-5 text-base text-[var(--foreground)]/75 sm:text-lg ${
                       slide.align === "right" ? "ml-auto" : ""

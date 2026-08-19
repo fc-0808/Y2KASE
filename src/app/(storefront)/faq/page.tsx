@@ -10,13 +10,11 @@ import {
   faqJsonLd,
   publicPageMetadata,
 } from "@/lib/seo";
-
-const DESCRIPTION =
-  "Answers to common questions about Y2KASE orders, shipping, products and returns.";
+import { PAGE_COPY } from "@/lib/seo/copy";
 
 export const metadata = publicPageMetadata({
-  title: "FAQ",
-  description: DESCRIPTION,
+  title: PAGE_COPY.faq.title,
+  description: PAGE_COPY.faq.description,
   path: "/faq",
 });
 
@@ -85,7 +83,7 @@ export default function FaqPage() {
       <header className="mb-8">
         <div className="h-1 w-16 rounded-full bg-holo-vivid" />
         <h1 className="mt-4 font-display text-3xl font-black sm:text-4xl">
-          Frequently Asked Questions
+          {PAGE_COPY.faq.heading}
         </h1>
         <p className="mt-2 text-[var(--foreground)]/65">
           Everything you need to know before you shop, bestie. 💕

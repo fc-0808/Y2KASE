@@ -27,10 +27,18 @@
  *   offer   — both promotions, the copyable code, then the membership ask.
  *   success — membership confirmed, with the code repeated for convenience.
  *
- * Frequency: shown after meaningful browsing time, then throttled to once a
- * week, retired after two dismissals, and never shown again once subscribed.
- * A non-empty cart hands priority to the dedicated recovery campaign, and a
- * shared session claim guarantees shoppers never see both dialogs in one visit.
+ * WHEN IT APPEARS
+ * Two triggers, whichever comes first: a short dwell on the page, or scrolling
+ * a quarter of the way down it. The clock is the fallback — someone reading
+ * gets the offer without having to do anything — while the scroll is the real
+ * signal, because a shopper who has started moving through a page has already
+ * decided the site is worth their time. A floor under the scroll trigger keeps
+ * the first flick of the wheel from being read as intent.
+ *
+ * Then throttled to once a week, retired after two dismissals, and never shown
+ * again once subscribed. A non-empty cart hands priority to the dedicated
+ * recovery campaign, and the session arbiter keeps a shopper from meeting two
+ * marketing dialogs back to back.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -48,10 +56,12 @@ import {
   useModalFocusTrap,
 } from "@/lib/hooks/use-modal-dialog";
 import { WELCOME_POPUP_POLICY } from "@/lib/marketing/popup-policy";
+import { readPopupPreview } from "@/lib/marketing/popup-preview";
 import {
+  canClaimMarketingPopup,
   claimMarketingPopup,
-  hasMarketingPopupClaim,
   isMarketingPopupPath,
+  releaseMarketingPopup,
 } from "@/lib/marketing/popup-session";
 import { useCart } from "@/lib/store/cart";
 import { usePromoActions } from "@/lib/store/promo";
@@ -61,8 +71,23 @@ import { gaEvent } from "@/lib/analytics/gtag";
 const LS_KEY_SHOWN_AT = "y2k_popup_shown_at";
 const LS_KEY_DISMISS_COUNT = "y2k_popup_dismiss_count";
 const LS_KEY_SUBSCRIBED = "y2k_popup_subscribed";
-const { delayMs: DELAY_MS, throttleMs: THROTTLE_MS, maxDismissals: MAX_DISMISSALS } =
-  WELCOME_POPUP_POLICY;
+const {
+  delayMs: DELAY_MS,
+  minDwellMs: MIN_DWELL_MS,
+  scrollIntentRatio: SCROLL_INTENT_RATIO,
+  throttleMs: THROTTLE_MS,
+  maxDismissals: MAX_DISMISSALS,
+} = WELCOME_POPUP_POLICY;
+
+/**
+ * The shortest wait this dialog will ever schedule.
+ *
+ * The dwell clock runs from arrival, not from the last time the trigger effect
+ * re-ran, so a shopper who opened and closed the cart drawer can come back
+ * already past due. Landing a modal in the same frame as the panel they just
+ * dismissed reads as a glitch, so a past-due open still waits a beat.
+ */
+const RESUME_GRACE_MS = 600;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -74,14 +99,11 @@ const PROMOTION = {
   creative_slot: "site_modal",
 } as const;
 
-/** Query flag that forces the pop-up open for QA, e.g. `/products?popup=1`. */
-const PREVIEW_PARAM = "popup";
-
 /**
  * Is this a QA preview rather than a real shopper visit?
  *
- * Development only — `process.env.NODE_ENV` is inlined at build time, so this
- * collapses to `false` and the whole override drops out of production bundles.
+ * Development only, and parsed by `@/lib/marketing/popup-preview` so this
+ * dialog and cart recovery cannot disagree about which mode a URL requests.
  *
  * A preview deliberately leaves the frequency-capping counters alone. Otherwise
  * opening it to check the copy would burn the once-a-week throttle and the
@@ -89,10 +111,7 @@ const PREVIEW_PARAM = "popup";
  * being able to preview the pop-up.
  */
 function isPreview(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
-  if (typeof window === "undefined") return false;
-  const value = new URLSearchParams(window.location.search).get(PREVIEW_PARAM);
-  return value !== null && value !== "cart";
+  return readPopupPreview() === "welcome";
 }
 
 function readStoredNumber(key: string): number {
@@ -124,7 +143,8 @@ export function EmailCapturePop() {
   const [preview] = useState(isPreview);
 
   const dialogRef = useRef<HTMLDivElement>(null);
-  const previewAttemptedRef = useRef(false);
+  const openAttemptedRef = useRef(false);
+  const dwellStartedAtRef = useRef(0);
   const submitAbortRef = useRef<AbortController | null>(null);
 
   const { autoApply } = usePromoActions();
@@ -155,6 +175,27 @@ export function EmailCapturePop() {
   }, [preview, state]);
   useModalFocusTrap(dialogRef, isOpen, dismiss, state);
 
+  // Dwell is measured per page, from arrival. Declared ahead of the trigger
+  // effect so the clock is always set before anything reads it.
+  useEffect(() => {
+    dwellStartedAtRef.current = Date.now();
+  }, [pathname]);
+
+  // Stamp the moment the dialog leaves the screen — the session handover for
+  // cart recovery is measured from there. Watching the flag rather than
+  // wiring each button covers every close path there is: the X, the backdrop,
+  // Escape, the success CTA, and a navigation that closes it for the shopper.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (isOpen) {
+      wasOpenRef.current = true;
+      return;
+    }
+    if (!wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    if (!preview) releaseMarketingPopup("welcome");
+  }, [isOpen, preview]);
+
   useEffect(() => {
     const pathnameChanged = previousPathRef.current !== pathname;
     previousPathRef.current = pathname;
@@ -171,72 +212,118 @@ export function EmailCapturePop() {
     [],
   );
 
-  // Decide whether to show the pop-up. The offer is banked inside the timer
-  // rather than in a follow-up effect so opening, applying and reporting happen
-  // exactly once, in one place.
-  useEffect(() => {
+  /**
+   * Show the pop-up, if it is still the right thing to do.
+   *
+   * Both triggers funnel through here, and everything the impression implies —
+   * claiming the session slot, banking the offer, stamping the throttle,
+   * reporting it — happens together rather than trailing behind in a follow-up
+   * effect, so the pop-up cannot end up on screen having done only some of it.
+   */
+  const attemptOpen = useCallback(() => {
+    if (openAttemptedRef.current) return;
+
     if (!preview) {
-      // Recovery owns cart-bearing sessions. This also stops two independent
-      // marketing surfaces from racing for the same shopper's attention.
+      // Read the stores synchronously here. A timer or a scroll handler can
+      // land in the same tick as add-to-cart or another overlay's claim, and
+      // React effect cleanup does not run soon enough to have stopped it.
+      const liveCart = useCart.getState();
+      const overlayActive = useOverlayStore.getState().active.length > 0;
       if (
-        !isMarketingPopupPath(pathname) ||
-        hasCartItems ||
-        cartOpen ||
-        blockingOverlay ||
-        hasMarketingPopupClaim()
+        !isMarketingPopupPath(window.location.pathname) ||
+        liveCart.items.length > 0 ||
+        liveCart.isOpen ||
+        overlayActive ||
+        !claimMarketingPopup("welcome")
       ) {
         return;
       }
+    }
+    openAttemptedRef.current = true;
 
-      try {
-        if (localStorage.getItem(LS_KEY_SUBSCRIBED) === "1") return;
+    autoApply(WELCOME_COUPON.code, "welcome-popup");
+    setState("offer");
 
-        const dismissCount = readStoredNumber(LS_KEY_DISMISS_COUNT);
-        if (dismissCount >= MAX_DISMISSALS) return;
+    if (preview) return;
+    try {
+      localStorage.setItem(LS_KEY_SHOWN_AT, String(Date.now()));
+    } catch {
+      // The session claim still prevents repeated dialogs in this lifecycle.
+    }
+    gaEvent("view_promotion", PROMOTION);
+  }, [autoApply, preview]);
 
-        const lastShownAt = readStoredNumber(LS_KEY_SHOWN_AT);
-        if (Date.now() - lastShownAt < THROTTLE_MS) return;
-      } catch {
-        // Continue with the in-memory session claim when storage is blocked.
-      }
+  // Arm the triggers. Eligibility is re-checked whenever the shopper's state
+  // changes, so a bag filled mid-countdown stands the campaign down and hands
+  // the session to cart recovery.
+  useEffect(() => {
+    if (openAttemptedRef.current) return;
+
+    if (preview) {
+      const immediate = window.setTimeout(attemptOpen, 0);
+      return () => window.clearTimeout(immediate);
     }
 
-    const timer = window.setTimeout(() => {
-      if (preview) {
-        if (previewAttemptedRef.current) return;
-        previewAttemptedRef.current = true;
-      } else {
-        // Read the stores synchronously at execution time. React effect cleanup
-        // can lose a same-tick race with add-to-cart or another overlay claim.
-        const liveCart = useCart.getState();
-        const overlayActive = useOverlayStore.getState().active.length > 0;
-        if (
-          !isMarketingPopupPath(window.location.pathname) ||
-          liveCart.items.length > 0 ||
-          liveCart.isOpen ||
-          overlayActive ||
-          hasMarketingPopupClaim() ||
-          !claimMarketingPopup("welcome")
-        ) {
-          return;
-        }
-      }
+    // Recovery owns cart-bearing sessions. This also stops two independent
+    // marketing surfaces from racing for the same shopper's attention.
+    if (
+      !isMarketingPopupPath(pathname) ||
+      hasCartItems ||
+      cartOpen ||
+      blockingOverlay ||
+      !canClaimMarketingPopup("welcome")
+    ) {
+      return;
+    }
 
-      autoApply(WELCOME_COUPON.code, "welcome-popup");
-      setState("offer");
+    try {
+      if (localStorage.getItem(LS_KEY_SUBSCRIBED) === "1") return;
 
-      if (preview) return;
-      try {
-        localStorage.setItem(LS_KEY_SHOWN_AT, String(Date.now()));
-      } catch {
-        // The session claim still prevents repeated dialogs in this lifecycle.
-      }
-      gaEvent("view_promotion", PROMOTION);
-    }, preview ? 0 : DELAY_MS);
+      const dismissCount = readStoredNumber(LS_KEY_DISMISS_COUNT);
+      if (dismissCount >= MAX_DISMISSALS) return;
 
-    return () => window.clearTimeout(timer);
+      const lastShownAt = readStoredNumber(LS_KEY_SHOWN_AT);
+      if (Date.now() - lastShownAt < THROTTLE_MS) return;
+    } catch {
+      // Continue with the in-memory session claim when storage is blocked.
+    }
+
+    const dwell = () => Date.now() - dwellStartedAtRef.current;
+    const timer = window.setTimeout(
+      attemptOpen,
+      Math.max(RESUME_GRACE_MS, DELAY_MS - dwell()),
+    );
+
+    // Scroll depth is the better signal, so it short-circuits the clock. The
+    // measurement is coalesced into an animation frame because `scrollHeight`
+    // is a layout read, and one per frame is the most a scroll handler may
+    // ever cost.
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      if (dwell() < MIN_DWELL_MS) return;
+
+      const scrollable =
+        document.documentElement.scrollHeight - window.innerHeight;
+      // A page with nothing to scroll cannot express intent this way; the
+      // clock above is the whole trigger there.
+      if (scrollable <= 0) return;
+      if (window.scrollY / scrollable < SCROLL_INTENT_RATIO) return;
+      attemptOpen();
+    };
+    const onScroll = () => {
+      if (frame !== 0) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      window.clearTimeout(timer);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, [
-    autoApply,
+    attemptOpen,
     blockingOverlay,
     cartOpen,
     hasCartItems,

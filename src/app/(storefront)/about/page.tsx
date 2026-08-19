@@ -5,14 +5,12 @@ import {
   publicPageMetadata,
   webPageJsonLd,
 } from "@/lib/seo";
+import { PAGE_COPY } from "@/lib/seo/copy";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 
-const DESCRIPTION =
-  "Y2KASE is a kawaii & Y2K phone accessories brand — character cases, grips and charms for besties everywhere.";
-
 export const metadata = publicPageMetadata({
-  title: "About",
-  description: DESCRIPTION,
+  title: PAGE_COPY.about.title,
+  description: PAGE_COPY.about.description,
   path: "/about",
 });
 
@@ -22,8 +20,8 @@ export default function AboutPage() {
       <JsonLd
         data={webPageJsonLd({
           type: "AboutPage",
-          name: "About Y2KASE",
-          description: DESCRIPTION,
+          name: PAGE_COPY.about.heading,
+          description: PAGE_COPY.about.description,
           url: "/about",
           mainEntity: absoluteUrl("/#organization"),
         })}
@@ -31,7 +29,7 @@ export default function AboutPage() {
       <header className="mb-8">
         <div className="h-1 w-16 rounded-full bg-holo-vivid" />
         <h1 className="mt-4 font-display text-3xl font-black sm:text-4xl">
-          About Y2KASE ✨
+          {PAGE_COPY.about.heading}
         </h1>
         <p className="mt-2 text-[var(--foreground)]/65">
           Kawaii, Y2K &amp; holographic phone accessories — designed with love.

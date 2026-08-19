@@ -11,10 +11,9 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { unstable_cache } from "next/cache";
 import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
-import { CACHE_TAGS } from "@/lib/cache";
+import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
 import { collections, products, productCollections } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
 import {
@@ -235,7 +234,7 @@ export function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
     : getProductsCached(normalized);
 }
 
-const getProductsCached = unstable_cache(
+const getProductsCached = cachedCatalogRead(
   computeProducts,
   ["catalog-product-page-v1"],
   {
@@ -367,7 +366,7 @@ export function getCatalogPage(
       );
 }
 
-const getCatalogPageCached = unstable_cache(
+const getCatalogPageCached = cachedCatalogRead(
   computeCatalogPage,
   ["catalog-page-with-facets-v1"],
   {
@@ -522,7 +521,7 @@ export function getMagsafeFacetCounts(): Promise<MagsafeFacetCounts> {
   return getMagsafeFacetCountsCached();
 }
 
-const getMagsafeFacetCountsCached = unstable_cache(
+const getMagsafeFacetCountsCached = cachedCatalogRead(
   computeMagsafeFacetCounts,
   ["magsafe-facet-counts"],
   { tags: [CACHE_TAGS.products], revalidate: 3600 },
@@ -556,7 +555,7 @@ export function getFeaturedProducts(limit = 8): Promise<ProductListItem[]> {
   return getFeaturedProductsCached(limit);
 }
 
-const getFeaturedProductsCached = unstable_cache(
+const getFeaturedProductsCached = cachedCatalogRead(
   computeFeaturedProducts,
   ["featured-products"],
   { tags: [CACHE_TAGS.products, CACHE_TAGS.reviews], revalidate: 3600 },
@@ -618,7 +617,7 @@ export function getCollectionRail(
   return getCollectionRailCached(slug, limit);
 }
 
-const getCollectionRailCached = unstable_cache(
+const getCollectionRailCached = cachedCatalogRead(
   computeCollectionRail,
   ["collection-rail"],
   {
@@ -671,7 +670,7 @@ export function getRelatedProducts(opts: {
   return getRelatedProductsCached(opts.productId, opts.productType, limit);
 }
 
-const getRelatedProductsCached = unstable_cache(
+const getRelatedProductsCached = cachedCatalogRead(
   computeRelatedProducts,
   ["related-products-v1"],
   {
@@ -753,7 +752,7 @@ async function computeProductBySlug(
   return product ?? null;
 }
 
-const getProductBySlugCached = unstable_cache(
+const getProductBySlugCached = cachedCatalogRead(
   computeProductBySlug,
   ["storefront-product-by-slug-v1"],
   {
@@ -836,7 +835,7 @@ export function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
   return getCatalogFeedItemsCached();
 }
 
-const getCatalogFeedItemsCached = unstable_cache(
+const getCatalogFeedItemsCached = cachedCatalogRead(
   computeCatalogFeedItems,
   ["catalog-feed-items-v1"],
   {

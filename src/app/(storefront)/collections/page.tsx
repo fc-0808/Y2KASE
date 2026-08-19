@@ -13,15 +13,13 @@ import {
   collectionPageJsonLd,
   publicPageMetadata,
 } from "@/lib/seo";
+import { PAGE_COPY } from "@/lib/seo/copy";
 
 export const revalidate = 3600;
 
-const COLLECTIONS_DESCRIPTION =
-  "Shop Y2KASE by MagSafe compatibility, or browse by character and brand — Sanrio, Miffy, Tamagotchi, anime and more.";
-
 export const metadata = publicPageMetadata({
-  title: "Collections",
-  description: COLLECTIONS_DESCRIPTION,
+  title: PAGE_COPY.collections.title,
+  description: PAGE_COPY.collections.description,
   path: "/collections",
 });
 
@@ -95,8 +93,8 @@ export default async function CollectionsIndexPage() {
             { name: "Collections", url: "/collections" },
           ]),
           collectionPageJsonLd({
-            name: "Y2KASE Collections",
-            description: COLLECTIONS_DESCRIPTION,
+            name: PAGE_COPY.collections.heading,
+            description: PAGE_COPY.collections.description,
             url: "/collections",
             items: brands
               .filter((brand) => brand.totalCount > 0)
@@ -117,7 +115,7 @@ export default async function CollectionsIndexPage() {
       */}
       <header className="mb-6 sm:mb-8">
         <h1 className="text-2xl font-black sm:text-3xl lg:text-4xl">
-          Collections
+          {PAGE_COPY.collections.heading}
         </h1>
         <p className="mt-1.5 max-w-2xl text-sm text-[var(--foreground)]/65 sm:text-base">
           Start with the fit — MagSafe or not — then browse your favourite

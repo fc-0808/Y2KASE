@@ -20,6 +20,9 @@ Support: ${BRAND.email}
 - [Shop all products](${absoluteUrl("/products")}): Current catalog, prices, availability, product options and customer reviews.
 - [Browse collections](${absoluteUrl("/collections")}): Character, brand and aesthetic collections.
 - [Shop iPhone cases](${absoluteUrl("/devices/iphone")}): Compatibility guidance and available iPhone case designs.
+- [Kawaii phone cases](${absoluteUrl("/collections/kawaii")}): Cute character and pastel designs.
+- [Y2K phone cases](${absoluteUrl("/collections/y2k")}): Early-2000s holographic and chrome looks.
+- [MagSafe phone cases](${absoluteUrl("/collections/magsafe")}): Cases with a built-in magnetic charging ring.
 
 ## Brand and customer information
 

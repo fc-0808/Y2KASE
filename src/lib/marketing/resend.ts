@@ -17,6 +17,7 @@ import {
   marketingPostalAddress,
 } from "./compliance";
 import { preserveHardSuppressionReason } from "./consent";
+import { isMarketingSendable } from "./audience";
 import type { MarketingDraft } from "./types";
 
 const DEFAULT_SEGMENT_NAME = "Y2KASE Subscribers";
@@ -412,18 +413,15 @@ export async function syncMarketingAudience(): Promise<{
 
   for (const subscriber of localSubscribers) {
     const email = subscriber.email.trim().toLowerCase();
-    const hasRecordedConsent =
-      subscriber.status === "active" &&
-      Boolean(subscriber.consentVersion) &&
-      Boolean(subscriber.consentRecordedAt);
-    const desired = hasRecordedConsent ? "opt_in" : "opt_out";
+    const sendable = isMarketingSendable(subscriber);
+    const desired = sendable ? "opt_in" : "opt_out";
     const names = splitName(subscriber.name);
     let contact = providerByEmail.get(email);
     let currentTopic: "opt_in" | "opt_out" | null = null;
 
     // Never create provider contacts for people who cannot receive mail. A
     // previous opt-out that never reached Resend has nothing to reconcile.
-    if (!hasRecordedConsent && !contact) {
+    if (!sendable && !contact) {
       continue;
     }
 
@@ -459,7 +457,7 @@ export async function syncMarketingAudience(): Promise<{
       currentTopic = desired;
     } else {
       if (
-        hasRecordedConsent &&
+        sendable &&
         subscriber.name &&
         (contact.first_name !== (names.firstName ?? null) ||
           contact.last_name !== (names.lastName ?? null))
@@ -477,7 +475,7 @@ export async function syncMarketingAudience(): Promise<{
           throw providerError(`Updating contact ${email}`, updated.error.message);
         }
       }
-      if (hasRecordedConsent && !segmentEmails.has(email)) {
+      if (sendable && !segmentEmails.has(email)) {
         const added = await track(() =>
           resendApi(() =>
             resend.contacts.segments.add({
@@ -498,7 +496,7 @@ export async function syncMarketingAudience(): Promise<{
 
     // A global provider unsubscribe is already an opt-out; skip the topic list.
     if (contact.unsubscribed) {
-      if (hasRecordedConsent) {
+      if (sendable) {
         await db
           .update(emailSubscribers)
           .set({
@@ -516,7 +514,7 @@ export async function syncMarketingAudience(): Promise<{
     );
     const providerOptedOut = currentTopic === "opt_out";
 
-    if (hasRecordedConsent && providerOptedOut) {
+    if (sendable && providerOptedOut) {
       await db
         .update(emailSubscribers)
         .set({
@@ -527,14 +525,14 @@ export async function syncMarketingAudience(): Promise<{
         .where(eq(emailSubscribers.id, subscriber.id));
       continue;
     }
-    if (!hasRecordedConsent && currentTopic !== "opt_out") {
+    if (!sendable && currentTopic !== "opt_out") {
       await track(() => setContactTopic(resend, email, topic.id, "opt_out"));
       continue;
     }
-    if (hasRecordedConsent && currentTopic !== "opt_in") {
+    if (sendable && currentTopic !== "opt_in") {
       await track(() => setContactTopic(resend, email, topic.id, "opt_in"));
     }
-    if (hasRecordedConsent) {
+    if (sendable) {
       recipientCount += 1;
       eligibleEmails.push(email);
     }

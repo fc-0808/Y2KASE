@@ -24,6 +24,7 @@ import {
   collectionPageJsonLd,
   isIndexableCatalogPage,
 } from "@/lib/seo";
+import { PAGE_COPY } from "@/lib/seo/copy";
 import {
   buildCatalogHref,
   CATALOG_PATH,
@@ -33,9 +34,6 @@ import {
   type CatalogSearchParams,
 } from "@/lib/catalog/params";
 
-const CATALOG_DESCRIPTION =
-  "Browse all Y2KASE phone cases, charms, and accessories.";
-
 export async function generateMetadata({
   searchParams,
 }: {
@@ -43,8 +41,8 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const params = parseCatalogParams(await searchParams, CATALOG_PATH);
   return catalogPageMetadata({
-    title: "Shop All",
-    description: CATALOG_DESCRIPTION,
+    title: PAGE_COPY.catalog.title,
+    description: PAGE_COPY.catalog.description,
     params,
   });
 }
@@ -151,9 +149,9 @@ export default async function ProductsPage({
           ? `${magsafeLabel} cases`
           : params.tag
             ? humanize(params.tag)
-            : params.q
+              : params.q
               ? `Results for “${params.q}”`
-              : "Shop All";
+              : PAGE_COPY.catalog.heading;
 
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-5 sm:px-6 sm:py-7">
@@ -167,7 +165,7 @@ export default async function ProductsPage({
             ? [
                 collectionPageJsonLd({
                   name: heading,
-                  description: CATALOG_DESCRIPTION,
+                  description: PAGE_COPY.catalog.description,
                   url: canonical,
                   items: items.map((product) => ({
                     name: product.title,

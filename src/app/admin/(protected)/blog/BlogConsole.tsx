@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   X,
   Check,
+  Images,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -28,6 +29,7 @@ import {
   addTopic,
   refillQueue,
   removeTopic,
+  refreshPostImages,
   type BlogActionResult,
 } from "./actions";
 
@@ -361,6 +363,14 @@ export function BlogConsole({
                     title="Edit"
                   >
                     <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    disabled={pending || !dbConfigured}
+                    onClick={() => run(() => refreshPostImages(p.id))}
+                    className="rounded-lg p-2 text-foreground/50 hover:bg-muted hover:text-foreground disabled:opacity-50"
+                    title="Refresh in-body product photos from the catalog"
+                  >
+                    <Images className="h-4 w-4" />
                   </button>
                   {p.status !== "published" ? (
                     <button

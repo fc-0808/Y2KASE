@@ -18,6 +18,7 @@ import { db, isDbConfigured } from "@/lib/db";
 import { emailSubscribers, orders } from "@/lib/db/schema";
 import { sendReviewRequestEmail } from "@/lib/email";
 import { marketingMailReadiness } from "@/lib/marketing/compliance";
+import { isMarketingSendable } from "@/lib/marketing/audience";
 import { unsubscribeUrl } from "@/lib/unsubscribe";
 import { absoluteUrl } from "@/lib/seo";
 
@@ -83,17 +84,11 @@ export async function GET(req: NextRequest) {
     const [subscriber] = await db
       .select({
         status: emailSubscribers.status,
-        consentVersion: emailSubscribers.consentVersion,
-        consentRecordedAt: emailSubscribers.consentRecordedAt,
       })
       .from(emailSubscribers)
       .where(eq(emailSubscribers.email, normalizedEmail))
       .limit(1);
-    if (
-      subscriber?.status !== "active" ||
-      !subscriber.consentVersion ||
-      !subscriber.consentRecordedAt
-    ) {
+    if (!isMarketingSendable(subscriber)) {
       await claim(order.id);
       suppressed++;
       continue;

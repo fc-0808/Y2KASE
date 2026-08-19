@@ -100,9 +100,14 @@
    page scroll on mobile. `clip` is used instead of `hidden` because it does NOT
    establish a scroll container, so the sticky site header keeps sticking to the
    viewport. The root-element overflow is propagated to the viewport, which is
-   exactly what we want here. */
+   exactly what we want here.
+
+   The flat brand base colour lives here rather than on `body` so the canvas is
+   painted by the root element. That leaves `body` background-free, which is what
+   lets the ambient gradient layer below sit behind all page content. */
 html {
   overflow-x: clip;
+  background-color: var(--background);
 }
 
 /* Branded long-form content (policies, about, FAQ). First-party HTML only. */
@@ -163,12 +168,6 @@ html {
 }
 
 body {
-  background:
-    radial-gradient(circle at 0% 0%, #ffe3f6 0, transparent 42%),
-    radial-gradient(circle at 100% 0%, #e7ddff 0, transparent 38%),
-    radial-gradient(circle at 50% 100%, #ddf3ff 0, transparent 45%),
-    var(--background);
-  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   min-height: 100dvh;
@@ -176,12 +175,41 @@ body {
   padding-bottom: var(--bottom-bar-h, 0px);
 }
 
-/* Fixed multi-layer backgrounds trigger costly repaints while scrolling on
-   mobile GPUs. The same gradients remain visible without pinning their paint. */
-@media (max-width: 767px) {
-  body {
-    background-attachment: scroll;
-  }
+/*
+ * Ambient brand wash — the three pastel blobs behind every page.
+ *
+ * This is a viewport-sized fixed LAYER (rendered once by the root layout)
+ * rather than a background on `body`, because a body background is sized to the
+ * whole document. Painted with `background-attachment: scroll` — which mobile
+ * needed, since `fixed` attachment forces a full repaint on every scroll frame —
+ * the blobs stretch over the entire page height, so a long article scrolls the
+ * reader through pink, then lavender, then blue with no relation to the content.
+ * That read as unexplained colour banding on phones while desktop looked fine.
+ *
+ * A fixed element gets the best of both: the gradients are always measured
+ * against the viewport (identical framing on every device and scroll position),
+ * and the browser promotes the layer to the compositor so scrolling never
+ * repaints it.
+ *
+ * Each stop fades to a zero-alpha copy of its own colour instead of the
+ * `transparent` keyword, so the falloff interpolates within a single hue and
+ * cannot produce a visible edge.
+ */
+.bg-ambient {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: -1;
+  pointer-events: none;
+  /* Cover the tallest viewport state, so retracting the mobile browser's URL
+     bar can never expose an unpainted strip beneath the layer. */
+  height: 100vh;
+  height: 100lvh;
+  background-image:
+    radial-gradient(circle at 0% 0%, #ffe3f6 0%, rgba(255, 227, 246, 0) 42%),
+    radial-gradient(circle at 100% 0%, #e7ddff 0%, rgba(231, 221, 255, 0) 38%),
+    radial-gradient(circle at 50% 100%, #ddf3ff 0%, rgba(221, 243, 255, 0) 45%);
 }
 
 /* Skip layout and paint for homepage shelves until they approach the viewport.

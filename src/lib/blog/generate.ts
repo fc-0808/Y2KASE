@@ -26,6 +26,21 @@ const MIN_ARTICLE_WORDS = 500;
 const MAX_ARTICLE_TITLE_LENGTH = 70;
 
 /**
+ * Structural floor for a publishable article. Both gates exist because the
+ * imagery pipeline depends on them, not just readability:
+ *
+ * - Sections are what in-body photos are anchored to (see ./media.ts), so a
+ *   heading-less wall of text can only ever carry a single figure.
+ * - Product links are what identifies WHICH photos to show and what grounds the
+ *   hero image, so an article that links nothing gets an invented hero.
+ *
+ * Failing a gate throws, which requeues the topic for another attempt rather
+ * than storing a post that can never meet the standard.
+ */
+const MIN_ARTICLE_SECTIONS = 3;
+const MIN_PRODUCT_LINKS = 2;
+
+/**
  * Resolve the text-model client for article writing. Defaults to your existing
  * OpenRouter credentials (VISION_BASE_URL / VISION_API_KEY) so the blog is
  * written by Qwen, with a dedicated override for full control. Falls back to
@@ -150,7 +165,14 @@ type CatalogContext = {
 };
 
 /** Always-valid storefront routes any post may link to. */
-const BASE_LINKS = ["/", "/products", "/collections", "/blog"];
+const BASE_LINKS = [
+  "/",
+  "/products",
+  "/collections",
+  "/blog",
+  "/devices/iphone",
+  "/faq",
+];
 
 /**
  * Gather real catalog data around the topic so the model links to live pages.
@@ -260,9 +282,12 @@ Return STRICT JSON matching this TypeScript type:
 STRICT Markdown rules for "body":
 - 600-900 words, scannable and genuinely helpful.
 - Do NOT include the H1 title (it is rendered separately). Start with a short 1-2 sentence intro paragraph.
+- Use AT LEAST 3 '## ' or '### ' sections. An article with no headings will be rejected.
 - Use ONLY these elements: '## ' and '### ' headings, paragraphs, '**bold**', '*italic*', '- ' bullet lists, '1. ' numbered lists, '> ' blockquotes, and '---' horizontal rules.
 - Do NOT use images, tables, code blocks, HTML, or H1 (#).
-- Include 2-4 internal links using EXACTLY the routes provided in CATALOG DATA (e.g. [Hello Kitty collection](/collections/hello-kitty)). Do NOT link to any other path and do NOT link to external websites.
+- Include 3-6 internal links using EXACTLY the routes provided in CATALOG DATA (e.g. [Hello Kitty collection](/collections/hello-kitty)). Do NOT link to any other path and do NOT link to external websites.
+- AT LEAST 2 of those links MUST be individual product pages (/products/...) whenever CATALOG DATA lists any. Give each recommended product its own '### ' section.
+- When a section recommends one specific product, link that product in the section's FIRST sentence. Its catalog photo is placed automatically from that link, so the image lands beside the copy describing it.
 - End with a short, natural call-to-action paragraph linking to /products or the featured collection.
 
 Return ONLY the JSON object, no markdown fences.`;
@@ -319,6 +344,66 @@ async function uniqueSlug(base: string): Promise<string> {
 }
 
 /**
+ * Everything wrong with a candidate article, phrased so it can be handed
+ * straight back to the model as a correction. An empty list means publishable.
+ */
+function findProblems(opts: {
+  title: string;
+  body: string;
+  offeredProductRoutes: string[];
+}): string[] {
+  const problems: string[] = [];
+
+  if (Array.from(opts.title).length > MAX_ARTICLE_TITLE_LENGTH) {
+    problems.push(
+      `the title was longer than ${MAX_ARTICLE_TITLE_LENGTH} characters`,
+    );
+  }
+
+  const words = opts.body.split(/\s+/).filter(Boolean).length;
+  if (words < MIN_ARTICLE_WORDS) {
+    problems.push(
+      `the body was only ${words} words (minimum ${MIN_ARTICLE_WORDS})`,
+    );
+  }
+
+  const sections = (opts.body.match(/^#{2,3}\s+\S/gm) ?? []).length;
+  if (sections < MIN_ARTICLE_SECTIONS) {
+    problems.push(
+      `it had ${sections} '##'/'###' sections (minimum ${MIN_ARTICLE_SECTIONS})`,
+    );
+  }
+
+  // Only enforced when the catalog actually offered product routes — topics
+  // outside any collection have nothing to link and must not be blocked.
+  if (opts.offeredProductRoutes.length > 0) {
+    const linked = new Set(
+      [
+        ...opts.body.matchAll(/\]\((\/products\/[a-z0-9][a-z0-9-]*)\)/gi),
+      ].map((m) => m[1].toLowerCase()),
+    );
+    if (linked.size < MIN_PRODUCT_LINKS) {
+      problems.push(
+        `it linked ${linked.size} individual product page(s) (minimum ${MIN_PRODUCT_LINKS}, which is what lets the article be illustrated with real catalog photos)`,
+      );
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * Attempts allowed per article.
+ *
+ * The writer is a reasoning model that spends most of its token budget thinking,
+ * and occasionally returns a stub body having burned it all. That is variance,
+ * not a bad topic — the same topic succeeds on a second roll — so one bounded
+ * retry converts a failure that would otherwise requeue the topic (or, before
+ * the quality gates, publish a 58-word post) into a good article.
+ */
+const ARTICLE_ATTEMPTS = 2;
+
+/**
  * Generate one complete, validated article from a topic. Throws on
  * misconfiguration or if the model returns unusable output; callers handle the
  * error (requeue the topic, surface a message).
@@ -330,6 +415,9 @@ export async function generateArticle(
   const client = new OpenAI({ apiKey, baseURL });
 
   const ctx = await buildCatalogContext(topic.collectionSlug);
+  const offeredProductRoutes = [...ctx.allowedLinks].filter((route) =>
+    route.startsWith("/products/"),
+  );
 
   const userPrompt = [
     `TOPIC: ${topic.title}`,
@@ -343,41 +431,64 @@ export async function generateArticle(
     .filter(Boolean)
     .join("\n");
 
-  const raw = await chatJsonCompletion(
-    client,
-    model,
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    0.8,
-  );
+  let parsed: Record<string, unknown> | null = null;
+  let title = topic.title;
+  let body = "";
+  let problems: string[] = [];
 
-  const parsed = parseJsonObject(raw);
-  if (!parsed) {
-    throw new Error(
-      `Text model (${model}) returned unparseable output — check the model slug and OpenRouter credits.`,
+  for (let attempt = 1; attempt <= ARTICLE_ATTEMPTS; attempt++) {
+    // Retries restate the exact failures rather than re-rolling blindly. The
+    // conversation is rebuilt from scratch each time (no assistant turn), which
+    // behaves consistently across providers.
+    const correction =
+      problems.length > 0
+        ? `YOUR PREVIOUS ATTEMPT WAS REJECTED because ${problems.join(", and ")}. Fix exactly those problems and write the full article this time.\n\n`
+        : "";
+
+    const raw = await chatJsonCompletion(
+      client,
+      model,
+      [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: correction + userPrompt },
+      ],
+      0.8,
     );
+
+    const candidate = parseJsonObject(raw);
+    if (!candidate) {
+      problems = ["the response was not valid JSON"];
+      continue;
+    }
+
+    const candidateTitle =
+      typeof candidate.title === "string" && candidate.title.trim()
+        ? candidate.title.trim().slice(0, 120)
+        : topic.title;
+    const candidateBody = sanitizeLinks(
+      typeof candidate.body === "string" ? candidate.body.trim() : "",
+      ctx.allowedLinks,
+    );
+
+    problems = findProblems({
+      title: candidateTitle,
+      body: candidateBody,
+      offeredProductRoutes,
+    });
+
+    if (problems.length === 0) {
+      parsed = candidate;
+      title = candidateTitle;
+      body = candidateBody;
+      break;
+    }
   }
 
-  const title =
-    typeof parsed.title === "string" && parsed.title.trim()
-      ? parsed.title.trim().slice(0, 120)
-      : topic.title;
-  if (Array.from(title).length > MAX_ARTICLE_TITLE_LENGTH) {
+  if (!parsed || problems.length > 0) {
     throw new Error(
-      `Model returned a title longer than ${MAX_ARTICLE_TITLE_LENGTH} characters.`,
+      `Model (${model}) produced an unusable article after ${ARTICLE_ATTEMPTS} attempts: ${problems.join("; ")}.`,
     );
   }
-
-  const rawBody = typeof parsed.body === "string" ? parsed.body.trim() : "";
-  const wordCount = rawBody.split(/\s+/).filter(Boolean).length;
-  if (wordCount < MIN_ARTICLE_WORDS) {
-    throw new Error(
-      `Model returned a thin article (${wordCount} words; minimum ${MIN_ARTICLE_WORDS}).`,
-    );
-  }
-  const body = sanitizeLinks(rawBody, ctx.allowedLinks);
 
   const description = (
     typeof parsed.description === "string" && parsed.description.trim()

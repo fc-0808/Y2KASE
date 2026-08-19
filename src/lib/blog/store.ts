@@ -8,6 +8,7 @@ import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { blogPosts, blogTopics } from "@/lib/db/schema";
 import type { BlogPost, BlogTopic, NewBlogPost } from "@/lib/db/schema";
+import { coerceFigures } from "./types";
 import type { PostMeta, PostSummary, RenderablePost } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ export function rowToRenderable(row: BlogPost): RenderablePost {
     meta: rowToMeta(row),
     body: row.body,
     faq: row.faq ?? undefined,
+    images: coerceFigures(row.images),
   };
 }
 
@@ -125,6 +127,30 @@ export async function slugExists(slug: string): Promise<boolean> {
   return row.length > 0;
 }
 
+/**
+ * The collection a post was generated for, taken from the topic that produced
+ * it.
+ *
+ * Recorded provenance, so it stays correct even for an article whose copy links
+ * nothing — which is exactly when a fallback for imagery is needed. Returns null
+ * for hand-written posts and for topics that have since been deleted.
+ */
+export async function getPostCollectionSlug(
+  postId: number,
+): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  try {
+    const [row] = await db
+      .select({ collectionSlug: blogTopics.collectionSlug })
+      .from(blogTopics)
+      .where(eq(blogTopics.resultPostId, postId))
+      .limit(1);
+    return row?.collectionSlug ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Count posts created since `since` — powers the daily generation cap. */
 export async function countPostsSince(since: Date): Promise<number> {
   if (!isDbConfigured()) return 0;
@@ -166,13 +192,29 @@ export async function setPostStatus(
     .where(eq(blogPosts.id, id));
 }
 
-/** Update editable copy fields on a post. */
+/**
+ * Update editable content on a post.
+ *
+ * Deliberately cannot touch `slug`, `status` or `publishedAt`: a full rewrite
+ * (see `regeneratePost`) refreshes the copy of an already-indexed URL, and
+ * moving or unpublishing it is a separate, explicit decision.
+ */
 export async function updatePost(
   id: number,
   fields: Partial<
     Pick<
       BlogPost,
-      "title" | "description" | "excerpt" | "body" | "cover" | "tags"
+      | "title"
+      | "description"
+      | "excerpt"
+      | "body"
+      | "cover"
+      | "images"
+      | "tags"
+      | "faq"
+      | "keyword"
+      | "model"
+      | "readingMinutes"
     >
   >,
 ): Promise<void> {

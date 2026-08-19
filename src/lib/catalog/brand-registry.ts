@@ -14,9 +14,8 @@
  * Writes go through `./brand-admin`, which invalidates the tag.
  */
 import { cache as reactCache } from "react";
-import { unstable_cache } from "next/cache";
 import { db, isDbConfigured } from "@/lib/db";
-import { CACHE_TAGS } from "@/lib/cache";
+import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
 import {
   installBrandRegistry,
   type BrandKnowledge,
@@ -80,7 +79,7 @@ async function computeBrandVocabulary(): Promise<BrandKnowledge[]> {
     }));
 }
 
-const getBrandVocabularyCached = unstable_cache(
+const getBrandVocabularyCached = cachedCatalogRead(
   computeBrandVocabulary,
   ["brand-vocabulary"],
   { tags: [CACHE_TAGS.collections], revalidate: 3600 },

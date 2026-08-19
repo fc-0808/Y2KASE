@@ -24,7 +24,6 @@ export default async function AdminSubscribersPage() {
 
   const cards = [
     { label: "Sendable", value: stats.active },
-    { label: "Needs re-consent", value: stats.unverified },
     { label: "Unsubscribed", value: stats.unsubscribed },
     { label: "Total", value: stats.total },
     { label: "New this week", value: stats.newThisWeek },
@@ -36,8 +35,8 @@ export default async function AdminSubscribersPage() {
         <div>
           <h1 className="text-3xl font-black">Subscribers</h1>
           <p className="mt-1 text-sm text-[var(--foreground)]/60">
-            Your consent ledger for the welcome pop-up, footer and checkout.
-            Provider opt-outs are reconciled before every campaign.
+            Your list from the welcome pop-up, footer and checkout. Provider
+            opt-outs are reconciled before every campaign.
           </p>
         </div>
         <Link
@@ -49,7 +48,7 @@ export default async function AdminSubscribersPage() {
         </Link>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {cards.map((c) => (
           <div
             key={c.label}

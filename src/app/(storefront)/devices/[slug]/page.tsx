@@ -2,17 +2,19 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
-import {
-  DEVICE_FAMILIES,
-  findDevice,
-  familyOfDevice,
-} from "@/lib/catalog/devices";
+import { DEVICE_FAMILIES, findDevice } from "@/lib/catalog/devices";
 import { deviceSeo } from "@/lib/seo/device-content";
-import { getProducts } from "@/lib/products";
-import { getCollectionTree } from "@/lib/collections";
-import { IPHONE_MODELS } from "@/lib/pricing";
+import { getCatalogPage, type ProductQuery } from "@/lib/products";
+import { getBrandFacets } from "@/lib/collections";
 import { ProductCard } from "@/components/ProductCard";
 import { JsonLd } from "@/components/JsonLd";
+import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
+import {
+  CatalogSummary,
+  buildCatalogChips,
+} from "@/components/catalog/CatalogSummary";
+import { CatalogPagination } from "@/components/catalog/CatalogPagination";
+import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import {
   breadcrumbJsonLd,
   catalogCanonicalHref,
@@ -23,7 +25,9 @@ import {
 } from "@/lib/seo";
 import {
   buildCatalogHref,
+  hasActiveFilters,
   parseCatalogParams,
+  type CatalogParams,
   type CatalogSearchParams,
 } from "@/lib/catalog/params";
 
@@ -56,10 +60,7 @@ export async function generateMetadata({
   return catalogPageMetadata({
     title: seo.heading,
     description: seo.intro,
-    params: parseCatalogParams(
-      await searchParams,
-      `/devices/${slug}`,
-    ),
+    params: parseCatalogParams(await searchParams, `/devices/${slug}`),
     openGraphImage: null,
   });
 }
@@ -76,39 +77,99 @@ export default async function DeviceLandingPage({
   if (!device || device.comingSoon) notFound();
 
   const basePath = `/devices/${slug}`;
-  const catalogParams = parseCatalogParams(await searchParams, basePath);
-  const indexable = isIndexableCatalogPage(catalogParams);
-  const canonical = catalogCanonicalHref(catalogParams);
   const seo = deviceSeo(slug, device.label);
-  const family = familyOfDevice(slug);
-  const page = catalogParams.page;
 
-  const [{ items, total, pageSize }, tree] = await Promise.all([
-    getProducts({ device: slug, page, sort: catalogParams.sort }),
-    getCollectionTree().catch(() => []),
+  // The brand vocabulary is resolved from the same cached collection tree the
+  // site header already awaited this render, so offering the full faceted
+  // toolbar here costs no extra round trip.
+  const [requested, brands] = await Promise.all([
+    searchParams.then((value) => parseCatalogParams(value, basePath)),
+    getBrandFacets(),
   ]);
+  const indexable = isIndexableCatalogPage(requested);
+  const canonical = catalogCanonicalHref(requested);
+
+  /*
+   * This page is `/products` scoped to one device, so it runs the same URL
+   * state — with two facets deliberately blanked.
+   *
+   * `device` is the route. Leaving it in the state would double-apply the
+   * narrowing and render a removable chip whose "clear" link leads back to the
+   * page it is already on; it is passed straight to the query below instead,
+   * where it is not the shopper's to remove. `collection` goes with it: this
+   * surface offers collection narrowing through the brand facet (`?brand=`),
+   * which is the same mechanism with a control attached, so honouring a second
+   * spelling of it would apply a filter the toolbar never shows.
+   *
+   * Brand slugs the catalog can't offer are dropped for the same reason
+   * `/products` drops them — a facet with no option is a typo, not a filter,
+   * and ignoring it keeps what the toolbar shows and what the query applies
+   * provably identical.
+   */
+  const offered = new Set(
+    brands.flatMap((brand) => [
+      brand.slug,
+      ...(brand.children?.map((child) => child.slug) ?? []),
+    ]),
+  );
+  const catalogParams: CatalogParams = {
+    ...requested,
+    device: undefined,
+    collection: undefined,
+    brands: requested.brands.filter((brandSlug) => offered.has(brandSlug)),
+  };
+
+  const query: ProductQuery = {
+    search: catalogParams.q,
+    tag: catalogParams.tag,
+    device: slug,
+    brands: catalogParams.brands,
+    magsafe: catalogParams.magsafe,
+    page: catalogParams.page,
+    sort: catalogParams.sort,
+  };
+
+  const characterSlugs = brands.flatMap(
+    (brand) => brand.children?.map((child) => child.slug) ?? [],
+  );
+
+  const { items, total, pageSize, facetCounts } = await getCatalogPage(
+    query,
+    undefined,
+    characterSlugs,
+  );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (total > 0 && page > totalPages) {
+
+  // Stale bookmark or a crawler walking `?page=` past the end — send it to the
+  // last real page rather than an empty grid under a nonsense summary.
+  if (total > 0 && catalogParams.page > totalPages) {
     redirect(buildCatalogHref(catalogParams, { page: totalPages }));
   }
 
-  // Top character/brand collections for internal linking + crawl depth.
-  const topCollections = tree
-    .filter((c) => c.totalCount > 0)
-    .sort((a, b) => b.totalCount - a.totalCount)
-    .slice(0, 12);
+  const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(catalogParams.page * pageSize, total);
+  const filtered = hasActiveFilters(catalogParams);
+  const chips = buildCatalogChips(catalogParams, { brands });
+
+  // Destination links below the grid, counted under this device rather than the
+  // whole catalog: a brand with no cases for this phone would otherwise be
+  // offered here as a dead end. These are the same numbers the brand facet
+  // shows, so the links and the menu can never disagree.
+  const brandLinks = brands
+    .map((brand) => ({ ...brand, count: facetCounts.brands[brand.slug] ?? 0 }))
+    .filter((brand) => brand.count > 0);
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
       <JsonLd
         data={[
           breadcrumbJsonLd([
             { name: "Home", url: "/" },
             { name: "Shop", url: "/products" },
-            { name: seo.heading, url: `/devices/${slug}` },
+            { name: seo.heading, url: basePath },
           ]),
-          ...(indexable
+          ...(indexable && total > 0
             ? [
                 collectionPageJsonLd({
                   name: seo.heading,
@@ -121,62 +182,68 @@ export default async function DeviceLandingPage({
                 }),
               ]
             : []),
-          ...(indexable && page === 1 && seo.faqs.length > 0
+          ...(indexable && catalogParams.page === 1 && seo.faqs.length > 0
             ? [faqJsonLd(seo.faqs)]
             : []),
         ]}
       />
 
-      {/* Breadcrumb */}
-      <nav
-        aria-label="Breadcrumb"
-        className="mb-6 flex flex-wrap items-center gap-1 text-sm text-[var(--foreground)]/55"
+      {/* Identity band: where you are and what this is, in two lines. The
+          design count that used to sit here now lives in the result summary
+          below — with filters on the page a fixed "108 designs" beside the
+          title would contradict the "1–24 of 40" directly under it — and the
+          long-form intro moved below the grid, where it no longer pushes the
+          first row of products off a phone screen. */}
+      <header
+        className="mb-4 overflow-hidden rounded-2xl border border-[var(--border)] px-4 py-3.5 sm:rounded-3xl sm:px-6 sm:py-4"
+        style={{
+          background:
+            "linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, transparent), transparent 70%)",
+        }}
       >
-        <Link href="/" className="hover:text-[var(--primary)]">
-          Home
-        </Link>
-        <ChevronRight aria-hidden className="h-3.5 w-3.5" />
-        <Link href="/products" className="hover:text-[var(--primary)]">
-          Shop
-        </Link>
-        <ChevronRight aria-hidden className="h-3.5 w-3.5" />
-        <span className="font-semibold text-[var(--foreground)]">
+        <nav
+          aria-label="Breadcrumb"
+          className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/65 sm:text-sm"
+        >
+          <Link href="/" className="hover:text-[var(--primary)]">
+            Home
+          </Link>
+          <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+          <Link href="/products" className="hover:text-[var(--primary)]">
+            Shop
+          </Link>
+          <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+          <span
+            aria-current="page"
+            className="font-semibold text-[var(--foreground)]"
+          >
+            {seo.heading}
+          </span>
+        </nav>
+        <h1 className="mt-1.5 text-2xl font-black sm:text-3xl">
           {seo.heading}
-        </span>
-      </nav>
-
-      {/* Hero / intro */}
-      <header className="mb-8 max-w-3xl">
-        <h1 className="text-3xl font-black sm:text-4xl">{seo.heading}</h1>
-        <p className="mt-1 text-sm font-semibold text-[var(--foreground)]/50">
-          {total} design{total === 1 ? "" : "s"}
-          {family ? ` · ${family.label}` : ""}
-        </p>
-        <p className="mt-4 leading-relaxed text-[var(--foreground)]/75">
-          {seo.intro}
+        </h1>
+        <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:text-base">
+          {seo.tagline}
         </p>
       </header>
 
-      {/* Shop by character — internal links for discovery + crawl depth */}
-      {topCollections.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-black">Shop by character</h2>
-          <div className="flex flex-wrap gap-2">
-            {topCollections.map((c) => (
-              <Link
-                key={c.id}
-                href={`/collections/${c.slug}`}
-                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-              >
-                {c.icon && <span>{c.icon}</span>}
-                {c.name}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+      <CatalogToolbar
+        params={catalogParams}
+        brands={brands}
+        counts={facetCounts}
+        searchPlaceholder={`Search ${device.label} cases…`}
+        searchLabel={`Search ${device.label} cases`}
+      />
 
-      {/* Products */}
+      <CatalogSummary
+        total={total}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        chips={chips}
+        resetHref={filtered ? basePath : undefined}
+      />
+
       {items.length > 0 ? (
         <>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -189,66 +256,82 @@ export default async function DeviceLandingPage({
               />
             ))}
           </div>
-
-          {totalPages > 1 && (
-            <div className="mt-10 flex items-center justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={buildCatalogHref(catalogParams, { page: page - 1 })}
-                  className="rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-semibold hover:border-[var(--primary)]"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-2 text-sm font-semibold">
-                Page {page} of {totalPages}
-              </span>
-              {page < totalPages && (
-                <Link
-                  href={buildCatalogHref(catalogParams, { page: page + 1 })}
-                  className="rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-semibold hover:border-[var(--primary)]"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
+          <CatalogPagination params={catalogParams} totalPages={totalPages} />
         </>
       ) : (
-        <div className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--card)] p-12 text-center">
-          <p className="text-4xl">{device.icon}</p>
-          <p className="mt-3 text-lg font-bold">Fresh designs coming soon</p>
-          <Link
-            href="/products"
-            className="mt-4 inline-block rounded-full bg-[var(--primary)] px-5 py-2.5 text-sm font-bold text-white"
-          >
-            Shop all products
-          </Link>
-        </div>
+        <CatalogEmpty
+          filtered={filtered}
+          resetHref={basePath}
+          icon={device.icon}
+        />
       )}
 
-      {/* Compatible models (unique content + long-tail relevance) */}
-      {slug === "iphone" && (
-        <section className="mt-12 max-w-3xl">
-          <h2 className="mb-3 text-lg font-black">Compatible iPhone models</h2>
-          <p className="text-sm leading-relaxed text-[var(--foreground)]/70">
-            {IPHONE_MODELS.join(" · ")}. Select your exact model on any product
-            page.
-          </p>
+      {/*
+        Brand landing pages, below the grid.
+
+        The facet above narrows in place, which is the right default — but a
+        shopper who only wants Sanrio is better served by a page with its own
+        heading, artwork and metadata than by a filtered view of this one. The
+        two are a filter and a destination, not a duplicate, and keeping the
+        destinations under the products stops them competing with the controls
+        for the fold.
+      */}
+      {brandLinks.length > 0 && (
+        <section className="mt-12 border-t border-[var(--border)] pt-6">
+          <h2 className="mb-3 text-lg font-black">
+            Shop {device.label} cases by brand
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {brandLinks.map((brand) => (
+              <Link
+                key={brand.slug}
+                href={`/collections/${brand.slug}`}
+                aria-label={`${brand.name} — ${brand.count} product${
+                  brand.count === 1 ? "" : "s"
+                }`}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+              >
+                {brand.icon && <span aria-hidden>{brand.icon}</span>}
+                {brand.name}
+                <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/45">
+                  {brand.count}
+                </span>
+              </Link>
+            ))}
+          </div>
         </section>
       )}
 
-      {/* FAQ — visible + structured data */}
+      {/* Long-form copy + the exact fit list: unique, quotable on-page content
+          for shoppers and answer engines, kept out of the shopper's way. */}
+      <section className="mt-10 max-w-3xl">
+        <h2 className="mb-3 text-lg font-black">About {seo.heading}</h2>
+        <p className="text-sm leading-relaxed text-[var(--foreground)]/75">
+          {seo.intro}
+        </p>
+        {seo.models && seo.models.length > 0 && (
+          <p className="mt-3 text-sm leading-relaxed text-[var(--foreground)]/70">
+            <span className="font-bold text-[var(--foreground)]">
+              Compatible models:{" "}
+            </span>
+            {seo.models.join(" · ")}. Select your exact model on any product
+            page.
+          </p>
+        )}
+      </section>
+
       {seo.faqs.length > 0 && (
-        <section className="mt-12 max-w-3xl">
-          <h2 className="mb-4 text-xl font-black">
-            {seo.heading} — FAQ
-          </h2>
+        <section className="mt-10 max-w-3xl">
+          <h2 className="mb-4 text-xl font-black">{seo.heading} — FAQ</h2>
           <div className="space-y-5">
-            {seo.faqs.map((f) => (
-              <div key={f.question}>
-                <h3 className="font-bold">{f.question}</h3>
-                <p className="mt-1 text-[var(--foreground)]/75">{f.answer}</p>
+            {seo.faqs.map((faq) => (
+              <div key={faq.question}>
+                <h3 className="text-sm font-bold sm:text-base">
+                  {faq.question}
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--foreground)]/75">
+                  {faq.answer}
+                </p>
               </div>
             ))}
           </div>

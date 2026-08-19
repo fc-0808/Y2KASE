@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, lt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { emailSubscribers, marketingCampaigns } from "@/lib/db/schema";
+import { MARKETING_SENDABLE_STATUS } from "./audience";
 import { SUPPORT_EMAIL } from "@/lib/support/constants";
 import { marketingPostalAddress } from "./compliance";
 import { MARKETING_TEMPLATE_VERSION } from "./template";
@@ -122,13 +123,7 @@ export async function getLocallyEligibleSubscriberEmails(): Promise<string[]> {
   const rows = await db
     .select({ email: emailSubscribers.email })
     .from(emailSubscribers)
-    .where(
-      and(
-        eq(emailSubscribers.status, "active"),
-        isNotNull(emailSubscribers.consentVersion),
-        isNotNull(emailSubscribers.consentRecordedAt),
-      ),
-    )
+    .where(eq(emailSubscribers.status, MARKETING_SENDABLE_STATUS))
     .orderBy(asc(emailSubscribers.email));
   return rows.map((row) => row.email.trim().toLowerCase());
 }

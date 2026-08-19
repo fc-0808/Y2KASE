@@ -21,6 +21,7 @@ import {
   productJsonLd,
   truncateDescription,
 } from "@/lib/seo";
+import { productSerpTitle } from "@/lib/seo/copy";
 import { getProductEntryPrice } from "@/lib/pricing";
 import { SITE_URL } from "@/lib/site";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
@@ -56,7 +57,7 @@ export async function generateMetadata({
   const heroImage = product.images[0]?.url;
 
   return {
-    title: truncateDescription(product.title, 62),
+    title: productSerpTitle(product.title),
     description,
     alternates: { canonical },
     openGraph: {
