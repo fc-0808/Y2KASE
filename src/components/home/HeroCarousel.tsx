@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { BUNDLE } from "@/lib/promotions";
 import { ROUTES } from "@/lib/routes";
 
 type Slide = {
@@ -57,8 +58,8 @@ const SLIDES: Slide[] = [
       </>
     ),
     subtitle:
-      "Add any 4 cases, grips or charms to your bag — the 2 cheapest are on us. Automatically.",
-    cta: { label: "Start your bundle", href: "/products" },
+      `Add any ${BUNDLE.groupSize} ${BUNDLE.eligibleProductCopy} to your bag — the ${BUNDLE.freePerGroup} cheapest are on us. Automatically.`,
+    cta: { label: "Start your bundle", href: BUNDLE.landingPath },
     secondary: { label: "How it works", href: ROUTES.welcomeGift },
     align: "left",
   },

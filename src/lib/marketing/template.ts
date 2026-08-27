@@ -1,14 +1,28 @@
 import {
+  escapeHtml,
+  normalizeEmphasisMarkup,
+  renderInlineEmphasisHtml,
+  stripEmphasisMarkup,
+} from "./emphasis";
+import { isLegacyGenerativeMarketingHeroUrl } from "./hero";
+import { marketingCopyQualityWarnings } from "./copy-quality";
+import {
+  BUNDLE_MARKETING,
+  bundleMechanicsCoverage,
+  isBuyTwoGetTwoCampaign,
+} from "./offer";
+import {
   CAMPAIGN_TYPES,
   MARKETING_LIMITS,
   type CampaignType,
   type MarketingDraft,
   type MarketingProductOption,
 } from "./types";
+import { resolveBroadcastCoupon } from "@/lib/promotions";
 
 const SITE_URL = "https://y2kase.com";
 /** Bump for every renderer change that should invalidate a previous test send. */
-export const MARKETING_TEMPLATE_VERSION = "2026-08-14.3";
+export const MARKETING_TEMPLATE_VERSION = "2026-08-27.1";
 export const RESEND_UNSUBSCRIBE_PLACEHOLDER =
   "{{{RESEND_UNSUBSCRIBE_URL}}}";
 
@@ -124,8 +138,12 @@ export function validateMarketingDraft(
       errors,
     ),
     eyebrow: field(raw.eyebrow, "Eyebrow", MARKETING_LIMITS.eyebrow, errors),
-    heading: field(raw.heading, "Heading", MARKETING_LIMITS.heading, errors),
-    body: field(raw.body, "Body", MARKETING_LIMITS.body, errors, true, true),
+    heading: normalizeEmphasisMarkup(
+      field(raw.heading, "Heading", MARKETING_LIMITS.heading, errors),
+    ),
+    body: normalizeEmphasisMarkup(
+      field(raw.body, "Body", MARKETING_LIMITS.body, errors, true, true),
+    ),
     ctaLabel: field(raw.ctaLabel, "CTA label", MARKETING_LIMITS.ctaLabel, errors),
     ctaUrl: field(raw.ctaUrl, "CTA URL", MARKETING_LIMITS.url, errors),
     heroImageUrl: field(
@@ -157,6 +175,14 @@ export function validateMarketingDraft(
   if (value.heroImageUrl && !isPublicHttpsUrl(value.heroImageUrl)) {
     errors.push("Hero image URL must be a public absolute HTTPS URL.");
   }
+  if (
+    value.heroImageUrl &&
+    isLegacyGenerativeMarketingHeroUrl(value.heroImageUrl)
+  ) {
+    errors.push(
+      "This legacy AI-repainted hero may show products that do not exist. Rebuild it from catalogue images before testing or sending.",
+    );
+  }
   if (value.heroImageUrl && !value.heroImageAlt) {
     errors.push("Hero image alt text is required when an image is used.");
   }
@@ -171,10 +197,61 @@ export function validateMarketingDraft(
   ) {
     errors.push("Campaign fields cannot contain provider template expressions.");
   }
+  if (value.promoCode && !resolveBroadcastCoupon(value.promoCode)) {
+    errors.push(
+      "Promo code is not approved for a full-list marketing campaign.",
+    );
+  }
+  const bundleCampaign = isBuyTwoGetTwoCampaign({ draft: value });
+  if (value.promoCode && bundleCampaign) {
+    errors.push(
+      "Buy 2, Get 2 Free is automatic and cannot include a promo code.",
+    );
+  }
 
   return errors.length
     ? { ok: false, value: null, errors }
     : { ok: true, value, errors: [] };
+}
+
+/**
+ * Facts that may remain incomplete while drafting but must be resolved before
+ * a test or production send. Server Actions enforce these independently of UI.
+ */
+export function marketingSendBlockers(
+  draft: MarketingDraft,
+): MarketingPreflightWarning[] {
+  if (!isBuyTwoGetTwoCampaign({ draft })) return [];
+  const blockers: MarketingPreflightWarning[] = [];
+  const coverage = bundleMechanicsCoverage(
+    `${draft.previewText} ${draft.body}`,
+  );
+  if (
+    !coverage.itemCount ||
+    !coverage.freeCount ||
+    !coverage.automatic ||
+    !coverage.repeating ||
+    !coverage.nonStacking
+  ) {
+    blockers.push({
+      code: "bundle-terms-blocker",
+      message:
+        "State all bundle terms before sending: add any 4 products; the 2 lowest-priced are free automatically; every group of 4 qualifies; coupon codes cannot be combined.",
+    });
+  }
+  try {
+    const path = new URL(draft.ctaUrl).pathname;
+    if (path !== "/products" && !path.startsWith("/collections/")) {
+      blockers.push({
+        code: "bundle-destination-blocker",
+        message:
+          "Link Buy 2, Get 2 Free to the full product or collection page so shoppers can choose four items.",
+      });
+    }
+  } catch {
+    // The structural draft validator reports malformed URLs.
+  }
+  return blockers;
 }
 
 /** Advisory deliverability/readability checks shown before the mandatory test. */
@@ -194,12 +271,13 @@ export function marketingPreflight(
       message: "Keep inbox preview text between 35 and 120 characters.",
     });
   }
-  if (draft.body.length < 100) {
+  const bodyPlainLength = stripEmphasisMarkup(draft.body).length;
+  if (bodyPlainLength < 100) {
     warnings.push({
       code: "short-body",
       message: "Body copy is very short; confirm the offer and context are clear.",
     });
-  } else if (draft.body.length > 1_500) {
+  } else if (bodyPlainLength > 1_500) {
     warnings.push({
       code: "long-body",
       message: "Body copy is long for a promotional email; consider tightening it.",
@@ -237,6 +315,21 @@ export function marketingPreflight(
       message: "Add alt text for the hero image.",
     });
   }
+  if (draft.heroImageUrl) {
+    try {
+      const path = new URL(draft.heroImageUrl).pathname.toLowerCase();
+      if (/\.(?:webp|avif|svg)$/.test(path)) {
+        warnings.push({
+          code: "email-image-format",
+          message:
+            "Use JPEG or PNG for reliable Gmail and Outlook rendering; WebP, AVIF, and SVG remain inconsistent in email.",
+        });
+      }
+    } catch {
+      // Invalid URLs already have a dedicated CTA/image validation warning.
+    }
+  }
+  warnings.push(...marketingCopyQualityWarnings(draft));
   return warnings;
 }
 
@@ -264,56 +357,65 @@ export function createStarterDraft(
       return {
         ...shared,
         name: `${product?.title ?? "New drop"} launch`,
-        subject: `Just dropped: ${title} ✨`,
-        previewText: "Fresh Y2K energy just landed at Y2KASE.",
-        eyebrow: "NEW DROP",
-        heading: "Your phone’s new personality just arrived",
-        body: `${title} is officially here—made for main-character mirror selfies and everyday protection.\n\nSubscriber crew gets first look before everyone else catches on.`,
-        ctaLabel: "Shop the new drop",
+        subject: product ? `New: ${title}` : "See what’s new at Y2KASE",
+        previewText:
+          "Explore the design details and available options in our latest release.",
+        eyebrow: "NEW AT Y2KASE",
+        heading: "A fresh case for your rotation",
+        body: product
+          ? `${title} is now available at Y2KASE. See the design up close and check the available options for your phone.\n\nIf it fits your style, choose your model and make it part of your everyday rotation.`
+          : "A new Y2KASE release is ready to explore. Take a closer look at the design details and available phone options.\n\nChoose the style that feels most like you, then find the right fit for your device.",
+        ctaLabel: "Explore the new case",
       };
     case "promotion":
       return {
         ...shared,
-        name: "Subscriber-only offer",
-        subject: "A little treat, just for the group chat 💌",
-        previewText: "Your subscriber-only Y2KASE offer is waiting.",
-        eyebrow: "SUBSCRIBER EXCLUSIVE",
-        heading: "Cute case. Even cuter checkout.",
-        body: "A tiny thank-you for being part of the Y2KASE crew. Pick the case, charm, or grip that matches your current era.\n\nAdd your offer details and expiry before sending.",
-        ctaLabel: "Shop the offer",
+        name: `${BUNDLE_MARKETING.name} · Bundle`,
+        subject: `Pick ${BUNDLE_MARKETING.qualifyingItems} favorites. Pay for ${BUNDLE_MARKETING.qualifyingItems - BUNDLE_MARKETING.freeItems}.`,
+        previewText: `Add any ${BUNDLE_MARKETING.qualifyingItems} ${BUNDLE_MARKETING.eligibleProductCopy}—the ${BUNDLE_MARKETING.freeItems} lowest-priced are free automatically.`,
+        eyebrow: BUNDLE_MARKETING.name.toUpperCase(),
+        heading: `${BUNDLE_MARKETING.qualifyingItems} favorites. **${BUNDLE_MARKETING.freeItems} are on us.**`,
+        body: `Mix and match any ${BUNDLE_MARKETING.qualifyingItems} ${BUNDLE_MARKETING.eligibleProductCopy}. The **${BUNDLE_MARKETING.freeItems} lowest-priced items are free** automatically—no code needed.\n\nChoose a coordinated set or ${BUNDLE_MARKETING.qualifyingItems} completely different moods. Start with the styles that feel most like you.\n\nFor every ${BUNDLE_MARKETING.qualifyingItems} items, ${BUNDLE_MARKETING.freeItems} are free. Coupon codes can’t be combined, and your bag shows the savings before checkout.`,
+        ctaLabel: "Build your bundle",
+        ctaUrl: BUNDLE_MARKETING.collectionUrl,
       };
     case "restock":
       return {
         ...shared,
         name: `${product?.title ?? "Favourite"} restock`,
-        subject: `${title} is back (for now) 👀`,
-        previewText: "The wait is over—your Y2KASE favourite is back.",
+        subject: product ? `Back in stock: ${title}` : "A returning style is back",
+        previewText:
+          "A returning Y2KASE design is available again—see the current options.",
         eyebrow: "BACK IN STOCK",
-        heading: "You asked. We restocked.",
-        body: `${title} is back on the shelf and ready for its next main-character moment.\n\nRestocks can move quickly, so take a look while your favourite option is available.`,
-        ctaLabel: "Shop the restock",
+        heading: "Available again at Y2KASE",
+        body: product
+          ? `${title} is available again. Check the current phone models and style options on the product page.\n\nTake another look at the details and choose the version that fits your device and your look.`
+          : "A returning Y2KASE style is available again. Check the current phone models and options in the collection.\n\nTake another look at the details and choose the version that fits your device and your look.",
+        ctaLabel: "View the restock",
       };
     case "newsletter":
       return {
         ...shared,
         name: "Y2KASE monthly edit",
-        subject: "The Y2KASE edit: what we’re loving right now",
-        previewText: "New arrivals, styling ideas, and cute things worth opening.",
+        subject: "Your latest Y2KASE edit",
+        previewText:
+          "A focused mix of cases, grips, charms, and styling ideas to explore.",
         eyebrow: "THE Y2KASE EDIT",
-        heading: "Your monthly dose of cute",
-        body: "A quick scroll through what’s new, what’s trending, and what the Y2KASE crew has on repeat.\n\nAdd your highlights here, keep it useful, and finish with one clear next step.",
-        ctaLabel: "Explore the edit",
+        heading: "A few details worth a closer look",
+        body: "Explore a focused edit of Y2KASE cases, grips, and charms, chosen to make it easier to find a combination that feels personal.\n\nBrowse the latest selection, compare the details, and save the styles that work with your phone and your look.",
+        ctaLabel: "Browse the edit",
       };
     case "seasonal":
       return {
         ...shared,
         name: "Seasonal Y2KASE edit",
-        subject: "New season, new phone era 🌸",
-        previewText: "A fresh edit for your next Y2K look.",
+        subject: "A fresh phone look for the season",
+        previewText:
+          "Explore cases and accessories selected for an easy seasonal refresh.",
         eyebrow: "SEASONAL EDIT",
-        heading: "A new mood for your most-used accessory",
-        body: "Refresh the thing that goes everywhere with you. We pulled together a seasonal edit of cases and accessories made to mix, match, and make the mirror selfie.\n\nChoose your next-era favourite.",
-        ctaLabel: "Shop the seasonal edit",
+        heading: "Refresh the accessory you use every day",
+        body: "A new season is an easy reason to switch the details you see every day. Explore cases and accessories that can be mixed, matched, and made your own.\n\nChoose a color, character, or finish that gives your phone a fresh point of view.",
+        ctaLabel: "Explore the seasonal edit",
       };
     default:
       return {
@@ -350,20 +452,11 @@ export function campaignTrackingUrl(
   return url.toString();
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 function bodyParagraphs(body: string): string {
   return body
     .split(/\n{2,}/)
     .map((paragraph) => {
-      const content = escapeHtml(paragraph).replace(/\n/g, "<br>");
+      const content = renderInlineEmphasisHtml(paragraph, "body");
       return `<p style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:26px;color:#4f3a56;margin-top:0;margin-right:0;margin-bottom:18px;margin-left:0;">${content}</p>`;
     })
     .join("");
@@ -391,7 +484,9 @@ export function renderMarketingEmail(
     ? `
               <tr>
                 <td style="padding-top:0;padding-right:0;padding-bottom:0;padding-left:0;" bgcolor="#f7e7f6">
-                  <img src="${escapeHtml(draft.heroImageUrl)}" width="600" height="360" border="0" alt="${escapeHtml(draft.heroImageAlt)}" style="display:block;width:100%;max-width:600px;height:auto;border-width:0;">
+                  <a href="${escapeHtml(trackedCtaUrl)}" style="display:block;text-decoration:none;">
+                    <img src="${escapeHtml(draft.heroImageUrl)}" width="600" height="360" border="0" alt="${escapeHtml(draft.heroImageAlt)}" style="display:block;width:100%;max-width:600px;height:auto;border-width:0;color:#4f3a56;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;">
+                  </a>
                 </td>
               </tr>`
     : "";
@@ -437,8 +532,7 @@ export function renderMarketingEmail(
                 <tr>
                   <td>
                     <p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;font-weight:800;letter-spacing:1.6px;color:#ff3ea5;margin-top:0;margin-right:0;margin-bottom:12px;margin-left:0;">${escapeHtml(draft.eyebrow)}</p>
-                    <h1 style="font-family:Arial,Helvetica,sans-serif;font-size:32px;line-height:38px;font-weight:900;color:#34203b;margin-top:0;margin-right:0;margin-bottom:18px;margin-left:0;">${escapeHtml(draft.heading)}</h1>
-                    <p style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:26px;color:#4f3a56;margin-top:0;margin-right:0;margin-bottom:18px;margin-left:0;">Hey bestie ✨</p>
+                    <h1 style="font-family:Arial,Helvetica,sans-serif;font-size:32px;line-height:38px;font-weight:900;color:#34203b;margin-top:0;margin-right:0;margin-bottom:18px;margin-left:0;">${renderInlineEmphasisHtml(draft.heading, "heading")}</h1>
                     ${bodyParagraphs(draft.body)}
                     ${promo}
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;margin-right:0;margin-bottom:4px;margin-left:0;">
@@ -471,11 +565,9 @@ export function renderMarketingEmail(
 
   const text = [
     draft.eyebrow,
-    draft.heading,
+    stripEmphasisMarkup(draft.heading),
     "",
-    "Hey bestie ✨",
-    "",
-    draft.body,
+    stripEmphasisMarkup(draft.body),
     draft.promoCode ? `\nUse code: ${draft.promoCode}` : "",
     "",
     `${draft.ctaLabel}: ${trackedCtaUrl}`,

@@ -5,14 +5,13 @@
  * Admin, a sibling of the device bar.
  *
  * Collections are the *marketing* taxonomy (Sanrio, Miffy, Hello Kitty, …),
- * modelled as a tree in the DB. This renders the top-level brands/themes as a
- * horizontal pill bar, and — once a brand with children is active — reveals a
- * second row of its characters so a large catalog can be drilled down quickly
- * (e.g. iPhone → Sanrio → Hello Kitty). Selection composes with every other
- * filter, and respects the hierarchy (picking "Sanrio" includes its children).
+ * modelled as a tree in the DB. Brands and non-brand collections are rendered
+ * as separate facets so genres such as "Kawaii" are not mislabeled as brands.
+ * Zero-result options are omitted until selected, and every row wraps instead
+ * of scrolling. This keeps the control useful at any viewport width without
+ * clipping labels or exposing a decorative horizontal scrollbar.
  */
 import Link from "next/link";
-import { Tag, FolderTree } from "lucide-react";
 import type { AdminCollectionOption } from "@/lib/collections";
 
 export type CollectionSelection = number | "all";
@@ -20,6 +19,7 @@ export type CollectionSelection = number | "all";
 export function CollectionNavBar({
   options,
   counts,
+  total,
   active,
   onSelect,
   manageHref = "/admin/collections",
@@ -27,6 +27,8 @@ export function CollectionNavBar({
   options: AdminCollectionOption[];
   /** View-scoped product counts by collection id (falls back to option.count). */
   counts?: Map<number, number>;
+  /** Products in the current non-collection filter scope. */
+  total: number;
   active: CollectionSelection;
   onSelect: (selection: CollectionSelection) => void;
   manageHref?: string;
@@ -35,132 +37,166 @@ export function CollectionNavBar({
   const byId = new Map(options.map((o) => [o.id, o]));
   const countOf = (c: AdminCollectionOption) => counts?.get(c.id) ?? c.count;
 
-  // Which top-level node is in context: the active one, or the active child's
-  // parent — so drilling into a character keeps its brand highlighted.
   const activeNode = active === "all" ? undefined : byId.get(active);
-  const activeTopId =
-    activeNode == null
-      ? null
-      : activeNode.parentId == null
-        ? activeNode.id
-        : activeNode.parentId;
-
-  const children = activeTopId
-    ? options.filter((o) => o.parentId === activeTopId)
-    : [];
+  // Walk to the root instead of assuming a one-level tree. The current
+  // taxonomy is shallow, but this remains correct if a nested collection is
+  // introduced later.
+  const activeTopId = activeNode ? rootCollectionId(activeNode, byId) : null;
   const activeTop = activeTopId != null ? byId.get(activeTopId) : undefined;
+  const isVisible = (option: AdminCollectionOption) =>
+    countOf(option) > 0 || activeTopId === option.id || active === option.id;
+
+  const brands = topLevel.filter(
+    (option) => option.kind === "brand" && isVisible(option),
+  );
+  const tags = topLevel.filter(
+    (option) => option.kind !== "brand" && isVisible(option),
+  );
+  const children = activeTop
+    ? options.filter(
+        (option) => option.parentId === activeTop.id && isVisible(option),
+      )
+    : [];
 
   return (
-    <div className="mb-4 space-y-2">
-      <div className="flex items-center gap-2">
-        <nav
-          aria-label="Filter products by brand"
-          className="flex flex-1 items-center gap-1.5 overflow-x-auto pb-1"
-        >
-          <span className="shrink-0 pr-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/35">
-            Brand
-          </span>
-          <Pill
-            label="All"
-            icon={<Tag className="h-3.5 w-3.5" />}
-            active={active === "all"}
-            onClick={() => onSelect("all")}
-          />
-          {topLevel.map((c) => {
-            const n = countOf(c);
-            return (
-              <Pill
-                key={c.id}
-                label={c.name}
-                emoji={c.icon}
-                count={n}
-                muted={n === 0}
-                active={activeTopId === c.id}
-                onClick={() => onSelect(c.id)}
-              />
-            );
-          })}
-        </nav>
+    <div className="space-y-3.5 px-4 py-3.5 sm:px-5">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-foreground/45">
+          Collections
+        </p>
         <Link
           href={manageHref}
-          className="flex shrink-0 items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+          className="inline-flex min-h-8 shrink-0 items-center rounded-md px-2 text-xs font-semibold text-foreground/55 transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <FolderTree className="h-3.5 w-3.5" /> Manage
+          Manage collections
         </Link>
       </div>
 
-      {/* Drill-down: characters within the active brand */}
-      {activeTop && children.length > 0 && (
-        <nav
-          aria-label={`Filter within ${activeTop.name}`}
-          className="flex items-center gap-1.5 overflow-x-auto pb-1 pl-1"
-        >
-          <span className="shrink-0 pr-0.5 text-xs font-semibold text-[var(--foreground)]/45">
-            {activeTop.icon ? `${activeTop.icon} ` : ""}
-            {activeTop.name} ›
-          </span>
-          <Chip
-            label={`All ${activeTop.name}`}
-            active={active === activeTop.id}
-            onClick={() => onSelect(activeTop.id)}
+      <FilterRow label="Brands" ariaLabel="Filter products by brand">
+        <FilterButton
+          label="All"
+          count={total}
+          active={active === "all"}
+          onClick={() => onSelect("all")}
+        />
+        {brands.map((option) => (
+          <FilterButton
+            key={option.id}
+            label={option.name}
+            count={countOf(option)}
+            active={active === option.id}
+            context={activeTopId === option.id && active !== option.id}
+            onClick={() => onSelect(option.id)}
           />
-          {children.map((c) => (
-            <Chip
-              key={c.id}
-              label={c.name}
-              emoji={c.icon}
-              count={countOf(c)}
-              active={active === c.id}
-              onClick={() => onSelect(c.id)}
+        ))}
+      </FilterRow>
+
+      {tags.length > 0 && (
+        <FilterRow label="Tags" ariaLabel="Filter products by collection tag">
+          {tags.map((option) => (
+            <FilterButton
+              key={option.id}
+              label={option.name}
+              count={countOf(option)}
+              active={active === option.id}
+              onClick={() => onSelect(option.id)}
             />
           ))}
-        </nav>
+        </FilterRow>
+      )}
+
+      {/* Drill-down: characters within the active brand. */}
+      {activeTop?.kind === "brand" && children.length > 0 && (
+        <div className="border-t border-border pt-3.5">
+          <FilterRow
+            label={activeTop.name}
+            ariaLabel={`Filter within ${activeTop.name}`}
+          >
+            <FilterButton
+              label={`All ${activeTop.name}`}
+              count={countOf(activeTop)}
+              active={active === activeTop.id}
+              compact
+              onClick={() => onSelect(activeTop.id)}
+            />
+            {children.map((option) => (
+              <FilterButton
+                key={option.id}
+                label={option.name}
+                count={countOf(option)}
+                active={active === option.id}
+                compact
+                onClick={() => onSelect(option.id)}
+              />
+            ))}
+          </FilterRow>
+        </div>
       )}
     </div>
   );
 }
 
-function Pill({
+function FilterRow({
   label,
-  emoji,
-  icon,
+  ariaLabel,
+  children,
+}: {
+  label: string;
+  ariaLabel: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-[5.5rem_minmax(0,1fr)] sm:items-start">
+      <span className="pt-2 text-xs font-semibold text-foreground/55">
+        {label}
+      </span>
+      <div
+        role="group"
+        aria-label={ariaLabel}
+        className="flex min-w-0 flex-wrap gap-2"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FilterButton({
+  label,
   count,
-  muted = false,
   active,
+  context = false,
+  compact = false,
   onClick,
 }: {
   label: string;
-  emoji?: string | null;
-  icon?: React.ReactNode;
   count?: number;
-  muted?: boolean;
   active: boolean;
+  context?: boolean;
+  compact?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-current={active ? "true" : undefined}
-      className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+      aria-pressed={active}
+      className={`inline-flex items-center gap-2 rounded-lg border font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+        compact ? "min-h-8 px-2.5 text-xs" : "min-h-9 px-3 text-sm"
+      } ${
         active
-          ? "bg-[var(--primary)] text-white"
-          : `border border-[var(--border)] hover:border-[var(--primary)] hover:bg-[var(--muted)] ${
-              muted ? "text-[var(--foreground)]/45" : ""
-            }`
+          ? "border-primary bg-primary-soft text-foreground shadow-sm"
+          : context
+            ? "border-primary/40 bg-primary/[0.07] text-primary"
+            : "border-border bg-background/60 text-foreground/75 hover:border-primary/50 hover:bg-muted"
       }`}
     >
-      {emoji ? (
-        <span aria-hidden className="text-base leading-none">
-          {emoji}
-        </span>
-      ) : (
-        icon
-      )}
       <span className="whitespace-nowrap">{label}</span>
       {count != null && (
         <span
-          className={`text-xs ${active ? "text-white/70" : "text-[var(--foreground)]/45"}`}
+          className={`text-xs tabular-nums ${
+            active ? "text-foreground/60" : "text-foreground/40"
+          }`}
         >
           {count}
         </span>
@@ -169,41 +205,19 @@ function Pill({
   );
 }
 
-function Chip({
-  label,
-  emoji,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  emoji?: string | null;
-  count?: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "true" : undefined}
-      className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition ${
-        active
-          ? "bg-[var(--foreground)] text-[var(--background)]"
-          : "border border-[var(--border)] hover:border-[var(--primary)] hover:bg-[var(--muted)]"
-      }`}
-    >
-      {emoji && (
-        <span aria-hidden className="leading-none">
-          {emoji}
-        </span>
-      )}
-      <span className="whitespace-nowrap">{label}</span>
-      {count != null && (
-        <span className={active ? "opacity-70" : "text-[var(--foreground)]/45"}>
-          {count}
-        </span>
-      )}
-    </button>
-  );
+function rootCollectionId(
+  node: AdminCollectionOption,
+  byId: Map<number, AdminCollectionOption>,
+): number {
+  let current = node;
+  const seen = new Set<number>();
+
+  while (current.parentId != null && !seen.has(current.id)) {
+    seen.add(current.id);
+    const parent = byId.get(current.parentId);
+    if (!parent) break;
+    current = parent;
+  }
+
+  return current.id;
 }

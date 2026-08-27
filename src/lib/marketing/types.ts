@@ -75,6 +75,7 @@ export type MarketingCampaignView = MarketingDraft & {
 
 export type MarketingCapabilities = {
   aiConfigured: boolean;
+  heroImageGenerationConfigured: boolean;
   emailConfigured: boolean;
   postalAddressConfigured: boolean;
   dedicatedMarketingSenderConfigured: boolean;

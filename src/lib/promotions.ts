@@ -38,6 +38,12 @@ export type LocalCoupon = {
   label: string;
   /** Optional minimum subtotal (in cents) required to use the code. */
   minSubtotalCents?: number;
+  /**
+   * Whether this code may be advertised to the full subscriber list.
+   * Checkout redemption remains available independently for previously issued
+   * individual/retired codes.
+   */
+  campaignUse: "broadcast" | "individual" | "retired";
 };
 
 /**
@@ -52,7 +58,12 @@ export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
    * handing over an email address: there is no trade in swapping an address
    * for something already printed at the top of the screen.
    */
-  BESTIE10: { code: "BESTIE10", percentOff: 10, label: "10% off" },
+  BESTIE10: {
+    code: "BESTIE10",
+    percentOff: 10,
+    label: "10% off",
+    campaignUse: "broadcast",
+  },
 
   /**
    * SUBSCRIBER-ONLY scratch-card prizes. Never advertised anywhere on the
@@ -65,9 +76,24 @@ export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
    * first so it stops being issued, and leave it redeemable here until the
    * subscribers who already have it have lapsed.
    */
-  BESTIE15: { code: "BESTIE15", percentOff: 15, label: "15% off" },
-  BESTIE20: { code: "BESTIE20", percentOff: 20, label: "20% off" },
-  BESTIE25: { code: "BESTIE25", percentOff: 25, label: "25% off" },
+  BESTIE15: {
+    code: "BESTIE15",
+    percentOff: 15,
+    label: "15% off",
+    campaignUse: "individual",
+  },
+  BESTIE20: {
+    code: "BESTIE20",
+    percentOff: 20,
+    label: "20% off",
+    campaignUse: "individual",
+  },
+  BESTIE25: {
+    code: "BESTIE25",
+    percentOff: 25,
+    label: "25% off",
+    campaignUse: "individual",
+  },
 
   /**
    * RETIRED — do not advertise, do not issue.
@@ -78,7 +104,12 @@ export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
    * support tickets and chargebacks. Nothing in the storefront offers it any
    * more, so it retires naturally as those subscribers redeem or lapse.
    */
-  WELCOME15: { code: "WELCOME15", percentOff: 15, label: "15% off" },
+  WELCOME15: {
+    code: "WELCOME15",
+    percentOff: 15,
+    label: "15% off",
+    campaignUse: "retired",
+  },
 };
 
 /**
@@ -100,6 +131,14 @@ export function resolveLocalCoupon(
   return LOCAL_COUPONS[raw.trim().toUpperCase()] ?? null;
 }
 
+/** Only codes explicitly approved for a full-list marketing campaign. */
+export function resolveBroadcastCoupon(
+  raw: string | null | undefined,
+): LocalCoupon | null {
+  const coupon = resolveLocalCoupon(raw);
+  return coupon?.campaignUse === "broadcast" ? coupon : null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bundle config
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +150,11 @@ export const BUNDLE = {
   groupSize: 4,
   /** Free units awarded per completed group. */
   freePerGroup: 2,
+  eligibleProductCopy: "cases, grips, or charms",
+  landingPath: "/products",
+  automatic: true,
+  repeatEveryGroup: true,
+  stackableWithCoupons: false,
 } as const;
 
 /** Units the bundle makes free for a given total unit count (tiered). */

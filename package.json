@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "i18n:check": "tsx scripts/check-i18n.ts",
     "seo:check": "tsx scripts/check-seo.ts",
-    "marketing:check": "tsx scripts/check-marketing.ts",
+    "marketing:check": "tsx scripts/check-marketing.ts && tsx scripts/check-marketing-hero.ts",
     "preview:check": "tsx scripts/check-preview.ts",
     "performance:check": "tsx scripts/check-performance.ts",
     "bundle:check": "tsx scripts/check-bundle-budget.ts",

@@ -8,6 +8,7 @@ import { getSubscriberStats } from "@/lib/admin/subscribers";
 import { getAdminProductOverviews } from "@/lib/products";
 import { getMarketingCampaigns } from "@/lib/marketing/campaigns";
 import { isMarketingAiConfigured } from "@/lib/marketing/ai";
+import { isMarketingHeroGenerationConfigured } from "@/lib/marketing/hero-config";
 import {
   configuredMarketingSegmentId,
   configuredMarketingTopicId,
@@ -56,6 +57,7 @@ export default async function AdminCampaignsPage() {
   const postalAddress = marketingPostalAddress() ?? "";
   const capabilities: MarketingCapabilities = {
     aiConfigured: isMarketingAiConfigured(),
+    heroImageGenerationConfigured: isMarketingHeroGenerationConfigured(),
     emailConfigured: Boolean(process.env.RESEND_API_KEY),
     postalAddressConfigured: postalAddress.length >= 6,
     dedicatedMarketingSenderConfigured: isMarketingSenderConfigured(),

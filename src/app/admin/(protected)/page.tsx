@@ -11,13 +11,14 @@ import {
   TrendingUp,
   ArrowRight,
   Sparkles,
+  ExternalLink,
 } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { getOrderStats, getOrders } from "@/lib/admin/orders";
 import { getMemberStats } from "@/lib/admin/members";
 import { getSubscriberStats } from "@/lib/admin/subscribers";
 import { getVisitorOverview, getRecentVisits } from "@/lib/analytics";
-import { formatCents, cn } from "@/lib/utils";
+import { formatCents, cn, orderCustomerLabel } from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 
 export const metadata: Metadata = { title: "Admin · Dashboard" };
@@ -143,16 +144,16 @@ export default async function AdminDashboardPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+    <div className="mx-auto w-full min-w-0 max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="mb-6 sm:mb-8">
         <h1 className="text-2xl font-black sm:text-3xl">Dashboard</h1>
-        <p className="mt-1 text-sm text-[var(--foreground)]/60">
+        <p className="mt-1 max-w-prose text-sm text-[var(--foreground)]/60 text-pretty">
           A live overview of your store — revenue, orders, members and traffic.
         </p>
       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      {/* KPI cards — min-w-0 keeps grid tracks from expanding past the viewport */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 [&>*]:min-w-0">
         {stats.map((s) => (
           <Link
             key={s.label}
@@ -163,21 +164,28 @@ export default async function AdminDashboardPage() {
               {s.label}
             </p>
             <p className={cn("mt-2 text-2xl font-black", s.accent)}>{s.value}</p>
-            <p className="mt-1 text-xs text-[var(--foreground)]/50">{s.sub}</p>
+            <p className="mt-1 truncate text-xs text-[var(--foreground)]/50">
+              {s.sub}
+            </p>
           </Link>
         ))}
       </div>
 
-      {/* Recent activity */}
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
-        <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-          <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
-            <h2 className="flex items-center gap-2 font-bold">
-              <ShoppingBag className="h-4 w-4" /> Recent orders
+      {/* Recent activity
+          Grid items default to min-width:auto and will grow to fit unshrinkable
+          flex children (status badge + price + email). `min-w-0` + overflow clip
+          keeps each card inside the viewport so rows can truncate instead of
+          forcing horizontal page scroll. */}
+      <div className="mt-8 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
+        <section className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+          <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5">
+            <h2 className="flex min-w-0 items-center gap-2 font-bold">
+              <ShoppingBag className="h-4 w-4 shrink-0" />
+              <span className="truncate">Recent orders</span>
             </h2>
             <Link
               href="/admin/orders"
-              className="flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+              className="flex shrink-0 items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
             >
               View all <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -188,37 +196,52 @@ export default async function AdminDashboardPage() {
             </p>
           ) : (
             <ul className="divide-y divide-[var(--border)]">
-              {recentOrders.map((o) => (
-                <li key={o.id}>
-                  <Link
-                    href={`/admin/orders/${o.id}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--muted)]/40 sm:px-5"
-                  >
-                    <span className="shrink-0 font-mono text-sm font-bold">
-                      #{o.id}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--foreground)]/70">
-                      {o.email}
-                    </span>
-                    <StatusBadge status={o.status} />
-                    <span className="shrink-0 text-sm font-bold tabular-nums">
-                      {formatCents(o.totalCents, o.currency)}
-                    </span>
-                  </Link>
-                </li>
-              ))}
+              {recentOrders.map((o) => {
+                const customer = orderCustomerLabel(o);
+                return (
+                  <li key={o.id}>
+                    <Link
+                      href={`/admin/orders/${o.id}`}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--muted)]/40 sm:px-5"
+                    >
+                      {/* Stack identity under the order # so long emails never
+                          compete with status/price for horizontal space. */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="shrink-0 font-mono text-sm font-bold">
+                            #{o.id}
+                          </span>
+                          <StatusBadge status={o.status} className="shrink-0" />
+                        </div>
+                        <p
+                          className={cn(
+                            "mt-0.5 truncate text-sm text-[var(--foreground)]/70",
+                            customer.muted && "italic text-[var(--foreground)]/45",
+                          )}
+                        >
+                          {customer.text}
+                        </p>
+                      </div>
+                      <span className="shrink-0 self-start text-sm font-bold tabular-nums sm:self-center">
+                        {formatCents(o.totalCents, o.currency)}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
 
-        <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)]">
-          <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
-            <h2 className="flex items-center gap-2 font-bold">
-              <TrendingUp className="h-4 w-4" /> Recent visitors
+        <section className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+          <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-5">
+            <h2 className="flex min-w-0 items-center gap-2 font-bold">
+              <TrendingUp className="h-4 w-4 shrink-0" />
+              <span className="truncate">Recent visitors</span>
             </h2>
             <Link
               href="/admin/visitors"
-              className="flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
+              className="flex shrink-0 items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
             >
               View all <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -229,27 +252,31 @@ export default async function AdminDashboardPage() {
             </p>
           ) : (
             <ul className="divide-y divide-[var(--border)]">
-              {recentVisits.map((v) => (
-                <li
-                  key={v.id}
-                  className="flex flex-col gap-0.5 px-4 py-3 text-sm sm:flex-row sm:items-center sm:gap-3 sm:px-5"
-                >
-                  <span className="min-w-0 flex-1 truncate font-mono text-[var(--foreground)]/70">
-                    {v.path}
-                  </span>
-                  {/* On mobile these wrap to a second line and share a row;
-                      `sm:contents` dissolves the wrapper so they rejoin the
-                      main flex row on larger screens. */}
-                  <div className="flex items-center justify-between gap-2 sm:contents">
-                    <span className="text-xs text-[var(--foreground)]/50 sm:text-sm">
-                      {[v.city, v.country].filter(Boolean).join(", ") || "—"}
-                    </span>
-                    <span className="shrink-0 text-xs text-[var(--foreground)]/40">
-                      {timeAgo(v.createdAt)}
-                    </span>
-                  </div>
-                </li>
-              ))}
+              {recentVisits.map((v) => {
+                const location =
+                  [v.city, v.country].filter(Boolean).join(", ") || "—";
+                return (
+                  <li key={v.id} className="px-4 py-3 sm:px-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <a
+                        href={v.path}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group flex min-w-0 flex-1 items-center gap-1 truncate font-mono text-sm text-[var(--foreground)]/70 hover:text-[var(--primary)]"
+                      >
+                        <span className="truncate">{v.path}</span>
+                        <ExternalLink className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
+                      </a>
+                      <span className="shrink-0 text-xs text-[var(--foreground)]/40">
+                        {timeAgo(v.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-[var(--foreground)]/50">
+                      {location}
+                    </p>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
@@ -260,7 +287,7 @@ export default async function AdminDashboardPage() {
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-[var(--foreground)]/50">
           Manage
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 [&>*]:min-w-0">
           {SECTIONS.map(({ href, label, desc, icon: Icon }) => (
             <Link
               key={href}

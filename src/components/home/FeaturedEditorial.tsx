@@ -39,9 +39,9 @@ const EDITORIAL: Entry[] = [
     // deal — change `BUNDLE` and every surface updates.
     kicker: "03",
     title: BUNDLE.label,
-    desc: `Add any ${BUNDLE.groupSize} cases — the ${BUNDLE.freePerGroup} cheapest are on us.`,
+    desc: `Add any ${BUNDLE.groupSize} ${BUNDLE.eligibleProductCopy} — the ${BUNDLE.freePerGroup} cheapest are on us.`,
     image: "/brand/promo-bundle.webp",
-    href: "/products",
+    href: BUNDLE.landingPath,
   },
 ];
 

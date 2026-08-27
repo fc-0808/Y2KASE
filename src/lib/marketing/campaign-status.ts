@@ -28,3 +28,25 @@ export function isRecoverablePreparingCampaign(input: {
   if (!Number.isFinite(updatedAt)) return false;
   return (input.now ?? Date.now()) - updatedAt >= LAUNCH_CLAIM_STALE_MS;
 }
+
+export function isDeletableMarketingCampaign(input: {
+  status: string;
+  resendBroadcastId?: string | null;
+}): boolean {
+  return (
+    (input.status === "draft" || input.status === "failed") &&
+    !input.resendBroadcastId
+  );
+}
+
+export function isEditableMarketingCampaign(input: {
+  status: string;
+  resendBroadcastId?: string | null;
+  updatedAt: Date | string;
+  now?: number;
+}): boolean {
+  return (
+    isDeletableMarketingCampaign(input) ||
+    isRecoverablePreparingCampaign(input)
+  );
+}

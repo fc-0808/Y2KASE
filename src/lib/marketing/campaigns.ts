@@ -1,6 +1,15 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNotNull, lt } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+} from "drizzle-orm";
 import { db } from "@/lib/db";
 import { emailSubscribers, marketingCampaigns } from "@/lib/db/schema";
 import { MARKETING_SENDABLE_STATUS } from "./audience";
@@ -9,6 +18,7 @@ import { marketingPostalAddress } from "./compliance";
 import { MARKETING_TEMPLATE_VERSION } from "./template";
 import {
   LAUNCH_CLAIM_STALE_MS,
+  isDeletableMarketingCampaign,
   isRecoverablePreparingCampaign,
 } from "./campaign-status";
 import type {
@@ -260,6 +270,63 @@ export async function saveMarketingCampaignRecord(input: {
     };
   }
   return { ok: true, campaign: toMarketingCampaignView(updated) };
+}
+
+export type DeleteMarketingCampaignResult =
+  | { ok: true; deleted: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Physically delete only records that have never crossed the provider boundary.
+ *
+ * Sent/queued/scheduled campaigns are compliance and delivery audit records.
+ * Failed rows with a provider broadcast are retained for idempotent recovery.
+ */
+export async function deleteMarketingCampaignDraft(
+  id: string,
+  expectedContentHash: string,
+): Promise<DeleteMarketingCampaignResult> {
+  if (!isCampaignId(id)) {
+    return { ok: false, error: "Invalid campaign id." };
+  }
+  if (!/^[a-f0-9]{64}$/.test(expectedContentHash)) {
+    return { ok: false, error: "Invalid campaign version." };
+  }
+  const existing = await getMarketingCampaign(id);
+  if (!existing) return { ok: true, deleted: false };
+  if (existing.contentHash !== expectedContentHash) {
+    return {
+      ok: false,
+      error:
+        "The campaign changed in another session. Refresh before deleting.",
+    };
+  }
+  if (!isDeletableMarketingCampaign(existing)) {
+    return {
+      ok: false,
+      error:
+        "Only drafts that have not created a Resend broadcast can be deleted. Launched records are retained for audit.",
+    };
+  }
+
+  const deleted = await db
+    .delete(marketingCampaigns)
+    .where(
+      and(
+        eq(marketingCampaigns.id, id),
+        eq(marketingCampaigns.contentHash, expectedContentHash),
+        inArray(marketingCampaigns.status, ["draft", "failed"]),
+        isNull(marketingCampaigns.resendBroadcastId),
+      ),
+    )
+    .returning({ id: marketingCampaigns.id });
+  return deleted.length === 1
+    ? { ok: true, deleted: true }
+    : {
+        ok: false,
+        error:
+          "The campaign changed in another session. Refresh before deleting.",
+      };
 }
 
 export async function markCampaignTested(

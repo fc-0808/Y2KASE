@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Search,
   Check,
@@ -122,6 +122,31 @@ export function ProductsConsole({
   const [toast, setToast] = useState<{ ok: boolean; message: string } | null>(
     null,
   );
+  const bulkBarRef = useRef<HTMLDivElement>(null);
+  const hasSelection = selected.size > 0;
+
+  // Reserve exactly the space claimed by the fixed bulk-action bar. Its height
+  // varies substantially as actions wrap on narrow screens, so a fixed padding
+  // would either hide the final rows or waste space. The shared variable also
+  // keeps global fixed UI (for example, support) above this page-owned bar.
+  useEffect(() => {
+    const bar = bulkBarRef.current;
+    if (!bar || !hasSelection) return;
+
+    const root = document.documentElement;
+    const publishHeight = () => {
+      root.style.setProperty("--bottom-bar-h", `${bar.offsetHeight}px`);
+    };
+
+    publishHeight();
+    const observer = new ResizeObserver(publishHeight);
+    observer.observe(bar);
+
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--bottom-bar-h");
+    };
+  }, [hasSelection]);
 
   const counts = useMemo(() => {
     const c = { all: products.length, draft: 0, active: 0, archived: 0 };
@@ -131,17 +156,6 @@ export function ProductsConsole({
       else if (p.status === "archived") c.archived += 1;
     }
     return c;
-  }, [products]);
-
-  // Live product count per device, keyed by device id — derived from each
-  // product's `productType` via the shared device taxonomy. Powers the rail.
-  const deviceCounts = useMemo<DeviceCounts>(() => {
-    const counts: DeviceCounts = {};
-    for (const p of products) {
-      const device = deviceOfProductType(p.productType);
-      if (device) counts[device.id] = (counts[device.id] ?? 0) + 1;
-    }
-    return counts;
   }, [products]);
 
   // The set of product types the active device maps to (empty = match all).
@@ -173,9 +187,10 @@ export function ProductsConsole({
     return ids;
   }, [collectionFilter, collectionOptions]);
 
-  // Everything except the brand facet — so brand pill counts can reflect the
-  // active device / status / search scope without the brand filter masking it.
-  const baseForCollections = useMemo(() => {
+  // Shared scope for both taxonomy facets. Device and collection membership
+  // are applied separately below, so each facet can show the result count a
+  // user would get without its own current selection masking alternatives.
+  const commonFiltered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return products.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
@@ -184,8 +199,6 @@ export function ProductsConsole({
         const state = classification[p.id]?.state;
         if (!state || !classificationNeedsAction(state)) return false;
       }
-      if (activeDeviceTypes.size > 0 && !activeDeviceTypes.has(p.productType))
-        return false;
       if (
         q &&
         !(p.title.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q))
@@ -200,9 +213,33 @@ export function ProductsConsole({
     titleHealth,
     brandIssuesOnly,
     classification,
-    activeDeviceTypes,
     query,
   ]);
+
+  // Everything except the collection facet.
+  const baseForCollections = useMemo(() => {
+    if (activeDeviceTypes.size === 0) return commonFiltered;
+    return commonFiltered.filter((p) => activeDeviceTypes.has(p.productType));
+  }, [activeDeviceTypes, commonFiltered]);
+
+  // Everything except the device facet.
+  const baseForDevices = useMemo(() => {
+    if (!collectionMatchIds) return commonFiltered;
+    return commonFiltered.filter((p) =>
+      p.collectionIds.some((id) => collectionMatchIds.has(id)),
+    );
+  }, [collectionMatchIds, commonFiltered]);
+
+  const deviceCounts = useMemo<DeviceCounts>(() => {
+    const scopedCounts: DeviceCounts = {};
+    for (const p of baseForDevices) {
+      const device = deviceOfProductType(p.productType);
+      if (device) {
+        scopedCounts[device.id] = (scopedCounts[device.id] ?? 0) + 1;
+      }
+    }
+    return scopedCounts;
+  }, [baseForDevices]);
 
   // Products whose identity is actively wrong — a contradicted brand, a
   // supplier name in the IP field, or a leftover brand collection.
@@ -481,61 +518,100 @@ export function ProductsConsole({
   // the badge is noise. Keeps rows clean as the catalog grows past iPhone cases.
   const showTypeBadge =
     deviceFilter === "all" && Object.keys(deviceCounts).length > 1;
+  const hasActiveFilters =
+    query.trim().length > 0 ||
+    statusFilter !== "all" ||
+    deviceFilter !== "all" ||
+    collectionFilter !== "all" ||
+    titleIssuesOnly ||
+    brandIssuesOnly;
+
+  function resetFilters() {
+    setQuery("");
+    setStatusFilter("all");
+    setDeviceFilter("all");
+    setCollectionFilter("all");
+    setTitleIssuesOnly(false);
+    setBrandIssuesOnly(false);
+  }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6">
+    <div className="mx-auto w-full max-w-400 px-4 py-8 sm:px-6 lg:px-8">
       <BrandManager
         open={brandManagerOpen}
         onClose={() => setBrandManagerOpen(false)}
       />
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black">Product Admin</h1>
-          <p className="mt-1 text-sm text-[var(--foreground)]/60">
-            Browse the catalog by device, review drafts, and bulk-edit
-            variations &amp; availability — every product&apos;s state at a
-            glance.
+      <header className="mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="font-sans text-2xl font-bold tracking-tight">
+              Products
+            </h1>
+            <p className="mt-1 text-sm text-foreground/60">
+              Manage catalog content, availability, and product health.
+            </p>
+          </div>
+          <p className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border bg-card px-3.5 py-2 text-xs text-foreground/55">
+            <span>
+              <strong className="font-bold tabular-nums text-foreground">
+                {counts.all}
+              </strong>{" "}
+              total
+            </span>
+            <span>
+              <strong className="font-bold tabular-nums text-emerald-700">
+                {counts.active}
+              </strong>{" "}
+              live
+            </span>
+            <span>
+              <strong className="font-bold tabular-nums text-amber-700">
+                {counts.draft}
+              </strong>{" "}
+              drafts
+            </span>
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm">
+
+        <div
+          role="group"
+          className="mt-4 flex flex-wrap items-center gap-2"
+          aria-label="Product tools"
+        >
           {titleErrorCount > 0 && (
             <button
               type="button"
               onClick={() => setTitleIssuesOnly((on) => !on)}
+              aria-pressed={titleIssuesOnly}
               title="Titles that claim a device range or a character the product doesn't match"
-              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-semibold ${
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                 titleIssuesOnly
-                  ? "border-red-500 bg-red-500 text-white"
+                  ? "border-red-400 bg-red-100 text-red-800"
                   : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
               }`}
             >
               <TriangleAlert className="h-4 w-4" /> Title issues
               <span
                 className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] ${
-                  titleIssuesOnly ? "bg-white text-red-600" : "bg-red-500 text-white"
+                  titleIssuesOnly
+                    ? "bg-red-700 text-white"
+                    : "bg-red-500 text-white"
                 }`}
               >
                 {titleErrorCount}
               </span>
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setBrandManagerOpen(true)}
-            title="Add, rename or remove the brands and characters products can be classified into"
-            className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1 font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
-          >
-            <Tags className="h-4 w-4" /> Brands
-          </button>
           {brandErrorCount > 0 && (
             <button
               type="button"
               onClick={() => setBrandIssuesOnly((on) => !on)}
+              aria-pressed={brandIssuesOnly}
               title="Products whose brand field, title and collections disagree"
-              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-semibold ${
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                 brandIssuesOnly
-                  ? "border-orange-500 bg-orange-500 text-white"
+                  ? "border-orange-400 bg-orange-100 text-orange-800"
                   : "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
               }`}
             >
@@ -543,8 +619,8 @@ export function ProductsConsole({
               <span
                 className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] ${
                   brandIssuesOnly
-                    ? "bg-white text-orange-600"
-                    : "bg-orange-500 text-white"
+                    ? "bg-orange-700 text-white"
+                    : "bg-orange-600 text-white"
                 }`}
               >
                 {brandErrorCount}
@@ -554,39 +630,41 @@ export function ProductsConsole({
           {magsafeReviewCount > 0 && (
             <Link
               href="/admin/products/magsafe-review"
-              className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 font-semibold text-amber-700 hover:bg-amber-100"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <Magnet className="h-4 w-4" /> MagSafe review
-              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-500 px-1 text-[11px] text-white">
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-200 px-1 text-[11px] text-amber-900">
                 {magsafeReviewCount}
               </span>
             </Link>
           )}
+          <button
+            type="button"
+            onClick={() => setBrandManagerOpen(true)}
+            title="Add, rename or remove the brands and characters products can be classified into"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-foreground/70 transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <Tags className="h-4 w-4" /> Brand registry
+          </button>
           <Link
             href="/admin/products/thumbnails"
-            className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1 font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-foreground/70 transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <ImageIcon className="h-4 w-4" /> Thumbnails
             {thumbnailReviewCount > 0 && (
-              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--primary)] px-1 text-[11px] text-white">
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-primary-soft px-1 text-[11px] text-foreground">
                 {thumbnailReviewCount}
               </span>
             )}
           </Link>
           <Link
             href="/admin/products/duplicates"
-            className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1 font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-foreground/70 transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <CopyCheck className="h-4 w-4" /> Find duplicates
           </Link>
-          <span className="rounded-full bg-[var(--muted)] px-3 py-1 font-semibold">
-            {counts.all} products
-          </span>
-          <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-700">
-            {counts.draft} drafts
-          </span>
         </div>
-      </div>
+      </header>
 
       {/* ── Taxonomy drift ──────────────────────────────────────────────── */}
       {missingCollections.length > 0 && (
@@ -616,71 +694,100 @@ export function ProductsConsole({
         </div>
       )}
 
-      {/* ── Device navigation bar — the primary "shop by device" axis ───── */}
-      <DeviceNavBar
-        counts={deviceCounts}
-        total={counts.all}
-        active={deviceFilter}
-        onSelect={setDeviceFilter}
-      />
-
-      {/* ── Brand / character navigation — the marketing browse axis ─────── */}
-      {collectionOptions.length > 0 && (
-        <CollectionNavBar
-          options={collectionOptions}
-          counts={collectionCounts}
-          active={collectionFilter}
-          onSelect={setCollectionFilter}
+      {/* ── Catalog facets ───────────────────────────────────────────────── */}
+      <section
+        aria-label="Catalog filters"
+        className="mb-5 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+      >
+        <DeviceNavBar
+          counts={deviceCounts}
+          total={baseForDevices.length}
+          active={deviceFilter}
+          onSelect={setDeviceFilter}
         />
-      )}
+        {collectionOptions.length > 0 && (
+          <CollectionNavBar
+            options={collectionOptions}
+            counts={collectionCounts}
+            total={baseForCollections.length}
+            active={collectionFilter}
+            onSelect={setCollectionFilter}
+          />
+        )}
+      </section>
 
       {/* ── Toolbar: search + status filter ─────────────────────────────── */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 sm:min-w-[260px] sm:flex-none">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--foreground)]/40" />
+      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border bg-card p-3 shadow-sm lg:flex-row lg:items-center">
+        <div className="relative min-w-0 flex-1 lg:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/40" />
           <input
+            type="search"
+            aria-label="Search products by title or slug"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search title or slug…"
-            className="w-full rounded-full border border-[var(--border)] bg-[var(--card)] py-2 pl-9 pr-3 text-sm outline-none focus:border-[var(--primary)] sm:w-72"
+            className="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-9 text-sm outline-none transition placeholder:text-foreground/35 focus:border-primary focus:ring-2 focus:ring-primary/15 [&::-webkit-search-cancel-button]:hidden"
           />
-        </div>
-        <div className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--card)] p-1">
-          {STATUS_TABS.map((tab) => (
+          {query && (
             <button
-              key={tab.id}
-              onClick={() => setStatusFilter(tab.id)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
-                statusFilter === tab.id
-                  ? "bg-[var(--primary)] text-white"
-                  : "hover:bg-[var(--muted)]"
-              }`}
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear product search"
+              className="absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-foreground/40 transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {tab.label}
-              <span className="ml-1.5 opacity-60">
-                {tab.id === "all" ? counts.all : counts[tab.id]}
-              </span>
+              <X className="h-3.5 w-3.5" />
             </button>
-          ))}
-        </div>
-        <button
-          onClick={toggleAllFiltered}
-          className="ml-auto flex items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)]"
-        >
-          {allFilteredSelected ? (
-            <CheckSquare className="h-4 w-4" />
-          ) : (
-            <Square className="h-4 w-4" />
           )}
-          {allFilteredSelected ? "Deselect all" : "Select all"}
-          <span className="opacity-60">({filteredIds.length})</span>
-        </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+          <div
+            role="group"
+            aria-label="Filter products by status"
+            className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-background p-1"
+          >
+            {STATUS_TABS.map((tab) => (
+              <button
+                type="button"
+                key={tab.id}
+                onClick={() => setStatusFilter(tab.id)}
+                aria-pressed={statusFilter === tab.id}
+                className={`min-h-8 rounded-md px-2.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  statusFilter === tab.id
+                    ? "bg-primary-soft text-foreground shadow-sm"
+                    : "text-foreground/65 hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {tab.label}
+                <span className="ml-1.5 tabular-nums opacity-55">
+                  {tab.id === "all" ? counts.all : counts[tab.id]}
+                </span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={toggleAllFiltered}
+            disabled={filteredIds.length === 0}
+            aria-pressed={allFilteredSelected}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-foreground/70 transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {allFilteredSelected ? (
+              <CheckSquare className="h-4 w-4" />
+            ) : (
+              <Square className="h-4 w-4" />
+            )}
+            {allFilteredSelected ? "Deselect all" : "Select all"}
+            <span className="tabular-nums opacity-55">
+              ({filteredIds.length})
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* ── Table ───────────────────────────────────────────────────────── */}
-      <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
-        {/* Column headers (md+) */}
-        <div className="hidden grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] items-center gap-3 border-b border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-[var(--foreground)]/50 md:grid">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        {/* Column headers (xl+); narrower admin shells use labeled card rows. */}
+        <div className="hidden grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] items-center gap-3 border-b border-border bg-muted/60 px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-foreground/50 xl:grid">
           <span />
           <span>Product</span>
           <span className="flex items-center gap-1">
@@ -693,11 +800,25 @@ export function ProductsConsole({
         </div>
 
         {filtered.length === 0 ? (
-          <p className="px-4 py-16 text-center text-sm text-[var(--foreground)]/60">
-            No products match your filters.
-          </p>
+          <div className="flex flex-col items-center px-4 py-16 text-center">
+            <Search className="mb-3 h-6 w-6 text-foreground/30" />
+            <p className="text-sm font-semibold text-foreground/70">
+              {hasActiveFilters
+                ? "No products match these filters."
+                : "No products are available yet."}
+            </p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="mt-3 rounded-lg border border-border bg-background px-3 py-2 text-sm font-semibold text-foreground/70 transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         ) : (
-          <ul className="divide-y divide-[var(--border)]">
+          <ul className="divide-y divide-border">
             {filtered.map((p) => (
               <ProductRow
                 key={p.id}
@@ -733,7 +854,10 @@ export function ProductsConsole({
       {/* ── Toast ───────────────────────────────────────────────────────── */}
       {toast && (
         <div
-          className={`fixed bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold shadow-lg ${
+          style={{
+            bottom: "calc(var(--bottom-bar-h, 0px) + 1rem)",
+          }}
+          className={`fixed left-1/2 z-40 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold shadow-lg ${
             toast.ok ? "bg-green-600 text-white" : "bg-red-500 text-white"
           }`}
         >
@@ -749,9 +873,12 @@ export function ProductsConsole({
       )}
 
       {/* ── Sticky bulk action bar ──────────────────────────────────────── */}
-      {selected.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+      {hasSelection && (
+        <div
+          ref={bulkBarRef}
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 shadow-[0_-12px_32px_-24px_rgba(52,32,59,0.45)] backdrop-blur lg:left-64"
+        >
+          <div className="mx-auto flex max-w-400 flex-wrap items-center gap-3 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 lg:px-8">
             <span className="flex items-center gap-2 text-sm font-bold">
               <span className="grid h-7 min-w-7 place-items-center rounded-full bg-[var(--primary)] px-2 text-white">
                 {selected.size}
@@ -1032,18 +1159,20 @@ function ProductRow({
   const isCase = product.productType === "iphone_case";
   return (
     <li
-      className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3 transition md:grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] md:items-center ${
-        selected ? "bg-[var(--primary)]/5" : "hover:bg-[var(--muted)]/40"
+      className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3.5 transition xl:grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] xl:items-center ${
+        selected ? "bg-primary/5" : "hover:bg-muted/40"
       }`}
     >
       {/* checkbox */}
       <button
+        type="button"
         onClick={onToggle}
-        className="grid h-9 w-9 place-items-center self-center text-[var(--foreground)]/50 hover:text-[var(--primary)]"
-        aria-label={selected ? "Deselect" : "Select"}
+        aria-pressed={selected}
+        className="grid h-9 w-9 place-items-center self-center rounded-lg text-foreground/50 transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`${selected ? "Deselect" : "Select"} ${product.title}`}
       >
         {selected ? (
-          <CheckSquare className="h-5 w-5 text-[var(--primary)]" />
+          <CheckSquare className="h-5 w-5 text-primary" />
         ) : (
           <Square className="h-5 w-5" />
         )}
@@ -1053,7 +1182,7 @@ function ProductRow({
       <div className="flex min-w-0 items-start gap-3">
         <Link
           href={`/admin/products/${product.id}`}
-          className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)]"
+          className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           {product.imageUrl && (
             <Image
@@ -1077,12 +1206,12 @@ function ProductRow({
           <p className="flex items-start gap-1.5 font-semibold leading-snug">
             <Link
               href={`/admin/products/${product.id}`}
-              className="break-words hover:text-[var(--primary)] hover:underline"
+              className="wrap-break-word rounded-sm hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {product.title}
             </Link>
             {product.featured && (
-              <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-[var(--accent)] text-[var(--accent)]" />
+              <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-accent text-accent" />
             )}
           </p>
           <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -1129,11 +1258,14 @@ function ProductRow({
       </div>
 
       {/* variations */}
-      <div className="col-start-2 min-w-0 md:col-start-auto">
+      <div className="col-start-2 min-w-0 xl:col-start-auto">
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-foreground/40 xl:hidden">
+          Variations
+        </p>
         {!isCase ? (
-          <span className="text-xs italic text-[var(--foreground)]/40">—</span>
+          <span className="text-xs italic text-foreground/40">—</span>
         ) : product.availableStyles.length === 0 ? (
-          <span className="text-xs italic text-[var(--foreground)]/40">
+          <span className="text-xs italic text-foreground/40">
             not set
           </span>
         ) : (
@@ -1141,7 +1273,7 @@ function ProductRow({
             {product.availableStyles.map((s) => (
               <span
                 key={s}
-                className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-semibold"
+                className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold"
               >
                 {s}
               </span>
@@ -1151,37 +1283,46 @@ function ProductRow({
       </div>
 
       {/* device fit */}
-      <div className="col-start-2 min-w-0 md:col-start-auto">
+      <div className="col-start-2 min-w-0 xl:col-start-auto">
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-foreground/40 xl:hidden">
+          Device fit
+        </p>
         {!isCase ? (
-          <span className="text-xs italic text-[var(--foreground)]/40">—</span>
+          <span className="text-xs italic text-foreground/40">—</span>
         ) : (
           <ModelBadges models={product.availableModels} />
         )}
       </div>
 
       {/* actions */}
-      <div className="col-start-2 flex items-center justify-start gap-1 md:col-start-auto md:justify-end">
+      <div className="col-start-2 flex items-center justify-start gap-1 xl:col-start-auto xl:justify-end">
         <Link
           href={`/admin/products/${product.id}`}
-          className="rounded-full bg-[var(--muted)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--primary)] hover:text-white"
+          className="rounded-lg bg-muted px-3 py-1.5 text-xs font-semibold transition hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Manage
         </Link>
         <button
+          type="button"
           onClick={onFeatureToggle}
           disabled={pending}
           title={product.featured ? "Unfeature" : "Feature"}
-          className="grid h-8 w-8 place-items-center rounded-full hover:bg-[var(--muted)] disabled:opacity-40"
+          aria-label={product.featured ? "Unfeature product" : "Feature product"}
+          className="grid h-8 w-8 place-items-center rounded-lg transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
         >
           <Star
-            className={`h-4 w-4 ${product.featured ? "fill-[var(--accent)] text-[var(--accent)]" : ""}`}
+            className={`h-4 w-4 ${product.featured ? "fill-accent text-accent" : ""}`}
           />
         </button>
         <button
+          type="button"
           onClick={onPublishToggle}
           disabled={pending}
           title={product.status === "active" ? "Unpublish" : "Publish"}
-          className="grid h-8 w-8 place-items-center rounded-full hover:bg-[var(--muted)] disabled:opacity-40"
+          aria-label={
+            product.status === "active" ? "Unpublish product" : "Publish product"
+          }
+          className="grid h-8 w-8 place-items-center rounded-lg transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
         >
           {product.status === "active" ? (
             <EyeOff className="h-4 w-4" />
@@ -1190,10 +1331,12 @@ function ProductRow({
           )}
         </button>
         <button
+          type="button"
           onClick={onDelete}
           disabled={pending}
           title="Delete product"
-          className="grid h-8 w-8 place-items-center rounded-full text-red-500 hover:bg-red-50 disabled:opacity-40"
+          aria-label="Delete product"
+          className="grid h-8 w-8 place-items-center rounded-lg text-red-500 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-40"
         >
           <Trash2 className="h-4 w-4" />
         </button>

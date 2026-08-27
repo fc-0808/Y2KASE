@@ -9,13 +9,13 @@
  * lines (AirPods, Kindle, Samsung, …) come online — adding a device is a config
  * change, and it shows up here automatically.
  *
- * Presented as a single horizontal bar that scrolls on overflow, so it stays
- * out of the way on every viewport (no sidebar eating horizontal space).
+ * Only stocked devices are actionable here. Roadmap entries with no products
+ * are intentionally omitted: a disabled control cannot help an operator, and
+ * removing it keeps this high-frequency filter compact as the taxonomy grows.
+ * The controls wrap instead of scrolling, so every available option remains
+ * visible and keyboard-accessible without exposing a horizontal scrollbar.
  */
-import { Fragment } from "react";
-import { LayoutGrid } from "lucide-react";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
-import { DeviceIcon } from "@/components/brand/DeviceIcon";
 
 export type DeviceSelection = string | "all";
 
@@ -33,75 +33,48 @@ export function DeviceNavBar({
   active: DeviceSelection;
   onSelect: (selection: DeviceSelection) => void;
 }) {
-  return (
-    <nav
-      aria-label="Filter products by device"
-      className="mb-4 flex items-center gap-1.5 overflow-x-auto pb-1"
-    >
-      <DevicePill
-        icon={<LayoutGrid className="h-4 w-4" />}
-        label="All products"
-        count={total}
-        active={active === "all"}
-        onClick={() => onSelect("all")}
-      />
+  const visibleDevices = DEVICE_FAMILIES.flatMap(
+    (family) => family.devices,
+  ).filter((device) => (counts[device.id] ?? 0) > 0 || active === device.id);
 
-      {DEVICE_FAMILIES.map((family) => (
-        <Fragment key={family.id}>
-          <span
-            aria-hidden
-            className="mx-1 hidden h-5 w-px shrink-0 bg-[var(--border)] sm:block"
+  return (
+    <div
+      role="group"
+      aria-label="Filter products by device"
+      className="grid gap-2.5 px-4 py-3.5 sm:grid-cols-[5.5rem_minmax(0,1fr)] sm:items-start sm:px-5"
+    >
+      <span className="pt-2 text-[11px] font-bold uppercase tracking-[0.12em] text-foreground/45">
+        Device
+      </span>
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <DevicePill
+          label="All products"
+          count={total}
+          active={active === "all"}
+          onClick={() => onSelect("all")}
+        />
+        {visibleDevices.map((device) => (
+          <DevicePill
+            key={device.id}
+            label={device.label}
+            count={counts[device.id] ?? 0}
+            active={active === device.id}
+            onClick={() => onSelect(device.id)}
           />
-          <span className="hidden shrink-0 px-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/35 lg:block">
-            {family.label}
-          </span>
-          {family.devices.map((device) => {
-            const count = counts[device.id] ?? 0;
-            const empty = count === 0;
-            const isActive = active === device.id;
-            return (
-              <DevicePill
-                key={device.id}
-                icon={
-                  <DeviceIcon
-                    id={device.id}
-                    className={`h-5 w-5 ${empty && !isActive ? "opacity-50 grayscale" : ""}`}
-                  />
-                }
-                label={device.label}
-                count={count}
-                soon={empty && device.comingSoon}
-                muted={empty}
-                // Coming-soon lines with nothing stocked are dead-ends — keep
-                // them visible (the roadmap) but non-interactive.
-                disabled={empty && device.comingSoon}
-                active={isActive}
-                onClick={() => onSelect(device.id)}
-              />
-            );
-          })}
-        </Fragment>
-      ))}
-    </nav>
+        ))}
+      </div>
+    </div>
   );
 }
 
 function DevicePill({
-  icon,
   label,
   count,
-  soon = false,
-  muted = false,
-  disabled = false,
   active,
   onClick,
 }: {
-  icon: React.ReactNode;
   label: string;
   count: number;
-  soon?: boolean;
-  muted?: boolean;
-  disabled?: boolean;
   active: boolean;
   onClick: () => void;
 }) {
@@ -109,37 +82,21 @@ function DevicePill({
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
-      aria-current={active ? "true" : undefined}
-      className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+      aria-pressed={active}
+      className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
         active
-          ? "bg-[var(--primary)] text-white"
-          : disabled
-            ? "cursor-default text-[var(--foreground)]/35"
-            : `border border-[var(--border)] hover:border-[var(--primary)] hover:bg-[var(--muted)] ${
-                muted ? "text-[var(--foreground)]/45" : ""
-              }`
+          ? "border-primary bg-primary-soft text-foreground shadow-sm"
+          : "border-border bg-background/60 text-foreground/75 hover:border-primary/50 hover:bg-muted"
       }`}
     >
-      {icon}
       <span className="whitespace-nowrap">{label}</span>
-      {soon ? (
-        <span
-          className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
-            active
-              ? "bg-white/20"
-              : "bg-[var(--muted)] text-[var(--foreground)]/40"
-          }`}
-        >
-          Soon
-        </span>
-      ) : (
-        <span
-          className={`text-xs ${active ? "text-white/70" : "text-[var(--foreground)]/45"}`}
-        >
-          {count}
-        </span>
-      )}
+      <span
+        className={`text-xs tabular-nums ${
+          active ? "text-foreground/60" : "text-foreground/40"
+        }`}
+      >
+        {count}
+      </span>
     </button>
   );
 }

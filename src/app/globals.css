@@ -36,7 +36,7 @@
 
   /*
    * How much of the viewport's bottom edge is currently claimed by a fixed
-   * action bar (today: the PDP's sticky Add to Bag).
+   * action bar (for example, the PDP purchase bar or admin bulk actions).
    *
    * The bar is owned by one page but shadows the whole storefront: it would sit
    * on top of the footer and under the support launcher, both of which live in

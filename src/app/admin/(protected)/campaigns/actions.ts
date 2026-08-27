@@ -5,14 +5,17 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { getProductForAdmin } from "@/lib/products";
+import { resolveBroadcastCoupon } from "@/lib/promotions";
 import {
   generateMarketingCopy,
   type MarketingTone,
 } from "@/lib/marketing/ai";
 import {
   claimCampaignLaunch,
+  deleteMarketingCampaignDraft,
   getLocallyEligibleSubscriberEmails,
   getMarketingCampaign,
+  isCampaignId,
   markCampaignAudiencePrepared,
   markCampaignSentByBroadcast,
   markCampaignTested,
@@ -34,10 +37,20 @@ import {
   syncMarketingAudience,
   updateMarketingBroadcastDraft,
 } from "@/lib/marketing/resend";
+import { generateMarketingHero } from "@/lib/marketing/hero-generate";
+import { isMarketingHeroGenerationConfigured } from "@/lib/marketing/hero-config";
 import {
+  MARKETING_HERO_REFERENCE_LIMIT,
+  isMarketingHeroStyle,
+} from "@/lib/marketing/hero";
+import { isEditableMarketingCampaign } from "@/lib/marketing/campaign-status";
+import { isBuyTwoGetTwoCampaign } from "@/lib/marketing/offer";
+import {
+  marketingSendBlockers,
   renderMarketingEmail,
   validateMarketingDraft,
 } from "@/lib/marketing/template";
+import { hit } from "@/lib/rate-limit";
 import {
   configuredMarketingSegmentId,
   configuredMarketingTopicId,
@@ -66,6 +79,20 @@ export type GenerateCampaignResult =
       message: string;
       draft: MarketingDraft;
       subjectAlternatives: string[];
+    }
+  | { ok: false; message: string };
+
+export type GenerateCampaignHeroResult =
+  | {
+      ok: true;
+      message: string;
+      imageUrl: string;
+      imageAlt: string;
+      provider: string;
+      model: string;
+      width: number;
+      height: number;
+      byteSize: number;
     }
   | { ok: false; message: string };
 
@@ -167,6 +194,10 @@ function productionConfigurationError(): string | null {
   return null;
 }
 
+function sendContentError(draft: MarketingDraft): string | null {
+  return marketingSendBlockers(draft)[0]?.message ?? null;
+}
+
 function audienceFingerprint(emails: string[]): string {
   return createHash("sha256")
     .update(JSON.stringify([...emails].sort()))
@@ -222,6 +253,27 @@ export async function generateCampaignDraft(input: {
   if (!offer.ok) return offer;
   if (!promoCode.ok) return promoCode;
   if (!current.ok) return { ok: false, message: current.errors[0] };
+  if (promoCode.value && !resolveBroadcastCoupon(promoCode.value)) {
+    return {
+      ok: false,
+      message:
+        "That code is unknown, retired, or restricted to an individual subscriber. Choose a code approved for full-list campaigns.",
+    };
+  }
+  if (
+    promoCode.value &&
+    isBuyTwoGetTwoCampaign({
+      offer: offer.value,
+      brief: brief.value,
+      draft: current.value,
+    })
+  ) {
+    return {
+      ok: false,
+      message:
+        "Buy 2, Get 2 Free is automatic and cannot be combined with a promo code.",
+    };
+  }
 
   try {
     const product = await trustedProduct(input.productId);
@@ -236,7 +288,8 @@ export async function generateCampaignDraft(input: {
     });
     return {
       ok: true,
-      message: "AI draft generated. Review every field before testing.",
+      message:
+        "AI draft generated and checked for clarity, offer accuracy, repetition, and mobile readability. Review every field before testing.",
       ...generated,
     };
   } catch (error) {
@@ -245,6 +298,117 @@ export async function generateCampaignDraft(input: {
       ok: false,
       message:
         error instanceof Error ? error.message : "AI generation failed. Try again.",
+    };
+  }
+}
+
+/**
+ * Generate a draft-only hero from trusted catalogue references. This action
+ * never saves or sends: the returned URL enters the normal dirty → save → test
+ * → human-review workflow, and therefore participates in the content hash.
+ */
+export async function generateCampaignHero(input: {
+  campaignId: string;
+  currentDraft: unknown;
+  style: string;
+  referenceProductIds: number[];
+}): Promise<GenerateCampaignHeroResult> {
+  const session = await admin();
+  if (!session) return { ok: false, message: "Not authorized." };
+  if (!isMarketingHeroGenerationConfigured()) {
+    return {
+      ok: false,
+      message:
+        "Campaign hero creation requires complete R2 configuration.",
+    };
+  }
+  if (!isCampaignId(input.campaignId)) {
+    return { ok: false, message: "Invalid campaign id." };
+  }
+  if (!isMarketingHeroStyle(input.style)) {
+    return { ok: false, message: "Choose a valid image style." };
+  }
+  if (!Array.isArray(input.referenceProductIds)) {
+    return { ok: false, message: "Choose at least one product reference." };
+  }
+
+  const referenceIds = Array.from(new Set(input.referenceProductIds));
+  if (
+    referenceIds.length === 0 ||
+    referenceIds.length > MARKETING_HERO_REFERENCE_LIMIT ||
+    referenceIds.some((id) => !Number.isInteger(id) || id <= 0)
+  ) {
+    return {
+      ok: false,
+      message: `Choose 1–${MARKETING_HERO_REFERENCE_LIMIT} valid product references.`,
+    };
+  }
+  const draft = validateMarketingDraft(input.currentDraft);
+  if (!draft.ok) return { ok: false, message: draft.errors[0] };
+
+  const existing = await getMarketingCampaign(input.campaignId);
+  if (existing && !isEditableMarketingCampaign(existing)) {
+    return {
+      ok: false,
+      message:
+        "This campaign is read-only because it reached Resend or is actively preparing. Duplicate it before generating new artwork.",
+    };
+  }
+
+  try {
+    const products = await Promise.all(
+      referenceIds.map((id) => trustedProduct(id)),
+    );
+    const references = products.map((product) => {
+      if (!product?.imageUrl) {
+        throw new Error(
+          `${product?.title ?? "A selected product"} has no usable primary image.`,
+        );
+      }
+      return { title: product.title, imageUrl: product.imageUrl };
+    });
+
+    // Admin-only and UI-disabled while pending, but retain a server-side render
+    // guard against repeated direct calls. For a distributed hard limit, the
+    // shared hit() contract can later move to KV without changing this action.
+    const configuredLimit = Number(
+      process.env.MARKETING_IMAGE_DAILY_LIMIT ?? 12,
+    );
+    const dailyLimit =
+      Number.isInteger(configuredLimit) &&
+      configuredLimit >= 1 &&
+      configuredLimit <= 50
+        ? configuredLimit
+        : 12;
+    const allowance = hit(`marketing-hero:${session.user.id}`, {
+      limit: dailyLimit,
+      windowMs: 24 * 60 * 60_000,
+    });
+    if (!allowance.ok) {
+      return {
+        ok: false,
+        message: `Daily campaign-image limit reached (${dailyLimit}). Try again tomorrow.`,
+      };
+    }
+
+    const generated = await generateMarketingHero({
+      campaignId: input.campaignId,
+      style: input.style,
+      references,
+    });
+    return {
+      ok: true,
+      message: `Pixel-safe catalogue hero created · ${generated.width}×${generated.height} · ${Math.ceil(generated.byteSize / 1024)} KB. The product images were resized and arranged, never repainted by AI. Save and send a new test.`,
+      ...generated,
+    };
+  } catch (error) {
+    console.error("[campaigns] hero generation failed:", error);
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Campaign image generation failed. Try again safely.",
     };
   }
 }
@@ -277,6 +441,34 @@ export async function saveCampaignDraft(
   }
 }
 
+export async function deleteCampaignDraft(
+  input: unknown,
+): Promise<BasicResult> {
+  if (!(await admin())) return { ok: false, message: "Not authorized." };
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, message: "Invalid delete request." };
+  }
+  const raw = input as Record<string, unknown>;
+  if (
+    typeof raw.id !== "string" ||
+    typeof raw.expectedContentHash !== "string"
+  ) {
+    return { ok: false, message: "Invalid delete request." };
+  }
+  const result = await deleteMarketingCampaignDraft(
+    raw.id,
+    raw.expectedContentHash,
+  );
+  if (!result.ok) return { ok: false, message: result.error };
+  revalidatePath("/admin/campaigns");
+  return {
+    ok: true,
+    message: result.deleted
+      ? "Draft deleted."
+      : "Draft was already deleted.",
+  };
+}
+
 export async function sendCampaignTest(
   id: string,
   input: unknown,
@@ -287,6 +479,8 @@ export async function sendCampaignTest(
   if (configError) return { ok: false, message: configError };
   const validated = validateMarketingDraft(input);
   if (!validated.ok) return { ok: false, message: validated.errors[0] };
+  const contentError = sendContentError(validated.value);
+  if (contentError) return { ok: false, message: contentError };
 
   try {
     const saved = await saveMarketingCampaignRecord({
@@ -357,6 +551,8 @@ export async function prepareCampaignAudience(
   }
   const validated = validateMarketingDraft(input);
   if (!validated.ok) return { ok: false, message: validated.errors[0] };
+  const contentError = sendContentError(validated.value);
+  if (contentError) return { ok: false, message: contentError };
 
   try {
     const saved = await saveMarketingCampaignRecord({
@@ -452,6 +648,8 @@ export async function launchCampaign(input: {
   if (configError) return { ok: false, message: configError };
   const validated = validateMarketingDraft(input.draft);
   if (!validated.ok) return { ok: false, message: validated.errors[0] };
+  const contentError = sendContentError(validated.value);
+  if (contentError) return { ok: false, message: contentError };
   if (
     !Number.isInteger(input.expectedRecipientCount) ||
     input.expectedRecipientCount <= 0 ||
