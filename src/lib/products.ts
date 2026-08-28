@@ -236,7 +236,9 @@ export function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
 
 const getProductsCached = cachedCatalogRead(
   computeProducts,
-  ["catalog-product-page-v1"],
+  // v2: default sort now leads with curated bestsellers — bump so stale v1
+  // entries (newest-only order) don't linger for the revalidate window.
+  ["catalog-product-page-v2"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
     revalidate: 300,
@@ -249,12 +251,17 @@ async function computeProducts(query: ProductQuery): Promise<ProductPage> {
 
   const where = and(...(await catalogFilters(query)));
 
+  // Default ("newest") sort leads with the curated bestsellers, in their
+  // merchandised order, before falling back to newest-first — the catalog
+  // should open on the products the store is actively pushing, not bury them
+  // wherever they happen to land by upload date. Explicit price sorts stay
+  // pure so a shopper who asked for cheapest-first gets exactly that.
   const orderBy =
     query.sort === "price-asc"
       ? sql`${products.price} asc`
       : query.sort === "price-desc"
         ? sql`${products.price} desc`
-        : desc(products.createdAt);
+        : sql`${products.featured} desc, ${products.featuredPosition} asc, ${products.createdAt} desc`;
 
   const [rows, [{ count }]] = await Promise.all([
     db.query.products.findMany({
@@ -368,7 +375,8 @@ export function getCatalogPage(
 
 const getCatalogPageCached = cachedCatalogRead(
   computeCatalogPage,
-  ["catalog-page-with-facets-v1"],
+  // v2: see getProductsCached — same default-sort change, same reason to bump.
+  ["catalog-page-with-facets-v2"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
     revalidate: 300,

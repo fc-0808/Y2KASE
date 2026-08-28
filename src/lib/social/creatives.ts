@@ -96,12 +96,18 @@ export async function insertCreative(input: NewCreative): Promise<number> {
 
 export async function getCreatives(
   status?: string,
+  platform?: string,
 ): Promise<SocialCreative[]> {
   if (!isDbConfigured()) return [];
   const rows = await db
     .select()
     .from(socialCreatives)
-    .where(status ? eq(socialCreatives.status, status) : undefined)
+    .where(
+      and(
+        status ? eq(socialCreatives.status, status) : undefined,
+        platform ? eq(socialCreatives.platform, platform) : undefined,
+      ),
+    )
     .orderBy(desc(socialCreatives.createdAt))
     .limit(200);
   return rows as SocialCreative[];

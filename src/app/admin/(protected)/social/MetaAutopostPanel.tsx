@@ -57,10 +57,18 @@ export function MetaAutopostPanel({
     igPosts,
     fbPosts,
     postedToday,
+    igPostedToday,
+    igPostsPerDay,
+    phase,
+    bootstrapRemaining,
     enabled,
   } = coverage;
 
   const isConnected = connected.length > 0;
+  const igSlotUsed =
+    connected.includes("instagram") && igPostedToday >= igPostsPerDay;
+  const canPost =
+    isConnected && remainingProducts > 0 && !igSlotUsed;
   const pct =
     totalProducts > 0 ? Math.round((postedProducts / totalProducts) * 100) : 0;
 
@@ -127,7 +135,8 @@ export function MetaAutopostPanel({
               </span>
             </h3>
             <p className="mt-0.5 text-xs text-[var(--foreground)]/55">
-              One listing/day → an IG carousel + Reel and an FB photo post + video.
+              One real post/day from catalog photos or the product video. AI
+              writes the caption — it never becomes the image.
             </p>
             {isConnected && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -161,18 +170,20 @@ export function MetaAutopostPanel({
           <button
             type="button"
             onClick={handleRun}
-            disabled={pending || !isConnected || remainingProducts === 0}
+            disabled={pending || !canPost}
             className="inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-[#E1306C] to-[#F77737] px-4 text-xs font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             title={
               !isConnected
                 ? "Connect Instagram / Facebook first"
                 : remainingProducts === 0
                   ? "Every listing is already posted"
-                  : "Post the next listing now"
+                  : igSlotUsed
+                    ? "Today's Instagram slot is already used"
+                    : "Post today's slot now"
             }
           >
             <Zap className={"h-3.5 w-3.5" + (pending ? " animate-pulse" : "")} />
-            {pending ? "Posting…" : "Post next now"}
+            {pending ? "Posting…" : "Post today's slot"}
           </button>
         </div>
       </div>
@@ -229,9 +240,22 @@ export function MetaAutopostPanel({
               )}
             </p>
             <p className="mt-0.5 text-[11px] text-[var(--foreground)]/55">
-              {nextPreview.photoCount} photo{nextPreview.photoCount === 1 ? "" : "s"}
-              {nextPreview.hasVideo ? " + video" : ""} → {nextPreview.platforms.join(" + ")}
+              {nextPreview.slotUsedToday
+                ? "Queued for tomorrow"
+                : nextPreview.plannedMediaType === "video"
+                  ? "Today's slot: Reel"
+                  : nextPreview.plannedMediaType === "carousel"
+                    ? "Today's slot: photo carousel"
+                    : `${nextPreview.photoCount} photo${nextPreview.photoCount === 1 ? "" : "s"}`}
+              {nextPreview.hasVideo && nextPreview.plannedMediaType !== "video"
+                ? " · video saved for a later Reel"
+                : ""}
             </p>
+            {nextPreview.plannedReason && (
+              <p className="mt-1 text-[11px] leading-snug text-[var(--foreground)]/45">
+                {nextPreview.plannedReason}
+              </p>
+            )}
           </div>
           <div className="shrink-0 text-right">
             <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
@@ -269,11 +293,29 @@ export function MetaAutopostPanel({
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat icon={<CalendarCheck className="h-4 w-4" />} label="Posted today" value={postedToday} accent />
+            <Stat
+              icon={<CalendarCheck className="h-4 w-4" />}
+              label="IG slot today"
+              valueLabel={`${igPostedToday}/${igPostsPerDay}`}
+              accent
+            />
             <Stat icon={<LayoutGrid className="h-4 w-4" />} label="Listings left" value={remainingProducts} />
             <Stat icon={<Camera className="h-4 w-4" />} label="IG posts" value={igPosts} />
             <Stat icon={<ThumbsUp className="h-4 w-4" />} label="FB posts" value={fbPosts} />
           </div>
+          {connected.includes("instagram") && (
+            <p className="mt-3 text-[11px] text-[var(--foreground)]/50">
+              {phase === "bootstrap"
+                ? `Grid bootstrap: ${igPosts} / 12 posts. Fill the first 3×4 with real product Reels and carousels before worrying about volume.`
+                : `Sustain cadence: ${igPostsPerDay} real post/day. Stories, UGC, and comments still need a human.`}
+              {bootstrapRemaining > 0 && phase === "bootstrap"
+                ? ` ${bootstrapRemaining} to go.`
+                : ""}
+              {postedToday > igPostedToday
+                ? ` Facebook also posted ${postedToday - igPostedToday} update${postedToday - igPostedToday === 1 ? "" : "s"} today.`
+                : ""}
+            </p>
+          )}
         </div>
       )}
 
@@ -295,11 +337,13 @@ function Stat({
   icon,
   label,
   value,
+  valueLabel,
   accent,
 }: {
   icon: React.ReactNode;
   label: string;
-  value: number;
+  value?: number;
+  valueLabel?: string;
   accent?: boolean;
 }) {
   return (
@@ -316,7 +360,7 @@ function Stat({
         <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
       </div>
       <div className="mt-1 text-xl font-black tabular-nums">
-        {value.toLocaleString()}
+        {valueLabel ?? (value ?? 0).toLocaleString()}
       </div>
     </div>
   );

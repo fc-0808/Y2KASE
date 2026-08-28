@@ -32,17 +32,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (error) {
     console.error("[meta-callback] OAuth error:", error);
     return NextResponse.redirect(
-      new URL(`/admin/social?meta_error=${encodeURIComponent(error)}`, req.url),
+      new URL(`/admin/social/instagram?meta_error=${encodeURIComponent(error)}`, req.url),
     );
   }
   if (!code || state !== "y2kase-admin") {
     return NextResponse.redirect(
-      new URL("/admin/social?meta_error=invalid_state", req.url),
+      new URL("/admin/social/instagram?meta_error=invalid_state", req.url),
     );
   }
   if (!process.env.META_APP_ID || !process.env.META_APP_SECRET) {
     return NextResponse.redirect(
-      new URL("/admin/social?meta_error=app_not_configured", req.url),
+      new URL("/admin/social/instagram?meta_error=app_not_configured", req.url),
     );
   }
 
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     if (!page) {
       return NextResponse.redirect(
-        new URL("/admin/social?meta_error=no_page", req.url),
+        new URL("/admin/social/instagram?meta_error=no_page", req.url),
       );
     }
 
@@ -81,14 +81,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.redirect(
       new URL(
-        `/admin/social?meta_connected=1${page.igUserId ? "" : "&meta_no_ig=1"}`,
+        `/admin/social/instagram?meta_connected=1${page.igUserId ? "" : "&meta_no_ig=1"}`,
         req.url,
       ),
     );
   } catch (err) {
     console.error("[meta-callback] Unexpected error:", err);
     return NextResponse.redirect(
-      new URL("/admin/social?meta_error=unexpected", req.url),
+      new URL("/admin/social/instagram?meta_error=unexpected", req.url),
     );
   }
 }

@@ -569,8 +569,12 @@ export type PostedListing = {
  */
 export async function getRecentPostedListings(
   limit = 30,
+  platform?: string,
 ): Promise<PostedListing[]> {
   if (!isDbConfigured()) return [];
+  const platformClause = platform
+    ? sql`AND sc.platform = ${platform}`
+    : sql``;
   const res = await db.execute<{
     product_id: number | null;
     product_title: string | null;
@@ -601,6 +605,7 @@ export async function getRecentPostedListings(
     FROM social_creatives sc
     WHERE sc.status = 'published'
       AND sc.published_at IS NOT NULL
+      ${platformClause}
     GROUP BY sc.product_id, sc.platform, date_trunc('day', sc.published_at)
     ORDER BY max(sc.published_at) DESC
     LIMIT ${limit}

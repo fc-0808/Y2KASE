@@ -5,12 +5,16 @@
  * platform has its own voice and hashtag conventions:
  *   - Pinterest: keyword-rich, SEO-driven, descriptive (discovered via search).
  *   - TikTok:    short, punchy, trend-aware, hook-first, fewer hashtags.
- *   - Instagram: aspirational caption + a healthy hashtag block.
+ *   - Instagram: hook-first, 3–5 niche hashtags, link-in-bio — never a URL dump.
  *   - generic:   a neutral, reusable caption.
  */
 
 import OpenAI from "openai";
 import type { SocialPlatform } from "@/lib/social/presets";
+import {
+  sanitizeInstagramCaption,
+  sanitizeInstagramHashtags,
+} from "@/lib/social/instagram-strategy";
 
 export type GeneratedCaption = {
   caption: string;
@@ -23,7 +27,7 @@ const PLATFORM_BRIEF: Record<SocialPlatform, string> = {
   tiktok:
     "TikTok: write a short, punchy, hook-first caption (max ~150 chars) with Gen-Z energy and a light CTA. 3-5 trending-style hashtags.",
   instagram:
-    "Instagram: write an aspirational, on-brand caption (2-3 short lines, tasteful emojis, a soft CTA). 6-10 hashtags mixing niche + broad.",
+    "Instagram: write like a real shop, not an ad. Line 1 is a specific hook that can stand alone (the feed truncates after ~125 chars). Then 2-4 short lines, natural breaks, at most 3 emojis. Soft CTA is 'link in bio' — NEVER paste a URL. 3-5 niche hashtags only (character / aesthetic / product type, e.g. kuromi, y2k, jirai, phonecase). Never #fyp #viral #love #instagood #explorepage or other bait. No 'this is your sign', no 'comment NEED'. Put hashtags in the JSON array, not in the caption body.",
   generic:
     "Generic: write a clean, reusable caption (1-2 sentences, light emoji) and 5-8 broadly useful hashtags.",
 };
@@ -73,7 +77,12 @@ export async function generateCaption(opts: {
   });
 
   const raw = response.choices[0]?.message?.content ?? "{}";
-  const parsed = JSON.parse(raw) as Partial<GeneratedCaption>;
+  let parsed: Partial<GeneratedCaption> = {};
+  try {
+    parsed = JSON.parse(raw) as Partial<GeneratedCaption>;
+  } catch {
+    parsed = {};
+  }
 
   const hashtags = Array.isArray(parsed.hashtags)
     ? parsed.hashtags
@@ -83,10 +92,15 @@ export async function generateCaption(opts: {
         .slice(0, 12)
     : [];
 
-  return {
-    caption: (parsed.caption ?? "").trim(),
-    hashtags,
-  };
+  const caption = (parsed.caption ?? "").trim();
+  if (opts.platform === "instagram") {
+    return {
+      caption: sanitizeInstagramCaption(caption),
+      hashtags: sanitizeInstagramHashtags(hashtags),
+    };
+  }
+
+  return { caption, hashtags };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

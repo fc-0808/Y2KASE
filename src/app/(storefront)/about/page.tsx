@@ -71,7 +71,14 @@ export default function AboutPage() {
         <p>
           Email: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
           <br />
-          Instagram: @y2kase.co
+          Instagram:{" "}
+          <a
+            href="https://instagram.com/y2kase.co"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            @y2kase.co
+          </a>
         </p>
       </article>
     </div>

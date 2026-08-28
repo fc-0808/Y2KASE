@@ -23,11 +23,14 @@ import { enqueueJobs, clearFinishedJobs } from "@/lib/social/jobs";
 import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
 import { refreshAllPinMetrics } from "@/lib/social/analytics";
+import { getToken } from "@/lib/social/token-store";
 import { runAutoPin, AUTO_PIN_PER_RUN } from "@/lib/social/auto-pin";
 import { isMetaConfigured, getMetaConnection } from "@/lib/social/meta";
 import {
   runMetaAutopost,
   META_AUTOPOST_PER_RUN,
+  prepareInstagramCaption,
+  recordManualInstagramPost,
 } from "@/lib/social/meta-autopost";
 import {
   getProductGallery,
@@ -46,7 +49,12 @@ import {
   isTikTokConfigured,
   getTikTokAccount,
 } from "@/lib/social/tiktok";
-import { getToken } from "@/lib/social/token-store";
+
+function revalidateSocialStudio() {
+  for (const path of ["/admin/social", "/admin/social/instagram"] as const) {
+    revalidatePath(path);
+  }
+}
 
 export type SocialActionResult = {
   ok: boolean;
@@ -84,7 +92,7 @@ export async function generateCreative(input: {
   }
 
   const result = await runGeneration(input);
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return result.ok
     ? { ok: true, message: "Creative generated.", creativeId: result.creativeId }
     : { ok: false, message: result.error };
@@ -139,7 +147,7 @@ export async function enqueueBatch(input: {
   }
 
   const count = await enqueueJobs(jobs);
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return {
     ok: true,
     message: `Queued ${count} creative${count === 1 ? "" : "s"}. Processing…`,
@@ -150,7 +158,7 @@ export async function enqueueBatch(input: {
 export async function processQueueNow(): Promise<SocialActionResult> {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
   const res = await drainQueue(MANUAL_DRAIN_MAX);
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   if (res.processed === 0) {
     return { ok: true, message: "Queue is empty." };
   }
@@ -166,7 +174,7 @@ export async function processQueueNow(): Promise<SocialActionResult> {
 export async function clearQueue(): Promise<SocialActionResult> {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
   await clearFinishedJobs();
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return { ok: true, message: "Cleared finished jobs." };
 }
 
@@ -221,7 +229,7 @@ export async function importPhotos(input: {
     withCaption: input.withCaption,
   });
 
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return result.ok
     ? {
         ok: true,
@@ -240,7 +248,7 @@ export async function moderateCreative(
     return { ok: false, message: "Invalid request." };
   }
   await setCreativeStatus(id, status as CreativeStatus);
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return { ok: true, message: `Creative ${status}.` };
 }
 
@@ -257,7 +265,7 @@ export async function editCreativeCopy(
     .filter(Boolean)
     .slice(0, 15);
   await updateCreativeCopy(id, caption.trim(), hashtags);
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return { ok: true, message: "Copy updated." };
 }
 
@@ -422,7 +430,7 @@ export async function checkPinterestConnection(): Promise<ConnectionResult> {
 export async function refreshAnalytics(): Promise<SocialActionResult> {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
   const res = await refreshAllPinMetrics();
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   if (res.reason === "not-configured") {
     return { ok: false, message: "PINTEREST_ACCESS_TOKEN is not set." };
   }
@@ -471,7 +479,7 @@ export async function publishNow(
     boardId,
     revertToScheduledOnError: false,
   });
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return outcome.ok
     ? { ok: true, message: "Published to Pinterest 📌", creativeId: id }
     : { ok: false, message: outcome.error };
@@ -495,7 +503,7 @@ export async function schedulePublish(
   }
 
   await scheduleCreative(id, when, boardId);
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return { ok: true, message: "Scheduled ⏰", creativeId: id };
 }
 
@@ -518,7 +526,7 @@ export async function runAutoPinNow(input?: {
 
   const max = Math.min(5, Math.max(1, input?.max ?? AUTO_PIN_PER_RUN));
   const res = await runAutoPin({ max, boardId: input?.boardId });
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
 
   if (res.reason === "no-pinterest-token") {
     return { ok: false, message: "Connect Pinterest first." };
@@ -639,7 +647,7 @@ export async function runMetaAutopostNow(input?: {
 
   const max = Math.min(5, Math.max(1, input?.max ?? META_AUTOPOST_PER_RUN));
   const res = await runMetaAutopost({ max });
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
 
   if (res.reason === "not-configured") {
     return { ok: false, message: "Set META_APP_ID / META_APP_SECRET first." };
@@ -650,6 +658,13 @@ export async function runMetaAutopostNow(input?: {
   if (res.reason === "all-posted") {
     return { ok: true, message: "Every listing is already posted to Meta 🎉" };
   }
+  if (res.reason === "daily-cap" && res.posted === 0) {
+    return {
+      ok: true,
+      message:
+        "Today's Instagram slot is already used. The next real post goes out with tomorrow's cron.",
+    };
+  }
   if (res.posted === 0 && res.failed === 0) {
     return { ok: true, message: "Nothing new to post right now." };
   }
@@ -658,6 +673,45 @@ export async function runMetaAutopostNow(input?: {
     ok: res.failed === 0,
     message: `Posted ${res.posted} update${res.posted === 1 ? "" : "s"} across ${res.listingsProcessed} listing${res.listingsProcessed === 1 ? "" : "s"} to ${res.platforms.join(" + ")} 📣${tail}`,
   };
+}
+
+export async function writeInstagramCaption(productId: number): Promise<
+  SocialActionResult & { caption?: string; hashtags?: string[] }
+> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  if (!Number.isFinite(productId)) return { ok: false, message: "Pick a product." };
+  try {
+    const copy = await prepareInstagramCaption(productId);
+    return {
+      ok: true,
+      message: "Caption ready to paste.",
+      caption: copy.caption,
+      hashtags: copy.hashtags,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Could not write caption.",
+    };
+  }
+}
+
+export async function markInstagramPostedInApp(input: {
+  productId: number;
+  mediaType: "carousel" | "video";
+  caption: string;
+  hashtags: string[];
+}): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  const res = await recordManualInstagramPost({
+    productId: input.productId,
+    mediaType: input.mediaType,
+    caption: input.caption,
+    hashtags: input.hashtags ?? [],
+  });
+  revalidateSocialStudio();
+  if (!res.ok) return { ok: false, message: res.error };
+  return { ok: true, message: "Recorded. Tomorrow's pack will be the next listing." };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -699,7 +753,7 @@ export async function bulkModerate(
       errors.push(`#${id}: ${err instanceof Error ? err.message : "failed"}`);
     }
   }
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return {
     ok: errors.length === 0,
     message: `${succeeded} creative${succeeded === 1 ? "" : "s"} set to ${status}.${errors.length ? ` ${errors.length} failed.` : ""}`,
@@ -751,7 +805,7 @@ export async function bulkPublishNow(input: {
     }
   }
 
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return {
     ok: errors.length === 0,
     message: `Published ${succeeded}/${uniq.length} pin${succeeded === 1 ? "" : "s"} to Pinterest 📌${errors.length ? ` — ${errors.length} failed.` : ""}`,
@@ -834,7 +888,7 @@ export async function bulkStaggeredSchedule(input: {
   }
 
   const days = Math.ceil(uniq.length / pinsPerDay);
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return {
     ok: errors.length === 0,
     message: `Scheduled ${succeeded} pin${succeeded === 1 ? "" : "s"} as a daily drip across ${days} day${days === 1 ? "" : "s"} (${pinsPerDay}/day) ⏰`,
@@ -872,7 +926,7 @@ export async function retryFailed(ids: number[]): Promise<BulkActionResult> {
       errors.push(`#${id}: ${err instanceof Error ? err.message : "failed"}`);
     }
   }
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return {
     ok: errors.length === 0,
     message: `${succeeded} creative${succeeded === 1 ? "" : "s"} reset for retry.`,
@@ -904,6 +958,6 @@ export async function removeCreative(id: number): Promise<SocialActionResult> {
       }
     }
   }
-  revalidatePath("/admin/social");
+  revalidateSocialStudio();
   return { ok: true, message: "Creative deleted." };
 }

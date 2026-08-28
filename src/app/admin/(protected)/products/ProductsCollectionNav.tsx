@@ -5,11 +5,12 @@
  * Admin, a sibling of the device bar.
  *
  * Collections are the *marketing* taxonomy (Sanrio, Miffy, Hello Kitty, …),
- * modelled as a tree in the DB. Brands and non-brand collections are rendered
- * as separate facets so genres such as "Kawaii" are not mislabeled as brands.
- * Zero-result options are omitted until selected, and every row wraps instead
- * of scrolling. This keeps the control useful at any viewport width without
- * clipping labels or exposing a decorative horizontal scrollbar.
+ * modelled as a tree in the DB. Only brand collections are rendered here;
+ * non-brand tag collections (Kawaii, Anime, …) aren't a useful browse axis
+ * for the admin. Zero-result options are omitted until selected, and every
+ * row wraps instead of scrolling. This keeps the control useful at any
+ * viewport width without clipping labels or exposing a decorative
+ * horizontal scrollbar.
  */
 import Link from "next/link";
 import type { AdminCollectionOption } from "@/lib/collections";
@@ -49,9 +50,6 @@ export function CollectionNavBar({
   const brands = topLevel.filter(
     (option) => option.kind === "brand" && isVisible(option),
   );
-  const tags = topLevel.filter(
-    (option) => option.kind !== "brand" && isVisible(option),
-  );
   const children = activeTop
     ? options.filter(
         (option) => option.parentId === activeTop.id && isVisible(option),
@@ -90,20 +88,6 @@ export function CollectionNavBar({
           />
         ))}
       </FilterRow>
-
-      {tags.length > 0 && (
-        <FilterRow label="Tags" ariaLabel="Filter products by collection tag">
-          {tags.map((option) => (
-            <FilterButton
-              key={option.id}
-              label={option.name}
-              count={countOf(option)}
-              active={active === option.id}
-              onClick={() => onSelect(option.id)}
-            />
-          ))}
-        </FilterRow>
-      )}
 
       {/* Drill-down: characters within the active brand. */}
       {activeTop?.kind === "brand" && children.length > 0 && (

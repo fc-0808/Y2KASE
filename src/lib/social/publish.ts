@@ -35,6 +35,10 @@ import {
   markPublishFailed,
   type SocialCreative,
 } from "@/lib/social/creatives";
+import {
+  buildFacebookCaption,
+  buildInstagramCaption,
+} from "@/lib/social/instagram-strategy";
 
 export type PublishOutcome =
   | { ok: true; externalId: string; externalUrl: string }
@@ -231,21 +235,23 @@ async function publishToTikTok(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Caption shared by IG + FB: the copy, hashtags, then a shop line. On Facebook
- * the URL is clickable; on Instagram it reads as plain text (IG doesn't linkify
- * captions) but still tells shoppers where to go.
+ * Platform-native captions. Instagram does not linkify URLs, so the CTA is
+ * "link in bio" and hashtags are capped at a niche handful. Facebook keeps a
+ * clickable product URL. Shared sanitiser lives in instagram-strategy.ts.
  */
 function buildMetaCaption(
   creative: SocialCreative,
   platform: "instagram" | "facebook",
 ): string {
-  const lead = creative.caption?.trim() || creative.productTitle?.trim() || "";
-  const hashtags = creative.hashtags
-    .slice(0, 30)
-    .map((t) => `#${t}`)
-    .join(" ");
-  const shop = `🛍️ Shop: ${productLink(creative, platform)}`;
-  return [lead, hashtags, shop].filter(Boolean).join("\n\n").slice(0, 2200);
+  const input = {
+    caption: creative.caption,
+    hashtags: creative.hashtags,
+    productTitle: creative.productTitle,
+    productUrl: productLink(creative, platform),
+  };
+  return platform === "instagram"
+    ? buildInstagramCaption(input)
+    : buildFacebookCaption(input);
 }
 
 async function publishToInstagram(
@@ -260,6 +266,8 @@ async function publishToInstagram(
   const gallery = await getProductGallery(creative.productId);
   if (!gallery) throw new Error("Product not found for Instagram post.");
 
+  // Always the catalog gallery / product video — never an AI marketing still.
+  // Shoppers who tap through have to see the same product they scrolled past.
   const caption = buildMetaCaption(creative, "instagram");
 
   if (creative.mediaType === "video") {

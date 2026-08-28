@@ -270,7 +270,7 @@ function CollectionsPanel({
           Collections are being curated — check back soon.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[2fr_1fr]">
+        <div>
           <div>
             <p className="mb-4 border-b border-[var(--border)] pb-2.5 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
               Characters &amp; Brands
@@ -318,121 +318,166 @@ function CollectionsPanel({
             </div>
           </div>
 
-          <div>
-            <p className="mb-4 border-b border-[var(--border)] pb-2.5 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
-              Shop by category
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {genres.map((genre) => (
-                <Link
-                  key={genre.slug}
-                  href={`/collections/${genre.slug}`}
-                  onClick={onNavigate}
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-1.5 text-sm font-semibold text-[var(--foreground)]/80 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-                >
-                  <span
-                    aria-hidden
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ background: genre.accentColor ?? "var(--primary)" }}
-                  />
-                  {genre.name}
-                </Link>
-              ))}
-            </div>
-            <Link
-              href="/collections"
-              onClick={onNavigate}
-              className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
-            >
-              Browse all collections →
-            </Link>
-          </div>
+          <Link
+            href="/collections"
+            onClick={onNavigate}
+            className="mt-8 inline-flex items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
+          >
+            Browse all collections →
+          </Link>
         </div>
       )}
     </PanelShell>
   );
 }
 
+type MobileSectionId = "devices" | "brands" | "compat";
+
 function MobileMenu({ brands }: { brands: MenuCollection[] }) {
-  // Flatten brand → characters so Hello Kitty, Kuromi, My Melody … are all one
-  // tap away instead of being buried a level deep (the desktop mega-panel shows
-  // them as sub-lists; the drawer has no room for that nesting).
-  //
-  // Children are filtered to STOCKED collections so the drawer never dead-ends
-  // on an empty page. Roots are left alone so they keep honouring the header's
-  // "stocked or featured" rule.
-  const brandLinks = brands.flatMap((brand) => [
-    brand,
-    ...brand.children.filter((child) => child.count > 0),
-  ]);
+  // Sections are collapsed by default and expand one at a time — dumping every
+  // device, brand and character into one continuous scroll (the old drawer)
+  // reads as a wall of identical pills. An accordion gives each browse axis
+  // its own scannable header and keeps the initial view short.
+  const [openSection, setOpenSection] = useState<MobileSectionId | null>(null);
+  const [openBrand, setOpenBrand] = useState<string | null>(null);
+  const toggleSection = (id: MobileSectionId) =>
+    setOpenSection((current) => (current === id ? null : id));
 
   return (
     <div
       id="mobile-navigation"
-      className="max-h-[70vh] overflow-y-auto border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 md:hidden"
+      className="max-h-[75vh] overflow-y-auto border-t border-[var(--border)] bg-[var(--background)] px-4 py-2 md:hidden"
     >
-      <MobileSection title="Devices">
-        <div className="grid grid-cols-2 gap-1.5">
-          {DEVICE_FAMILIES.flatMap((f) => f.devices).map((d) => (
-            <Link
-              key={d.id}
-              href={`/products?device=${d.id}`}
-              className="flex items-center justify-between gap-2 rounded-xl bg-[var(--card)] px-3.5 py-2.5 text-sm font-bold"
-            >
-              {d.label}
-              {d.comingSoon && (
-                <span className="rounded-full bg-[var(--muted)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
-                  Soon
-                </span>
-              )}
-            </Link>
-          ))}
-        </div>
-      </MobileSection>
-
-      {brandLinks.length > 0 && (
-        <MobileSection title="Characters & Brands">
-          <div className="flex flex-wrap gap-2">
-            {brandLinks.map((c) => (
+      <div className="divide-y divide-[var(--border)]">
+        <MobileAccordion
+          title="Devices"
+          open={openSection === "devices"}
+          onToggle={() => toggleSection("devices")}
+        >
+          <div className="grid grid-cols-2 gap-1.5 pb-4">
+            {DEVICE_FAMILIES.flatMap((f) => f.devices).map((d) => (
               <Link
-                key={c.slug}
-                href={`/collections/${c.slug}`}
+                key={d.id}
+                href={`/products?device=${d.id}`}
+                className="flex items-center justify-between gap-2 rounded-xl bg-[var(--card)] px-3.5 py-2.5 text-sm font-bold"
+              >
+                {d.label}
+                {d.comingSoon && (
+                  <span className="rounded-full bg-[var(--muted)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
+                    Soon
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </MobileAccordion>
+
+        {brands.length > 0 && (
+          <MobileAccordion
+            title="Characters & Brands"
+            open={openSection === "brands"}
+            onToggle={() => toggleSection("brands")}
+          >
+            <ul className="pb-2">
+              {brands.map((brand) => {
+                const children = brand.children.filter((c) => c.count > 0);
+                const expanded = openBrand === brand.slug;
+                return (
+                  <li
+                    key={brand.slug}
+                    className="border-t border-[var(--border)]/60 first:border-t-0"
+                  >
+                    <div className="flex items-center gap-1">
+                      <Link
+                        href={`/collections/${brand.slug}`}
+                        className="flex flex-1 items-center gap-2.5 py-2.5 text-[15px] font-bold text-[var(--foreground)]"
+                      >
+                        <span
+                          aria-hidden
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{
+                            background: brand.accentColor ?? "var(--primary)",
+                          }}
+                        />
+                        {brand.name}
+                        {brand.count > 0 && (
+                          <span className="text-xs font-semibold text-[var(--foreground)]/35">
+                            {brand.count}
+                          </span>
+                        )}
+                      </Link>
+                      {children.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenBrand(expanded ? null : brand.slug)
+                          }
+                          aria-expanded={expanded}
+                          aria-label={`${expanded ? "Hide" : "Show"} ${brand.name} characters`}
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--foreground)]/40 transition hover:bg-[var(--muted)]"
+                        >
+                          <ChevronDown
+                            className={`h-4 w-4 transition-transform ${
+                              expanded ? "rotate-180 text-[var(--primary)]" : ""
+                            }`}
+                          />
+                        </button>
+                      )}
+                    </div>
+                    {expanded && children.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pb-3 pl-4">
+                        {children.map((child) => (
+                          <Link
+                            key={child.slug}
+                            href={`/collections/${child.slug}`}
+                            className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs font-semibold text-[var(--foreground)]/75"
+                          >
+                            {child.name}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </MobileAccordion>
+        )}
+
+        <MobileAccordion
+          title="Shop by compatibility"
+          open={openSection === "compat"}
+          onToggle={() => toggleSection("compat")}
+        >
+          <div className="flex flex-wrap gap-2 pb-4">
+            {MAGSAFE_FACETS.map((facet) => (
+              <Link
+                key={facet.id}
+                href={magsafeFacetHref(facet.magsafe)}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold"
               >
                 <span
                   aria-hidden
                   className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: c.accentColor ?? "var(--primary)" }}
+                  style={{ background: facet.accentColor }}
                 />
-                {c.name}
+                {facet.label}
               </Link>
             ))}
           </div>
-        </MobileSection>
-      )}
+        </MobileAccordion>
 
-      <MobileSection title="Shop by compatibility">
-        <div className="flex flex-wrap gap-2">
-          {MAGSAFE_FACETS.map((facet) => (
-            <Link
-              key={facet.id}
-              href={magsafeFacetHref(facet.magsafe)}
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold"
-            >
-              <span
-                aria-hidden
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ background: facet.accentColor }}
-              />
-              {facet.label}
-            </Link>
-          ))}
-        </div>
-      </MobileSection>
+        <Link
+          href="/blog"
+          className="flex items-center justify-between py-3 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55"
+        >
+          Blog
+        </Link>
+      </div>
 
       <Link
         href="/products"
-        className="mt-2 block rounded-full bg-[var(--primary)] px-4 py-2.5 text-center text-sm font-bold text-white"
+        className="my-3 block rounded-full bg-[var(--primary)] px-4 py-2.5 text-center text-sm font-bold text-white"
       >
         Shop All Products
       </Link>
@@ -440,19 +485,39 @@ function MobileMenu({ brands }: { brands: MenuCollection[] }) {
   );
 }
 
-function MobileSection({
+function MobileAccordion({
   title,
+  open,
+  onToggle,
   children,
 }: {
   title: string;
+  open: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-4">
-      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/40">
-        {title}
-      </p>
-      {children}
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between py-3 text-left text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55"
+      >
+        <span>{title}</span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 transition-transform ${
+            open ? "rotate-180 text-[var(--primary)]" : ""
+          }`}
+        />
+      </button>
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">{children}</div>
+      </div>
     </div>
   );
 }

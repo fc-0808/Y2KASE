@@ -24,7 +24,9 @@
  * component stays safe to render for anything the catalogue grows.
  *
  * Both pickers are native radio groups: arrow-key traversal, checked state and
- * grouping come from the platform, and the visuals hang off `peer-checked`.
+ * grouping come from the platform. The selected look is driven by the
+ * `checked` value already flowing through props rather than a `peer-checked`
+ * selector — see `OptionCard` for why.
  */
 
 import { useMemo } from "react";
@@ -133,11 +135,17 @@ function tierLabels(models: string[]): string[] {
   return models.map((model) => model.replace(/^iPhone\s*/i, "") || model);
 }
 
-/** Indexed by how many tiers a series offers — Tailwind needs whole classes. */
-const TIER_COLUMNS: Record<number, string> = {
+/**
+ * Indexed by how many cards sit in a row — Tailwind needs whole class names,
+ * not a computed `grid-cols-${n}`, so every column count this component ever
+ * renders (a series' tiers, or the series segment itself) is spelled out here
+ * once and shared by both grids below.
+ */
+const GRID_COLUMNS: Record<number, string> = {
   1: "grid-cols-1",
   2: "grid-cols-2",
   3: "grid-cols-3",
+  4: "grid-cols-4",
 };
 
 function ModelPicker({ optionId, name, values, value, onSelect }: PickerProps) {
@@ -164,7 +172,10 @@ function ModelPicker({ optionId, name, values, value, onSelect }: PickerProps) {
         <div
           role="group"
           aria-label="iPhone series"
-          className="flex gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)]/60 p-1"
+          className={cn(
+            "grid gap-2",
+            GRID_COLUMNS[Math.min(groups.length, 4)] ?? "grid-cols-4",
+          )}
         >
           {groups.map((group) => {
             const isActive = group.id === active.id;
@@ -175,12 +186,17 @@ function ModelPicker({ optionId, name, values, value, onSelect }: PickerProps) {
                 onClick={() => selectGeneration(group)}
                 aria-pressed={isActive}
                 aria-label={group.label}
+                // Same card look as the tier and style pickers below (border,
+                // radius, selected shadow) even though this toggles a step
+                // *above* the actual "iPhone Model" value rather than being
+                // one of its radio options — the three rows read as one
+                // design language only if their chips are styled identically.
                 className={cn(
-                  "min-w-0 flex-1 truncate rounded-full px-2 py-2.5 text-sm font-bold transition",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+                  "min-h-11 truncate rounded-2xl border px-2 py-2.5 text-center text-sm font-bold transition",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
                   isActive
-                    ? "bg-[var(--primary)] text-white shadow-[0_2px_0_#d62f88]"
-                    : "text-[var(--foreground)]/65 hover:bg-[var(--card)] hover:text-[var(--foreground)]",
+                    ? "chip-shelf border-transparent text-white"
+                    : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]/65 hover:border-[var(--primary)]/60 hover:text-[var(--foreground)]",
                 )}
               >
                 {generationLabel(group)}
@@ -197,7 +213,7 @@ function ModelPicker({ optionId, name, values, value, onSelect }: PickerProps) {
           "grid gap-2",
           // Narrowed products can offer a single tier within a series; a lone
           // chip stranded at a third of the row reads as a rendering fault.
-          TIER_COLUMNS[Math.min(active.models.length, 3)] ?? "grid-cols-3",
+          GRID_COLUMNS[Math.min(active.models.length, 3)] ?? "grid-cols-3",
           groups.length > 1 && "mt-2",
         )}
       >
@@ -386,9 +402,13 @@ function FieldHeader({
 
 /**
  * One selectable variation. The radio is visually hidden but still the real
- * control — it owns focus, keyboard traversal and the checked state that the
- * card's `peer-checked` styling reads, so nothing here re-implements what a
- * radio group already does correctly.
+ * control — it owns focus, keyboard traversal and the checked state, so
+ * nothing here re-implements what a radio group already does correctly. Only
+ * the focus ring reads the input via `peer-focus-visible`; the selected look
+ * itself branches on the `checked` prop directly rather than `peer-checked`,
+ * since it needs to pick between two different class strings (not just add
+ * one), which a CSS-only peer selector can't express as cleanly as the JS
+ * that's already tracking the value.
  */
 function OptionCard({
   group,
@@ -422,9 +442,18 @@ function OptionCard({
       />
       <span
         className={cn(
-          "flex h-full flex-col border bg-[var(--card)] transition",
-          "border-[var(--border)] hover:border-[var(--primary)]/60",
-          "peer-checked:border-[var(--primary)] peer-checked:bg-[var(--primary)] peer-checked:text-white peer-checked:shadow-[0_2px_0_#d62f88]",
+          "flex h-full flex-col border transition",
+          checked
+            ? // `.chip-shelf` paints the fill and its "pressed" shelf as one
+              // gradient rather than a fill plus a `box-shadow` copy behind
+              // it. These chips size off an `fr` grid track, which is
+              // routinely a fractional device-pixel width — enough for the
+              // browser to rasterize the fill's rounded corner and the
+              // box-shadow's rounded corner a pixel apart, leaving a hairline
+              // seam of the page between them. One gradient, one shape, one
+              // anti-aliasing pass: nothing left to fall out of alignment.
+              "chip-shelf border-transparent text-white"
+            : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/60",
           "peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--ring)] peer-focus-visible:ring-offset-2",
           rounded,
           className,

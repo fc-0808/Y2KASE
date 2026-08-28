@@ -1,10 +1,9 @@
 /**
- * GET /api/cron/meta-autopost — autonomous daily Instagram + Facebook drip.
+ * GET /api/cron/meta-autopost — daily Instagram + Facebook editorial slot.
  *
- * Each run posts the next un-posted listing to every connected Meta surface:
- * an Instagram carousel + Reel, and a Facebook multi-photo post + video. Each
- * post is recorded so a listing reaches each platform exactly once; failures
- * retry up to a cap (see lib/social/meta-autopost).
+ * Posts ONE piece of real catalog media (a Reel if the listing has a video,
+ * otherwise a photo carousel) to every connected Meta surface. Instagram is
+ * capped at one post per UTC day; AI is used for the caption only.
  *
  * Opt-in: only runs when META_AUTOPOST_ENABLED="true" and a Meta account is
  * connected. Auth: Vercel attaches `Authorization: Bearer ${CRON_SECRET}`.

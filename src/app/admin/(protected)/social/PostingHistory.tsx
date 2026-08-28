@@ -25,7 +25,15 @@ const timeFmt = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
-export function PostingHistory({ history }: { history: PostedListing[] }) {
+export function PostingHistory({
+  history,
+  heading = "Posting history",
+  emptyMessage = "Nothing posted yet. Runs will appear here once the drip publishes its first listing.",
+}: {
+  history: PostedListing[];
+  heading?: string;
+  emptyMessage?: string;
+}) {
   return (
     <section className="mb-6 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">
       <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
@@ -33,7 +41,7 @@ export function PostingHistory({ history }: { history: PostedListing[] }) {
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--muted)] text-[var(--foreground)]/70">
             <History className="h-5 w-5" />
           </span>
-          Posting history
+          {heading}
         </h3>
         {history.length > 0 && (
           <span className="text-[11px] font-semibold text-[var(--foreground)]/45">
@@ -44,8 +52,7 @@ export function PostingHistory({ history }: { history: PostedListing[] }) {
 
       {history.length === 0 ? (
         <div className="px-5 py-10 text-center text-sm text-[var(--foreground)]/55">
-          Nothing posted yet. Runs will appear here once the auto-pin drip
-          publishes its first listing.
+          {emptyMessage}
         </div>
       ) : (
         <ul className="divide-y divide-[var(--border)]">

@@ -9,18 +9,23 @@
  * fall back to a clean on-brand gradient tile, so a missing image never 404s.
  */
 export const COLLECTION_COVER_SLUGS: ReadonlySet<string> = new Set<string>([
+  "chiikawa",
   "cinnamoroll",
+  "disney",
   "hello-kitty",
   "keroppi",
   "kuromi",
   "little-twin-stars",
   "magsafe",
   "miffy",
+  "monchhichi",
   "my-melody",
   "pochacco",
   "pompompurin",
+  "rilakkuma",
   "sanrio",
   "tamagotchi",
+  "toy-story",
 ]);
 
 /**
@@ -28,7 +33,7 @@ export const COLLECTION_COVER_SLUGS: ReadonlySet<string> = new Set<string>([
  * stable filenames, this query param forces browsers to re-fetch the art
  * whenever it's regenerated instead of serving a stale cached image.
  */
-export const COLLECTION_COVERS_VERSION = "ms1wbvpk";
+export const COLLECTION_COVERS_VERSION = "mtck1bln";
 
 /** Public path to a collection's generated cover image (cache-busted). */
 export function collectionCoverSrc(slug: string): string {

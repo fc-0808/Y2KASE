@@ -742,6 +742,17 @@ export function SocialStudio({
               {selectedPreset.size}
             </p>
 
+            {platform === "instagram" && (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+                <span className="font-bold">Instagram does not post this AI image.</span>{" "}
+                Auto-publish always uses the listing&apos;s real catalog photos or
+                video so the grid matches the shop. Generate AI stills for
+                Pinterest / moodboards; use{" "}
+                <span className="font-semibold">Photos</span> or the Meta drip
+                for Instagram.
+              </p>
+            )}
+
             <label className="mt-4 block">
               <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50">
                 Extra art direction (optional)

@@ -17,15 +17,10 @@ import {
   getRecentPostedListings,
   getNextListingPreview,
 } from "@/lib/social/auto-pin";
-import { isMetaConfigured } from "@/lib/social/meta";
-import {
-  getMetaCoverage,
-  getMetaNextPreview,
-} from "@/lib/social/meta-autopost";
 import { SocialStudio } from "./SocialStudio";
 import { AutoPinPanel } from "./AutoPinPanel";
-import { MetaAutopostPanel } from "./MetaAutopostPanel";
 import { PostingHistory } from "./PostingHistory";
+import { SocialChannelNav } from "./SocialChannelNav";
 
 export const metadata: Metadata = { title: "Admin · Social Studio" };
 export const dynamic = "force-dynamic";
@@ -58,8 +53,6 @@ export default async function AdminSocialPage({
     autoPinCoverage,
     postingHistory,
     nextListing,
-    metaCoverage,
-    metaNextPreview,
   ] = await Promise.all([
     getCreatives(activeStatus),
     getCreativeStatusCounts(),
@@ -67,13 +60,9 @@ export default async function AdminSocialPage({
     getJobCounts(),
     getMetricsTotals(),
     getAutoPinCoverage(),
-    getRecentPostedListings(20),
+    getRecentPostedListings(20, "pinterest"),
     getNextListingPreview(),
-    getMetaCoverage(),
-    getMetaNextPreview(),
   ]);
-
-  const metaReady = isMetaConfigured();
 
   const total =
     counts.draft +
@@ -99,12 +88,14 @@ export default async function AdminSocialPage({
       <div className="mb-6">
         <h1 className="text-3xl font-black">Social Studio ✨</h1>
         <p className="mt-1 text-sm text-[var(--foreground)]/60">
-          Generate on-brand marketing creatives with AI, review them, then post.
-          {" "}
+          Pinterest pins and AI marketing stills. Instagram has its own desk —
+          one real catalog post per day, captions only.{" "}
           <span className="font-semibold">≈ ${spend} spent</span> on generation
           so far.
         </p>
       </div>
+
+      <SocialChannelNav active="pinterest" />
 
       {!apiReady && (
         <div className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
@@ -119,13 +110,11 @@ export default async function AdminSocialPage({
         pinterestReady={pinterestReady}
       />
 
-      <MetaAutopostPanel
-        coverage={metaCoverage}
-        nextPreview={metaNextPreview}
-        metaConfigured={metaReady}
+      <PostingHistory
+        history={postingHistory}
+        heading="Pinterest pins"
+        emptyMessage="Nothing pinned yet. Runs will appear here once the auto-pin drip publishes its first listing."
       />
-
-      <PostingHistory history={postingHistory} />
 
       <div className="mb-5 flex flex-wrap gap-2">
         {tabs.map((t) => {

@@ -86,7 +86,7 @@ export const PRESETS: CreativePreset[] = [
   {
     key: "studio_hero",
     label: "Studio Hero",
-    description: "Clean premium product shot on a colour-pop backdrop.",
+    description: "Clean premium product shot on a colour-pop backdrop. For Pinterest / download — Instagram auto-post uses real catalog photos, not this still.",
     platform: "instagram",
     size: "1024x1024",
     emoji: "✨",
@@ -99,7 +99,7 @@ export const PRESETS: CreativePreset[] = [
   {
     key: "sale_promo",
     label: "Sale / Promo Card",
-    description: "Eye-catching promo background (add your own text after).",
+    description: "Eye-catching promo background (add your own text after). Download and post manually — never auto-published as a fake product shot.",
     platform: "instagram",
     size: "1024x1024",
     emoji: "🏷️",

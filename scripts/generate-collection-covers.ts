@@ -80,6 +80,16 @@ const THEMES: Record<string, string> = {
     "a clean pixel-art white bunny with stylized pixel mushroom sprites, on a flat peach-and-white pixel gradient background",
   tamagotchi:
     "a clean pixel-art scene of several retro egg-shaped handheld virtual-pet devices, each little screen showing a different pixel pet, on a flat mint-green pixel gradient background",
+  rilakkuma:
+    "a clean pixel-art relaxed round brown bear lying back with a sleepy smile, next to a small pink baby bear and a tiny yellow chick, on a flat warm brown-and-cream pixel gradient background",
+  chiikawa:
+    "a clean pixel-art collage of small round fluffy creatures with big worried eyes — a tiny white spotted creature and a small rabbit-eared companion — with tiny pixel sparkles, on a flat soft-pink pixel gradient background",
+  disney:
+    "a clean pixel-art collage of a sparkling magic wand with a star tip, a jeweled crown, and a rainbow ribbon of confetti, on a flat royal-blue pixel gradient background",
+  "toy-story":
+    "a clean pixel-art collage of colorful wooden alphabet blocks, a spinning top, a bouncing rubber ball, and a rolling die, on a flat sky-blue pixel gradient background",
+  monchhichi:
+    "a clean pixel-art thumb-sucking monkey doll face with big round ears and a tiny pixel pacifier, on a flat dusty-rose pixel gradient background",
   magsafe:
     "a clean flat pixel-art MagSafe magnetic ring symbol next to a phone outline, built from iridescent pixel colors, on a flat iridescent-blue pixel gradient background",
 };

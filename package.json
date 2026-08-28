@@ -14,7 +14,7 @@
     "preview:check": "tsx scripts/check-preview.ts",
     "performance:check": "tsx scripts/check-performance.ts",
     "bundle:check": "tsx scripts/check-bundle-budget.ts",
-    "check:guards": "tsx scripts/check-copy-guard.ts",
+    "check:guards": "tsx scripts/check-copy-guard.ts && tsx scripts/check-instagram-strategy.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

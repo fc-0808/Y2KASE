@@ -355,6 +355,35 @@ h1, h2, h3, .font-display {
   opacity: 0.6;
 }
 
+/**
+ * Same "3D pressed" read as `.btn-candy`, painted a different way: one
+ * gradient instead of a fill plus a `box-shadow` shelf underneath it.
+ *
+ * `.btn-candy` gets away with the box-shadow version because it's a full
+ * pill — the corner radius is half its height, so there's no flat stretch of
+ * bottom edge for the fill's rounded rect and the shadow's rounded-rect copy
+ * to disagree about. Variation chips (`rounded-2xl`, sized by an `fr` grid
+ * track) don't have that luxury: an `fr` column is routinely a fractional
+ * number of device pixels, and Chromium rasterizes the box's own edge and
+ * its box-shadow independently, so their anti-aliasing can round to
+ * *different* physical pixels along that flat stretch — a hairline of
+ * whatever's behind the chip, right where the two shapes were supposed to
+ * meet flush.
+ *
+ * A hard-stop gradient sidesteps the whole issue: the "shelf" is the bottom
+ * of one fill, clipped by one border-radius in one rasterization pass, so
+ * there's no second shape for it to fall out of alignment with.
+ */
+.chip-shelf {
+  background: linear-gradient(
+    to bottom,
+    var(--primary) 0%,
+    var(--primary) calc(100% - 2px),
+    var(--chip-shelf-color, #d62f88) calc(100% - 2px),
+    var(--chip-shelf-color, #d62f88) 100%
+  );
+}
+
 /* ── Keyframes / animations ──────────────────────────────────────────────── */
 
 @keyframes float-up {

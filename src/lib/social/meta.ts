@@ -6,12 +6,11 @@
  * drives both: Facebook Page posts directly, and the Instagram Business account
  * linked to that Page.
  *
- * Publishing models (mirrors how the products appear on-site):
- *   - Instagram: one carousel per listing (up to 10 photos) + the video as a
- *     Reel. Carousels use the 3-step container flow (create children → create
- *     parent → publish); Reels need status polling before publish.
- *   - Facebook: one multi-photo post per listing (unpublished photos stitched
- *     into a /feed post) + the video via file_url.
+ * Publishing models:
+ *   - Instagram: one editorial slot per day (Reel if the listing has a video,
+ *     otherwise a carousel of up to 10 catalog photos). Never AI product shots.
+ *     Carousels use the 3-step container flow; Reels need status polling.
+ *   - Facebook: the same piece of content, cross-posted the same day.
  *
  * Token resolution: social_tokens rows "facebook" and "instagram" (both hold the
  * same Page token; accountId differs — Page id vs IG user id). Falls back to
