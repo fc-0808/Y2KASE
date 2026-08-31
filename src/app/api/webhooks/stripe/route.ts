@@ -59,7 +59,10 @@ export async function POST(request: NextRequest) {
       case "checkout.session.completed": {
         const session = event.data.object;
         // Only fulfill once payment is actually collected.
-        if (session.payment_status === "paid") {
+        if (
+          session.payment_status === "paid" ||
+          session.payment_status === "no_payment_required"
+        ) {
           await markOrderPaid(session);
         }
         break;
@@ -150,6 +153,34 @@ async function markOrderPaid(session: Stripe.Checkout.Session) {
   if (!orderId) {
     console.error("[webhook] checkout session has no resolvable orderId.");
     return;
+  }
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    columns: {
+      id: true,
+      totalCents: true,
+      currency: true,
+      stripeSessionId: true,
+    },
+  });
+  if (!order) {
+    throw new Error(`Order ${orderId} was not found for Stripe fulfillment.`);
+  }
+
+  const currency = session.currency?.toUpperCase() ?? null;
+  if (
+    order.stripeSessionId !== session.id ||
+    session.amount_total !== order.totalCents ||
+    currency !== order.currency.toUpperCase()
+  ) {
+    console.error("[webhook] checkout reconciliation failed", {
+      orderId,
+      sessionMatches: order.stripeSessionId === session.id,
+      amountMatches: session.amount_total === order.totalCents,
+      currencyMatches: currency === order.currency.toUpperCase(),
+    });
+    throw new Error(`Checkout reconciliation failed for order ${orderId}.`);
   }
 
   await db

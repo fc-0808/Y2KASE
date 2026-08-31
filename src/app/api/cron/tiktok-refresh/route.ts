@@ -22,8 +22,9 @@ import {
 import { refreshAccessToken } from "@/lib/social/tiktok";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const secret = req.headers.get("authorization")?.replace("Bearer ", "");
-  if (secret !== process.env.CRON_SECRET) {
+  const expected = process.env.CRON_SECRET;
+  const authorization = req.headers.get("authorization");
+  if (!expected || authorization !== `Bearer ${expected}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

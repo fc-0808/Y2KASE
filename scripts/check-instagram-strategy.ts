@@ -27,6 +27,10 @@ import {
   sanitizeInstagramCaption,
   sanitizeInstagramHashtags,
 } from "../src/lib/social/instagram-strategy";
+import {
+  createSocialOAuthState,
+  verifySocialOAuthState,
+} from "../src/lib/social/oauth-state";
 
 // ── Cadence ──────────────────────────────────────────────────────────────────
 
@@ -237,5 +241,45 @@ const fromTitle = buildInstagramCaption({
 });
 assert.match(fromTitle, /My Melody Wallet Case/);
 assert.ok(fromTitle.includes(INSTAGRAM_LINK_IN_BIO_CTA));
+
+// ── Admin-bound OAuth state ─────────────────────────────────────────────────
+
+const previousAuthSecret = process.env.BETTER_AUTH_SECRET;
+process.env.BETTER_AUTH_SECRET = "offline-social-oauth-guard-secret";
+try {
+  const now = Date.parse("2026-08-31T12:00:00.000Z");
+  const state = createSocialOAuthState("pinterest", "admin-1", now);
+  assert.equal(
+    verifySocialOAuthState(state, "pinterest", "admin-1", now + 60_000),
+    true,
+  );
+  assert.equal(
+    verifySocialOAuthState(state, "tiktok", "admin-1", now + 60_000),
+    false,
+  );
+  assert.equal(
+    verifySocialOAuthState(state, "pinterest", "admin-2", now + 60_000),
+    false,
+  );
+  assert.equal(
+    verifySocialOAuthState(state, "pinterest", "admin-1", now + 11 * 60_000),
+    false,
+  );
+  assert.equal(
+    verifySocialOAuthState(
+      `${state.slice(0, -1)}${state.endsWith("a") ? "b" : "a"}`,
+      "pinterest",
+      "admin-1",
+      now,
+    ),
+    false,
+  );
+} finally {
+  if (previousAuthSecret === undefined) {
+    delete process.env.BETTER_AUTH_SECRET;
+  } else {
+    process.env.BETTER_AUTH_SECRET = previousAuthSecret;
+  }
+}
 
 console.log("instagram-strategy: all assertions passed");

@@ -13,12 +13,18 @@ import {
 } from "lucide-react";
 
 type Entry = { name: string; path: string };
-type Summary = { productFolders: number; imageCount: number };
+export type FolderSummary = {
+  productFolders: number;
+  imageCount: number;
+  ignoredHelperFolders: number;
+  ignoredHelperImages: number;
+  unreadableFolders: number;
+};
 type BrowseResponse = {
   path: string | null;
   parent: string | null;
   entries: Entry[];
-  summary?: Summary;
+  summary?: FolderSummary;
   error?: string;
 };
 
@@ -26,10 +32,13 @@ export function FolderBrowser({
   initialPath,
   onClose,
   onSelect,
+  requireProducts = false,
 }: {
   initialPath?: string;
   onClose: () => void;
-  onSelect: (path: string, summary?: Summary) => void;
+  onSelect: (path: string, summary?: FolderSummary) => void;
+  /** Disable selection until at least one real product gallery is detected. */
+  requireProducts?: boolean;
 }) {
   const [path, setPath] = useState<string | null>(initialPath?.trim() || null);
   const [data, setData] = useState<BrowseResponse | null>(null);
@@ -65,7 +74,9 @@ export function FolderBrowser({
   const atRoots = !data?.path;
   const current = data?.path ?? null;
   const summary = data?.summary;
-  const ingestable = (summary?.productFolders ?? 0) > 0;
+  const ingestable =
+    (summary?.productFolders ?? 0) > 0 &&
+    (summary?.unreadableFolders ?? 0) === 0;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
@@ -136,18 +147,38 @@ export function FolderBrowser({
 
         {/* Footer */}
         <div className="flex items-center gap-3 border-t border-[var(--border)] px-5 py-3">
-          <div className="min-w-0 flex-1 text-xs">
+          <div className="min-w-0 flex-1 space-y-0.5 text-xs">
             {current && summary && (
-              <span
-                className={`flex items-center gap-1.5 font-semibold ${
-                  ingestable ? "text-green-700" : "text-[var(--foreground)]/45"
-                }`}
-              >
-                <ImageIcon className="h-3.5 w-3.5" />
-                {summary.productFolders} product folder
-                {summary.productFolders === 1 ? "" : "s"} · {summary.imageCount}{" "}
-                image{summary.imageCount === 1 ? "" : "s"} detected
-              </span>
+              <>
+                <span
+                  className={`flex items-center gap-1.5 font-semibold ${
+                    ingestable ? "text-green-700" : "text-[var(--foreground)]/45"
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  {summary.productFolders} product folder
+                  {summary.productFolders === 1 ? "" : "s"} · {summary.imageCount}{" "}
+                  image{summary.imageCount === 1 ? "" : "s"} detected
+                </span>
+                {summary.ignoredHelperFolders > 0 && (
+                  <span className="flex items-center gap-1.5 font-semibold text-amber-700">
+                    <TriangleAlert className="h-3.5 w-3.5" />
+                    Excluding {summary.ignoredHelperFolders} internal
+                    {" _originals/_removed "}
+                    folder{summary.ignoredHelperFolders === 1 ? "" : "s"} (
+                    {summary.ignoredHelperImages} non-gallery image
+                    {summary.ignoredHelperImages === 1 ? "" : "s"})
+                  </span>
+                )}
+                {summary.unreadableFolders > 0 && (
+                  <span className="flex items-center gap-1.5 font-semibold text-red-700">
+                    <TriangleAlert className="h-3.5 w-3.5" />
+                    {summary.unreadableFolders} folder
+                    {summary.unreadableFolders === 1 ? " is" : "s are"}{" "}
+                    unreadable; choose a narrower folder or fix permissions.
+                  </span>
+                )}
+              </>
             )}
           </div>
           <button
@@ -158,7 +189,7 @@ export function FolderBrowser({
           </button>
           <button
             onClick={() => current && onSelect(current, summary)}
-            disabled={!current}
+            disabled={!current || (requireProducts && !ingestable)}
             className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
           >
             <Check className="h-4 w-4" /> Use this folder

@@ -49,6 +49,11 @@ import {
   videoSlotIndex,
   type DiscoveredProductFolder,
 } from "@/lib/catalog/discover";
+import {
+  catalogImageObjectName,
+  catalogMediaKeyBase,
+  catalogVideoObjectName,
+} from "@/lib/catalog/media-key";
 
 const WEBP_MAX_WIDTH = 1200;
 const WEBP_QUALITY = 82;
@@ -116,7 +121,7 @@ export type IngestOptions = {
   r2: S3Client;
   bucket: string;
   currency: string;
-  /** Key prefix in R2 (folderPath sanitised). */
+  /** Stable identity used to derive the collision-resistant R2 key prefix. */
   keyPrefix?: string;
   /** Deterministic data that wins over AI / type defaults. */
   overrides?: IngestOverrides;
@@ -198,17 +203,18 @@ export async function ingestProductFolder(
   // When the type is pinned we know it up front and can tailor the AI prompt to
   // it; in "auto" mode we resolve it after the model classifies the photos.
   const pinnedType = autoType ? null : getProductType(productTypeId);
-  const sanitise = (s: string) => s.replace(/[^a-zA-Z0-9/_-]/g, "_");
-  const keyBase =
-    opts.keyPrefix ??
-    (overrides.sku ? sanitise(overrides.sku) : sanitise(folder.folderPath));
+  const keyBase = catalogMediaKeyBase(
+    opts.keyPrefix ?? overrides.sku ?? folder.folderPath,
+    folder.absPath,
+  );
 
   // 1. Convert images to WebP — in parallel (bounded), order preserved.
   const webp = await mapWithConcurrency(
     folder.imageFiles,
     CONVERT_CONCURRENCY,
-    async (file) => ({
+    async (file, index) => ({
       filename: path.parse(file).name,
+      objectName: catalogImageObjectName(file, index),
       buffer: await sharp(file)
         .resize({ width: WEBP_MAX_WIDTH, withoutEnlargement: true })
         .webp({ quality: WEBP_QUALITY })
@@ -353,7 +359,7 @@ export async function ingestProductFolder(
     webp,
     UPLOAD_CONCURRENCY,
     async (w) => {
-      const key = `products/${keyBase}/${w.filename}.webp`;
+      const key = `products/${keyBase}/${w.objectName}`;
       const [url, phash] = await Promise.all([
         uploadWebpToR2(r2, bucket, key, w.buffer),
         dhashFromBuffer(w.buffer),
@@ -378,7 +384,7 @@ export async function ingestProductFolder(
     const ext = path.extname(primaryVideo).toLowerCase();
     const contentType = VIDEO_CONTENT_TYPES[ext] ?? "video/mp4";
     const body = fs.readFileSync(primaryVideo);
-    const key = `products/${keyBase}/video${ext}`;
+    const key = `products/${keyBase}/${catalogVideoObjectName(primaryVideo)}`;
     videoUrl = await uploadVideoToR2(r2, bucket, key, body, contentType);
     videoPosition = videoSlotIndex(folder.imageFiles, primaryVideo);
     log(`uploaded video → ${videoUrl} (slot ${videoPosition})`);

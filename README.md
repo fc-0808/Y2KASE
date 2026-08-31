@@ -11,8 +11,8 @@ Built the way a top-tier product team would: type-safe end to end, serverless Po
 | Framework    | Next.js 16 (App Router) + React 19 + TS |
 | Database     | PostgreSQL on [Neon](https://neon.tech) |
 | ORM          | Drizzle ORM + drizzle-kit               |
-| Images / CDN | Cloudinary                              |
-| AI copy      | OpenAI GPT-4o-mini (vision)             |
+| Images / CDN | Cloudflare R2                           |
+| AI           | OpenAI copy + Qwen vision via OpenRouter |
 | Cart state   | Zustand (persisted to localStorage)     |
 | Styling      | Tailwind CSS v4                         |
 | Icons        | lucide-react                            |
@@ -37,7 +37,8 @@ src/
    └─ utils.ts                 # cn(), formatPrice()
 scripts/
 ├─ migrate-sqlite.ts           # Import legacy MDM catalog → Postgres
-└─ ingest-images.ts            # Local images → Cloudinary → GPT → draft products
+├─ classify-folders.ts         # Supplier dump → reviewed catalog tree
+└─ build-catalog.ts            # Local media → R2 + AI → Neon drafts
 ```
 
 The data model mirrors Shopify's own (products → images → options → variants)
@@ -58,11 +59,14 @@ npm install
 cp .env.example .env.local
 ```
 
-Fill in:
+Fill in the services you use:
 
-- **`DATABASE_URL`** — create a free Postgres at [neon.tech](https://neon.tech) and copy the *pooled* connection string.
-- **`OPENAI_API_KEY`** — from [platform.openai.com](https://platform.openai.com/api-keys) (only needed for AI ingestion).
-- **`CLOUDINARY_*`** — from [cloudinary.com](https://console.cloudinary.com/) (only needed for AI ingestion).
+- **`DATABASE_URL`** — a pooled Postgres connection from [Neon](https://neon.tech).
+- **`R2_*`** — Cloudflare R2 credentials, bucket, and public media URL.
+- **`OPENAI_API_KEY`** — customer-facing product copy.
+- **`VISION_*`** — OpenRouter/Qwen image classification.
+- **`BETTER_AUTH_SECRET`**, Stripe, Resend, and `CRON_SECRET` — required for their production workflows.
+- **`CLOUDINARY_*`** — legacy `npm run ingest:images` only.
 
 The site runs without these — pages render with empty states until a database is connected.
 
@@ -84,18 +88,31 @@ database into Postgres. Path is configurable via `LEGACY_SQLITE_PATH`.
 npm run import:catalog
 ```
 
-### 5. (Optional) Generate new products from images with AI
+### 5. (Optional) Ingest local supplier folders
 
-Point it at a folder of images. **Subfolders = one product each** (all images
-inside become the gallery); a flat folder = one product per image. Products are
-created as **drafts** for review in the admin panel.
+Use **Admin → Upload** or the CLI. Each product folder becomes one draft and
+every image directly inside it becomes gallery media:
 
 ```bash
-npm run ingest:images -- "C:\path\to\your\images"
+npm run catalog:classify -- --dir "C:\path\to\qq-dump"       # dry-run
+npm run catalog:classify:apply -- --dir "C:\path\to\qq-dump" # file folders
+npm run build:catalog -- --dir "C:\path\to\catalog" --type auto
 ```
 
-Each image is uploaded to Cloudinary, then GPT-4o-mini writes the title,
-description, tags, and a suggested price. Cost is roughly **$0.01 per image**.
+Variant-generation outputs are recognized as one product at the directory
+containing `variants.json`. Internal `_originals` and `_removed` folders are
+excluded and reported; they are backups/rejections, never products. The upload
+preview shows how many such folders and images were excluded.
+
+To audit drafts made by an older build that mistakenly ingested those helper
+folders:
+
+```bash
+npm run catalog:audit-helper-products
+```
+
+After restoring the corresponding parent galleries, remove only those malformed
+drafts with `npm run catalog:cleanup-helper-products`, then ingest again.
 
 ### 6. Run
 
@@ -116,6 +133,9 @@ npm run dev
 | `npm run db:studio`      | Open Drizzle Studio (visual DB browser)      |
 | `npm run import:catalog` | One-time legacy SQLite → Postgres import     |
 | `npm run ingest:images`  | AI image ingestion → draft products          |
+| `npm run catalog:classify` | Dry-run supplier-folder classification    |
+| `npm run build:catalog` | R2 + Neon resumable local catalog ingest      |
+| `npm run catalog:audit-helper-products` | Audit malformed helper-folder drafts |
 
 ## Roadmap
 

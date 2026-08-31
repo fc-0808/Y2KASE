@@ -29,6 +29,11 @@ import {
   sanitizeUtmParams,
   utmToMetadata,
 } from "@/lib/analytics/utm";
+import {
+  CHECKOUT_ACCESS_TTL_SECONDS,
+  checkoutAccessCookieName,
+  createCheckoutAccessToken,
+} from "@/lib/checkout-access";
 
 // Stripe's SDK needs Node APIs (crypto) — not the edge runtime.
 export const runtime = "nodejs";
@@ -118,18 +123,32 @@ export async function POST(request: NextRequest) {
       })
       .returning({ id: orders.id });
 
-    await db.insert(orderItems).values(
-      cart.lines.map((l) => ({
-        orderId: order.id,
-        productId: l.productId,
-        productSlug: l.slug,
-        productTitle: l.title,
-        imageUrl: l.imageUrl,
-        optionValues: l.options,
-        quantity: l.quantity,
-        unitCents: l.unitCents,
-      })),
-    );
+    try {
+      await db.insert(orderItems).values(
+        cart.lines.map((l) => ({
+          orderId: order.id,
+          productId: l.productId,
+          productSlug: l.slug,
+          productTitle: l.title,
+          imageUrl: l.imageUrl,
+          optionValues: l.options,
+          quantity: l.quantity,
+          unitCents: l.unitCents,
+        })),
+      );
+    } catch (err) {
+      // neon-http has no interactive transactions. Compensate before any
+      // Stripe session exists so a partial write cannot become fulfillable.
+      try {
+        await db.delete(orders).where(eq(orders.id, order.id));
+      } catch (cleanupError) {
+        console.error(
+          `[checkout] failed to remove incomplete order ${order.id}:`,
+          cleanupError,
+        );
+      }
+      throw err;
+    }
 
     // 2) Build Stripe line items from the SERVER-priced cart with the discount
     // already baked in. Each line is split into its paid units (at the — possibly
@@ -234,7 +253,19 @@ export async function POST(request: NextRequest) {
       throw new Error("Stripe did not return a checkout URL.");
     }
 
-    return NextResponse.json({ url: checkout.url });
+    const response = NextResponse.json({ url: checkout.url });
+    response.cookies.set(
+      checkoutAccessCookieName(checkout.id),
+      createCheckoutAccessToken(checkout.id, order.id),
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/checkout/success",
+        maxAge: CHECKOUT_ACCESS_TTL_SECONDS,
+      },
+    );
+    return response;
   } catch (err) {
     if (err instanceof CheckoutError) {
       return NextResponse.json({ error: err.message }, { status: 400 });

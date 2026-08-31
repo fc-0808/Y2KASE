@@ -21,10 +21,21 @@ import {
   coerceMagSafeEvidence,
   type MagSafeVerdict,
 } from "@/lib/catalog/magsafe";
+import { inferProductTypeId } from "@/lib/catalog/product-types";
+import {
+  coerceRejectReason,
+  emptyVerdict,
+  type IncomingFolderVerdict,
+} from "@/lib/catalog/folder-sort";
+import {
+  disabledThinkingParams,
+  isThinkingParamRejected,
+} from "@/lib/llm-thinking";
 
 export type { GeneratedProductCopy } from "@/lib/catalog/copy-schema";
 export type { MagSafeVerdict } from "@/lib/catalog/magsafe";
 export type { BrandClassification } from "@/lib/catalog/brands";
+export type { IncomingFolderVerdict } from "@/lib/catalog/folder-sort";
 
 /**
  * Two model roles, deliberately kept on different providers.
@@ -33,7 +44,9 @@ export type { BrandClassification } from "@/lib/catalog/brands";
  * Classification work whose output is an enum, a score or a boolean: MagSafe
  * verification, per-image Style tags, thumbnail suitability. Nothing here
  * becomes customer-visible prose, so it runs on a cheap open-weight vision
- * model through an OpenAI-compatible gateway (OpenRouter).
+ * model through an OpenAI-compatible gateway (OpenRouter). Default in
+ * `.env.example` is Qwen 3.8 Flash — the production successor to 3.7 Plus
+ * for high-volume visual classification.
  *
  * ── Product copy (`copyClient`) ────────────────────────────────────────────
  * Titles, descriptions, tags, alt text — everything a shopper reads. This runs
@@ -196,8 +209,11 @@ async function visionJsonCompletion(
 ): Promise<string> {
   let jsonMode = true;
   let sendTemperature = true;
+  const thinkingParams = disabledThinkingParams(model, client.baseURL);
+  let sendThinkingOff = Object.keys(thinkingParams).length > 0;
   let droppedJsonMode = false;
   let droppedTemperature = false;
+  let droppedThinkingOff = false;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_COMPLETION_ATTEMPTS; attempt++) {
@@ -207,7 +223,8 @@ async function visionJsonCompletion(
         messages,
         ...(sendTemperature ? { temperature } : {}),
         ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
-      });
+        ...(sendThinkingOff ? thinkingParams : {}),
+      } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
       const content = res.choices[0]?.message?.content ?? "";
       if (content.trim()) return content;
       // An empty completion is a provider hiccup, not an answer — retry it.
@@ -224,6 +241,17 @@ async function visionJsonCompletion(
       if (sendTemperature && !droppedTemperature && isRejectedParam(err, "temperature")) {
         sendTemperature = false;
         droppedTemperature = true;
+        continue;
+      }
+      // Qwen 3.8 thinking controls are OpenRouter/DashScope extensions. A
+      // provider that 400s on them must still classify — just slower.
+      if (
+        sendThinkingOff &&
+        !droppedThinkingOff &&
+        isThinkingParamRejected(err)
+      ) {
+        sendThinkingOff = false;
+        droppedThinkingOff = true;
         continue;
       }
       if (!isTransient(err)) throw err;
@@ -252,7 +280,7 @@ async function visionJsonCompletion(
  *
  * This is load-bearing, not boilerplate. Our source photography comes from
  * overseas supplier listings with Chinese text burnt into the images, and the
- * configured vision model is Chinese-trained (Qwen-VL by default), so its
+ * configured vision model is Chinese-trained (Qwen 3.8 by default), so its
  * strongest prior is to answer in the language it sees. Without an explicit,
  * up-front constraint it reliably transcribes the supplier's Chinese listing
  * title straight into our storefront. `copy-schema.ts` validates the result.
@@ -919,6 +947,190 @@ export async function classifyCharacterBrand(
       `brand classifier failed (${err instanceof Error ? err.message : err}) — falling back to text hint`,
     );
     return EMPTY_BRAND_CLASSIFICATION;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Incoming-folder classifier (pre-ingest receiving dock)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FOLDER_CLASSIFY_TEMPERATURE = 0.2;
+const MAX_FOLDER_IMAGES = 4;
+
+const FOLDER_CLASSIFIER_PROMPT = `You classify ONE product folder from a Chinese supplier dump (QQ / WeChat group photos) for a kawaii tech-accessory store.
+
+The photos may include:
+  • real product shots (phone cases, AirPods cases, watch bands, charms…)
+  • chat screenshots (QQ/WeChat UI, message bubbles, timestamps)
+  • QR codes, WeChat Pay / Alipay receipts, invoices, price lists
+  • size charts, compatibility tables with no product
+  • unrelated memes or personal photos
+
+STEP 1 — Is this a physical product we can sell?
+  No  → isProduct: false, set rejectReason to the closest of:
+        "chat_screenshot" | "qr_code" | "invoice" | "size_chart" | "unrelated" | "too_messy"
+        brand and character must be null.
+  Yes → isProduct: true, rejectReason: null, continue.
+
+STEP 2 — What kind of product? category must be EXACTLY one of:
+${CATEGORY_ENUM}
+
+STEP 3 — Brand and character, from this catalogue and nothing else:
+${BRAND_VOCABULARY}
+
+Rules:
+- "brand" must be copied verbatim from the catalogue, or null.
+- "character" must be one of that brand's listed characters, or null.
+- A wrong brand is far more costly than an unclassified product. If you are not
+  sure, return null for both and lower confidence.
+- Name a character only when you can actually see it.
+- Ignore Chinese overlay text, SKUs, prices and device-model lists. They are
+  the supplier's, not a classification.
+- A generic floral / marble / solid-colour case with no character is a product
+  with brand null and confidence "high" when the type is obvious.
+
+Return STRICT JSON and nothing else:
+{
+  "isProduct": boolean,
+  "rejectReason": string | null,
+  "category": string,
+  "brand": string | null,
+  "character": string | null,
+  "confidence": "high" | "medium" | "low" | "none",
+  "evidence": string[]
+}`;
+
+/**
+ * One vision pass over a supplier folder: product-vs-junk, product type, and
+ * brand/character. Uses the cheap vision model (not the copy model) because
+ * nothing here becomes customer-visible prose.
+ *
+ * Text signals from the folder name are merged with the same authority rule
+ * ingest uses ({@link visionBrandIsAuthoritative}): a medium+ vision verdict
+ * wins; otherwise a text hit is the fallback. A vision outage never throws —
+ * the verdict is marked `failed` so the sorter queues the folder for review
+ * instead of rejecting it or silently filing it.
+ */
+export async function classifyIncomingFolder(
+  images: string[],
+  context?: string,
+  log?: (msg: string) => void,
+): Promise<IncomingFolderVerdict> {
+  const textBrand = classifyBrandContext([context]);
+
+  if (images.length === 0) {
+    log?.("folder classifier: no images — review");
+    return {
+      ...emptyVerdict(),
+      brand: textBrand.brandId ? textBrand : EMPTY_BRAND_CLASSIFICATION,
+      evidence: textBrand.evidence,
+    };
+  }
+
+  try {
+    const { client, model } = visionClient();
+    const raw = await visionJsonCompletion(
+      client,
+      model,
+      [
+        { role: "system", content: FOLDER_CLASSIFIER_PROMPT },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                context
+                  ? `Folder name (reference only, may be Chinese or a SKU): "${context}".`
+                  : "",
+                "Classify this product folder from the photos. Return JSON only.",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            },
+            ...sampleEvenly(images, MAX_FOLDER_IMAGES).map((url) =>
+              imagePart(url, "high"),
+            ),
+          ],
+        },
+      ],
+      FOLDER_CLASSIFY_TEMPERATURE,
+    );
+
+    const obj = parseJsonObject(raw);
+    if (!obj) {
+      log?.("folder classifier returned unparseable output — review");
+      return {
+        ...emptyVerdict(),
+        brand: textBrand.brandId ? textBrand : EMPTY_BRAND_CLASSIFICATION,
+      };
+    }
+
+    if (typeof obj.isProduct !== "boolean") {
+      log?.("folder classifier omitted isProduct — review");
+      return {
+        ...emptyVerdict(),
+        brand: textBrand.brandId ? textBrand : EMPTY_BRAND_CLASSIFICATION,
+        evidence: textBrand.evidence,
+      };
+    }
+
+    const isProduct = obj.isProduct;
+    const rejectReason = isProduct ? null : coerceRejectReason(obj.rejectReason);
+    const visionBrand = coerceBrandClassification(obj, log);
+    const inferredProductType = inferProductTypeId(
+      typeof obj.category === "string" ? obj.category : null,
+    );
+    const productTypeId = inferredProductType ?? "iphone_case";
+
+    const winner = visionBrandIsAuthoritative(visionBrand)
+      ? visionBrand
+      : textBrand.brandId
+        ? textBrand
+        : visionBrand;
+
+    const rawConfidence = coerceConfidence(obj.confidence);
+    const confidence: BrandConfidence = !isProduct
+      ? rejectReason
+        ? rawConfidence === "none"
+          ? "low"
+          : rawConfidence
+        : "low"
+      : !inferredProductType
+        ? "low"
+      : rawConfidence === "none"
+        ? winner.confidence
+        : rawConfidence;
+
+    const evidence = Array.from(
+      new Set([...coerceEvidence(obj.evidence), ...winner.evidence]),
+    ).slice(0, 8);
+
+    log?.(
+      `folder classifier → product=${isProduct}` +
+        (rejectReason ? ` reject=${rejectReason}` : "") +
+        ` type=${productTypeId} brand=${winner.brand ?? "null"}` +
+        ` character=${winner.character ?? "null"} confidence=${confidence}`,
+    );
+
+    return {
+      isProduct,
+      rejectReason,
+      productTypeId,
+      brand: isProduct ? winner : EMPTY_BRAND_CLASSIFICATION,
+      confidence,
+      evidence,
+      failed: false,
+    };
+  } catch (err) {
+    log?.(
+      `folder classifier failed (${err instanceof Error ? err.message : err}) — review`,
+    );
+    return {
+      ...emptyVerdict(),
+      brand: textBrand.brandId ? textBrand : EMPTY_BRAND_CLASSIFICATION,
+      evidence: textBrand.evidence,
+    };
   }
 }
 

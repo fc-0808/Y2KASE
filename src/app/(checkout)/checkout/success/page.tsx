@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
+import { cookies, headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { Sparkles, PartyPopper } from "lucide-react";
 import { db } from "@/lib/db";
@@ -10,6 +11,11 @@ import { formatPrice } from "@/lib/utils";
 import { ClearCartOnMount } from "@/components/checkout/ClearCartOnMount";
 import { PurchaseTracking } from "@/components/checkout/PurchaseTracking";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
+import { getSession } from "@/lib/auth";
+import {
+  checkoutAccessCookieName,
+  verifyCheckoutAccessToken,
+} from "@/lib/checkout-access";
 
 export const metadata: Metadata = {
   title: "Order confirmed ✨",
@@ -37,7 +43,7 @@ export default async function CheckoutSuccessPage({
       // the source of truth for fulfillment, but this gives the buyer instant,
       // trustworthy feedback even if the webhook is a second behind.
       const session = await getStripe().checkout.sessions.retrieve(sessionId);
-      paid =
+      const sessionPaid =
         session.payment_status === "paid" ||
         session.payment_status === "no_payment_required";
 
@@ -45,7 +51,27 @@ export default async function CheckoutSuccessPage({
         where: eq(orders.stripeSessionId, sessionId),
         with: { items: true },
       });
-      order = row ?? null;
+      if (row) {
+        const cookieStore = await cookies();
+        const accessToken = cookieStore.get(
+          checkoutAccessCookieName(sessionId),
+        )?.value;
+        let canView = verifyCheckoutAccessToken(
+          accessToken,
+          sessionId,
+          row.id,
+        );
+
+        if (!canView && row.userId) {
+          const authSession = await getSession(await headers());
+          canView = authSession?.user.id === row.userId;
+        }
+
+        if (canView) {
+          paid = sessionPaid;
+          order = row;
+        }
+      }
     } catch {
       // Fall through to the generic thank-you state below.
     }

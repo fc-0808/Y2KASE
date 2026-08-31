@@ -32,7 +32,8 @@ config({ path: ".env.local" });
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { discoverProductFolders } from "../src/lib/catalog/discover";
+import { inspectProductFolders } from "../src/lib/catalog/discover";
+import { REJECTED_FOLDER, REVIEW_FOLDER } from "../src/lib/catalog/folder-sort";
 import { makeR2Client } from "../src/lib/catalog/r2";
 import { ingestProductFolder, sha256 } from "../src/lib/catalog/ingest";
 import { getProductType } from "../src/lib/catalog/product-types";
@@ -159,12 +160,38 @@ async function main() {
   const r2 = makeR2Client();
 
   const catalogConfig = loadCatalogConfig(resolved);
-  const folders = discoverProductFolders(resolved);
+  const discovery = inspectProductFolders(resolved);
+  if (discovery.unreadableDirectories.length > 0) {
+    throw new Error(
+      `Cannot safely scan ${resolved}; ${discovery.unreadableDirectories.length} director${
+        discovery.unreadableDirectories.length === 1 ? "y is" : "ies are"
+      } unreadable: ${discovery.unreadableDirectories.slice(0, 5).join(", ")}`,
+    );
+  }
+  const folders = discovery.folders.filter((folder) => {
+    const top = folder.folderPath.split("/")[0];
+    // The classifier parks uncertain and junk folders here. Ingesting them
+    // would publish chat screenshots and unreviewed guesses as drafts.
+    return top !== REJECTED_FOLDER && top !== REVIEW_FOLDER;
+  });
+  if (folders.length === 0 && discovery.ignoredImageCount > 0) {
+    throw new Error(
+      `No product galleries found. The only ${discovery.ignoredImageCount} image(s) are inside internal _originals/_removed folders. Select the parent output folder after variant generation has completed.`,
+    );
+  }
+  if (folders.length === 0) {
+    throw new Error(
+      `No product galleries found in ${resolved}. A completed product folder must contain at least one JPG, PNG, WebP, or GIF directly inside it.`,
+    );
+  }
   console.log(
     `\nFound ${folders.length} product folder(s) in ${resolved}\n` +
       (autoMode
         ? `Product type: AI auto-detect (fallback ${getProductType(fallbackType).label})\n`
-        : `Product type: ${getProductType(fallbackType).label} (${fallbackType})\n`),
+        : `Product type: ${getProductType(fallbackType).label} (${fallbackType})\n`) +
+      (discovery.ignoredMediaDirectories.length > 0
+        ? `Excluded ${discovery.ignoredMediaDirectories.length} internal _originals/_removed folder(s) (${discovery.ignoredImageCount} non-gallery image(s)).\n`
+        : ""),
   );
 
   let created = 0;

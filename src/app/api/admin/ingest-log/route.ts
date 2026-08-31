@@ -17,7 +17,7 @@ import { requireAdmin } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FILE_RE = /^ingest-\d+\.log$/;
+const FILE_RE = /^(ingest|classify)-\d+\.log$/;
 
 function count(text: string, re: RegExp): number {
   return (text.match(re) ?? []).length;
@@ -47,21 +47,41 @@ export async function GET(req: NextRequest) {
   let total = totalMatch ? Number(totalMatch[1]) : 0;
 
   let created = count(text, /✓ #/g);
-  let skipped = count(text, /skipped \(already pushed\)/g);
+  let skipped = count(text, /skipped \(already (?:pushed|classified)/g);
   let failed = count(text, /✗ FAILED/g);
   let duplicates = count(text, /⚠ possible dup of #/g);
   let autoTyped = count(text, /· ai\]/g);
+  let review = 0;
+  let rejected = 0;
+
+  const isClassify = file.startsWith("classify-");
+  const isClassifyApply = isClassify && /Mode:\s+APPLY/.test(text);
+  if (isClassify) {
+    created = count(text, isClassifyApply ? /✓ file →/g : /→ file /g);
+    review = count(text, isClassifyApply ? /✓ review →/g : /→ review /g);
+    rejected = count(text, isClassifyApply ? /✓ reject →/g : /→ reject /g);
+  }
 
   // Current item: the last "[i/N] label — …" header line.
   const headerRe = /\[(\d+)\/(\d+)\]\s+(.+?)\s+—/g;
   let m: RegExpExecArray | null;
-  let currentIndex = 0;
+  let classificationIndex = 0;
   let current = "";
   while ((m = headerRe.exec(text)) !== null) {
-    currentIndex = Number(m[1]);
+    classificationIndex = Number(m[1]);
     current = m[3].trim();
     if (!total) total = Number(m[2]);
   }
+  let applyIndex = 0;
+  if (isClassifyApply) {
+    const applyHeaderRe = /\[apply (\d+)\/(\d+)\]\s+(.+?)\s+—/g;
+    while ((m = applyHeaderRe.exec(text)) !== null) {
+      applyIndex = Number(m[1]);
+      current = m[3].trim();
+      if (!total) total = Number(m[2]);
+    }
+  }
+  const currentIndex = applyIndex || classificationIndex;
 
   // Final summary wins for authoritative counts when the run has completed.
   const done = /Done\.\s+Created:/.test(text);
@@ -77,23 +97,53 @@ export async function GET(req: NextRequest) {
   if (dupSummary) duplicates = Number(dupSummary[1]);
   const autoSummary = text.match(/AI-typed:\s+(\d+)/);
   if (autoSummary) autoTyped = Number(autoSummary[1]);
+  const filedSummary = text.match(/Filed:\s+(\d+)\s+Review:\s+(\d+)\s+Rejected:\s+(\d+)/);
+  if (filedSummary) {
+    created = Number(filedSummary[1]);
+    review = Number(filedSummary[2]);
+    rejected = Number(filedSummary[3]);
+  }
 
-  // Detect a fatal crash: an uncaught error prints a JS stack trace and the run
-  // never reaches "Done." (per-product failures are logged as "✗ FAILED" and
-  // don't crash the process). When crashed, surface the error line so the UI
-  // can stop polling and show it instead of spinning forever.
-  const crashed = !done && /\n\s{2,}at\s+\S/.test(text);
+  // Detect a fatal crash. Most script errors include a JS stack, while shell
+  // startup failures and non-zero exits use the sentinels written by the
+  // parent action. Per-product "✗ FAILED" lines are recoverable and do not
+  // count as a crashed run.
+  const spawnError = text.match(/\[spawn error\]\s*(.+)$/m);
+  const processExit = text.match(
+    /\[process exited (with code \S+|after signal \S+)\]/,
+  );
+  const crashed =
+    !done &&
+    (/\n\s{2,}at\s+\S/.test(text) ||
+      spawnError !== null ||
+      processExit !== null);
   let errorMessage: string | undefined;
   if (crashed) {
     const em =
       text.match(/^\s*([A-Za-z]*Error:.*)$/m) ??
       text.match(/^(.*constraint failed.*)$/im);
-    errorMessage = em
-      ? em[1].trim()
-      : "The ingest process stopped unexpectedly — see the log above.";
+    errorMessage =
+      spawnError?.[1]?.trim() ??
+      (em
+        ? em[1].trim()
+        : processExit
+          ? `The background process exited ${processExit[1]}.`
+          : `${isClassify ? "Classification" : "Ingest"} stopped unexpectedly — see the log above.`);
   }
 
-  const processed = created + skipped + failed;
+  const processed = isClassify
+    ? done
+      ? created + skipped + failed + review + rejected
+      : Math.max(created + skipped + failed + review + rejected, currentIndex)
+    : created + skipped + failed;
+  const progressTotal =
+    isClassifyApply && !done ? total * 2 : total;
+  const progressProcessed =
+    isClassifyApply && !done
+      ? applyIndex > 0
+        ? total + applyIndex
+        : classificationIndex
+      : processed;
   const tail = text
     .split(/\r?\n/)
     .map((l) => l.replace(/\s+$/, ""))
@@ -107,11 +157,16 @@ export async function GET(req: NextRequest) {
     errorMessage,
     total,
     processed,
+    progressTotal,
+    progressProcessed,
+    phase: applyIndex > 0 ? "apply" : isClassify ? "classify" : "ingest",
     created,
     skipped,
     failed,
     duplicates,
     autoTyped,
+    review,
+    rejected,
     currentIndex,
     current,
     tail,

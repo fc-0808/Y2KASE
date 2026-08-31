@@ -8,12 +8,15 @@
  *
  * Flow:
  *   1. Admin → /admin/social → "Connect Pinterest" → Pinterest OAuth page
- *   2. Pinterest → this endpoint with ?code=XXX&state=admin:<signed-nonce>
+ *   2. Pinterest → this endpoint with an admin-bound, signed state token
  *   3. Exchange code for tokens, store in DB, redirect to /admin/social
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { requireAdmin } from "@/lib/auth";
 import { upsertToken } from "@/lib/social/token-store";
+import { verifySocialOAuthState } from "@/lib/social/oauth-state";
 import { getUserAccount } from "@/lib/social/pinterest";
 
 const REDIRECT_URI =
@@ -24,6 +27,13 @@ const APP_ID = process.env.PINTEREST_APP_ID ?? "";
 const APP_SECRET = process.env.PINTEREST_APP_SECRET ?? "";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return NextResponse.redirect(
+      new URL("/admin/sign-in?callbackUrl=%2Fadmin%2Fsocial", req.url),
+    );
+  }
+
   const { searchParams } = req.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -36,7 +46,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (!code || state !== "y2kase-admin") {
+  if (
+    !code ||
+    !verifySocialOAuthState(state, "pinterest", session.user.id)
+  ) {
     return NextResponse.redirect(
       new URL("/admin/social?pinterest_error=invalid_state", req.url),
     );

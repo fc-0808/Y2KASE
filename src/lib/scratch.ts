@@ -116,7 +116,12 @@ export function drawPrize(): Prize | null {
 }
 
 function secret(): string {
-  return process.env.BETTER_AUTH_SECRET || "y2kase-scratch-secret";
+  const configured = process.env.BETTER_AUTH_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("BETTER_AUTH_SECRET is required in production.");
+  }
+  return "y2kase-scratch-secret";
 }
 
 /**

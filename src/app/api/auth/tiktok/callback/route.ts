@@ -11,7 +11,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { requireAdmin } from "@/lib/auth";
 import { upsertToken } from "@/lib/social/token-store";
+import { verifySocialOAuthState } from "@/lib/social/oauth-state";
 import { exchangeCode, getTikTokAccount } from "@/lib/social/tiktok";
 
 const REDIRECT_URI =
@@ -19,6 +22,13 @@ const REDIRECT_URI =
   `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://y2kase.com"}/api/auth/tiktok/callback`;
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return NextResponse.redirect(
+      new URL("/admin/sign-in?callbackUrl=%2Fadmin%2Fsocial", req.url),
+    );
+  }
+
   const { searchParams } = req.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -35,7 +45,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (!code || state !== "y2kase-admin") {
+  if (
+    !code ||
+    !verifySocialOAuthState(state, "tiktok", session.user.id)
+  ) {
     return NextResponse.redirect(
       new URL("/admin/social?tiktok_error=invalid_state", req.url),
     );

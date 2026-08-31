@@ -78,6 +78,7 @@ import {
   r2KeyFromUrl,
 } from "@/lib/catalog/r2";
 import { productTypeLabel } from "@/lib/catalog/product-types";
+import { isInternalMediaDirectory } from "@/lib/catalog/discover";
 
 const VALID_STYLES = new Set<string>(STYLES);
 const VALID_MODELS = new Set<string>(IPHONE_MODELS);
@@ -1238,6 +1239,8 @@ export type BulkEditProduct = {
   currency: string;
   videoUrl: string | null;
   videoPosition: number | null;
+  /** Present when an old ingest mistook generator bookkeeping for a product. */
+  mediaWarning: string | null;
   images: BulkEditImage[];
   availableStyles: string[];
   availableModels: string[];
@@ -1284,6 +1287,7 @@ export async function getBulkEditProducts(
       productType: true,
       videoUrl: true,
       videoPosition: true,
+      sourceFolder: true,
     },
     with: {
       images: {
@@ -1302,6 +1306,10 @@ export async function getBulkEditProducts(
   return rows.map((p): BulkEditProduct => {
     const styleOpt = p.options.find((o) => o.name === STYLE_OPTION_NAME);
     const modelOpt = p.options.find((o) => o.name === MODEL_OPTION_NAME);
+    const sourceLeaf =
+      p.sourceFolder?.split(/[\\/]/).filter(Boolean).at(-1) ?? null;
+    const internalSource =
+      sourceLeaf && isInternalMediaDirectory(sourceLeaf) ? sourceLeaf : null;
     return {
       id: p.id,
       title: p.title,
@@ -1312,6 +1320,9 @@ export async function getBulkEditProducts(
       currency: p.currency,
       videoUrl: p.videoUrl,
       videoPosition: p.videoPosition,
+      mediaWarning: internalSource
+        ? `This draft was ingested from the generator's ${internalSource} helper folder, not its parent gallery. Remove this malformed draft and re-ingest the parent output folder.`
+        : null,
       images: p.images.map((i) => ({
         id: i.id,
         url: i.url,

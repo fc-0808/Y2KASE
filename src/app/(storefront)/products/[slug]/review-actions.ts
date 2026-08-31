@@ -47,6 +47,7 @@ export async function submitReviewAction(input: {
     title: input.title,
     body: input.body,
     userId,
+    authenticatedEmail: sessionEmail,
   });
 
   if (result.ok && result.status === "published") {

@@ -23,6 +23,12 @@ import { parsePopupPreview } from "../src/lib/marketing/popup-preview";
 import { canFollowMarketingClaim } from "../src/lib/marketing/popup-session";
 import { SCRATCH_COOKIE } from "../src/lib/scratch";
 import {
+  CHECKOUT_ACCESS_TTL_SECONDS,
+  checkoutAccessCookieName,
+  createCheckoutAccessToken,
+  verifyCheckoutAccessToken,
+} from "../src/lib/checkout-access";
+import {
   FRESH_VISIT_TTL_S,
   freshVisitPath,
   mintFreshVisitToken,
@@ -81,6 +87,68 @@ assert.notEqual(
 );
 
 assert.ok(freshVisitPath(token).startsWith(`${FRESH_VISIT_ENTRY_PATH}?`));
+
+// ─── Checkout summary access ─────────────────────────────────────────────────
+
+const checkoutNow = Date.parse("2026-08-31T12:00:00.000Z");
+const checkoutToken = createCheckoutAccessToken(
+  "cs_test_checkout_1",
+  42,
+  checkoutNow,
+);
+assert.equal(
+  verifyCheckoutAccessToken(
+    checkoutToken,
+    "cs_test_checkout_1",
+    42,
+    checkoutNow + 60_000,
+  ),
+  true,
+);
+assert.equal(
+  verifyCheckoutAccessToken(
+    checkoutToken,
+    "cs_test_checkout_2",
+    42,
+    checkoutNow,
+  ),
+  false,
+);
+assert.equal(
+  verifyCheckoutAccessToken(
+    checkoutToken,
+    "cs_test_checkout_1",
+    43,
+    checkoutNow,
+  ),
+  false,
+);
+assert.equal(
+  verifyCheckoutAccessToken(
+    checkoutToken,
+    "cs_test_checkout_1",
+    42,
+    checkoutNow + (CHECKOUT_ACCESS_TTL_SECONDS + 1) * 1000,
+  ),
+  false,
+);
+assert.equal(
+  verifyCheckoutAccessToken(
+    `${checkoutToken.slice(0, -1)}${checkoutToken.endsWith("a") ? "b" : "a"}`,
+    "cs_test_checkout_1",
+    42,
+    checkoutNow,
+  ),
+  false,
+);
+assert.equal(
+  checkoutAccessCookieName("cs_test_checkout_1"),
+  checkoutAccessCookieName("cs_test_checkout_1"),
+);
+assert.notEqual(
+  checkoutAccessCookieName("cs_test_checkout_1"),
+  checkoutAccessCookieName("cs_test_checkout_2"),
+);
 
 // ─── Forgery and tampering ───────────────────────────────────────────────────
 

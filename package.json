@@ -2,6 +2,9 @@
   "name": "y2kase",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
@@ -14,7 +17,7 @@
     "preview:check": "tsx scripts/check-preview.ts",
     "performance:check": "tsx scripts/check-performance.ts",
     "bundle:check": "tsx scripts/check-bundle-budget.ts",
-    "check:guards": "tsx scripts/check-copy-guard.ts && tsx scripts/check-instagram-strategy.ts",
+    "check:guards": "tsx scripts/check-copy-guard.ts && tsx scripts/check-instagram-strategy.ts && tsx scripts/check-folder-sort.ts && tsx scripts/check-catalog-discovery.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -71,6 +74,10 @@
     "resort:images": "tsx scripts/resort-images.ts",
     "catalog:sync-etsy": "tsx scripts/sync-etsy-catalog.ts",
     "catalog:ingest": "tsx scripts/ingest-local-images.ts",
+    "catalog:classify": "tsx scripts/classify-folders.ts",
+    "catalog:classify:apply": "tsx scripts/classify-folders.ts --apply",
+    "catalog:audit-helper-products": "tsx scripts/cleanup-helper-products.ts",
+    "catalog:cleanup-helper-products": "tsx scripts/cleanup-helper-products.ts --apply",
     "catalog:normalize-thumbs": "tsx scripts/normalize-thumbnails.ts",
     "catalog:push": "tsx scripts/push-catalog-to-neon.ts",
     "covers:generate": "tsx scripts/generate-collection-covers.ts",
@@ -90,7 +97,7 @@
     "@react-email/components": "^1.0.12",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
-    "better-auth": "^1.6.27",
+    "better-auth": "^1.7.2",
     "cloudinary": "^2.10.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",

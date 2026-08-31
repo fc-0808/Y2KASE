@@ -19,6 +19,10 @@ import { slugify } from "@/lib/ai";
 import { getCollectionBySlug, resolveCollectionFilterIds } from "@/lib/collections";
 import { countPostsSince, slugExists } from "./store";
 import { estimateReadingMinutes, type PostFaq } from "./types";
+import {
+  disabledThinkingParams,
+  isThinkingParamRejected,
+} from "@/lib/llm-thinking";
 
 /** Max posts generated per rolling 24h — a spend + quality guardrail. */
 export const BLOG_DAILY_LIMIT = Number(process.env.BLOG_DAILY_LIMIT ?? 5);
@@ -58,7 +62,7 @@ function textClient(): { apiKey: string; baseURL?: string; model: string } {
   }
   const baseURL =
     process.env.BLOG_TEXT_BASE_URL || process.env.VISION_BASE_URL || undefined;
-  const model = process.env.BLOG_TEXT_MODEL ?? "qwen/qwen3.7-plus";
+  const model = process.env.BLOG_TEXT_MODEL ?? "qwen/qwen3.8-flash";
   return { apiKey, baseURL, model };
 }
 
@@ -107,21 +111,32 @@ async function chatJsonCompletion(
   messages: ChatMessages,
   temperature: number,
 ): Promise<string> {
+  const thinkingParams = disabledThinkingParams(model, client.baseURL);
+  const hasThinkingParams = Object.keys(thinkingParams).length > 0;
+  const once = async (jsonMode: boolean, thinkingOff: boolean) => {
+    const res = await client.chat.completions.create({
+      model,
+      temperature,
+      ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
+      ...(thinkingOff ? thinkingParams : {}),
+      messages,
+    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+    return res.choices[0]?.message?.content ?? "";
+  };
+
   try {
-    const res = await client.chat.completions.create({
-      model,
-      temperature,
-      response_format: { type: "json_object" },
-      messages,
-    });
-    return res.choices[0]?.message?.content ?? "";
-  } catch {
-    const res = await client.chat.completions.create({
-      model,
-      temperature,
-      messages,
-    });
-    return res.choices[0]?.message?.content ?? "";
+    return await once(true, hasThinkingParams);
+  } catch (err) {
+    // Qwen 3.8 thinking controls are provider extensions — drop them first.
+    if (hasThinkingParams && isThinkingParamRejected(err)) {
+      try {
+        return await once(true, false);
+      } catch {
+        return await once(false, false);
+      }
+    }
+    // Some OpenRouter models reject `response_format`; retry without it.
+    return await once(false, hasThinkingParams);
   }
 }
 

@@ -49,6 +49,7 @@ import {
   isTikTokConfigured,
   getTikTokAccount,
 } from "@/lib/social/tiktok";
+import { createSocialOAuthState } from "@/lib/social/oauth-state";
 
 function revalidateSocialStudio() {
   for (const path of ["/admin/social", "/admin/social/instagram"] as const) {
@@ -342,7 +343,8 @@ export async function getTikTokConnectUrl(): Promise<{
   url?: string;
   message: string;
 }> {
-  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  const session = await requireAdmin(await headers());
+  if (!session) return { ok: false, message: "Not authorized." };
 
   const clientKey = process.env.TIKTOK_CLIENT_KEY;
   if (!clientKey) {
@@ -357,10 +359,13 @@ export async function getTikTokConnectUrl(): Promise<{
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://y2kase.com";
   const redirectUri = encodeURIComponent(`${siteUrl}/api/auth/tiktok/callback`);
   const scopes = encodeURIComponent("user.info.basic,video.upload,video.publish");
+  const state = encodeURIComponent(
+    createSocialOAuthState("tiktok", session.user.id),
+  );
   const url =
     `https://www.tiktok.com/v2/auth/authorize/?` +
     `client_key=${clientKey}&redirect_uri=${redirectUri}` +
-    `&response_type=code&scope=${scopes}&state=y2kase-admin`;
+    `&response_type=code&scope=${scopes}&state=${state}`;
 
   return { ok: true, url, message: "Click the URL to connect TikTok." };
 }
@@ -374,7 +379,8 @@ export async function getPinterestConnectUrl(): Promise<{
   url?: string;
   message: string;
 }> {
-  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  const session = await requireAdmin(await headers());
+  if (!session) return { ok: false, message: "Not authorized." };
 
   const appId = process.env.PINTEREST_APP_ID;
   if (!appId) {
@@ -391,10 +397,13 @@ export async function getPinterestConnectUrl(): Promise<{
     `${siteUrl}/api/auth/pinterest/callback`,
   );
   const scopes = encodeURIComponent("boards:read,boards:write,pins:read,pins:write,user_accounts:read");
+  const state = encodeURIComponent(
+    createSocialOAuthState("pinterest", session.user.id),
+  );
   const url =
     `https://www.pinterest.com/oauth/?` +
     `client_id=${appId}&redirect_uri=${redirectUri}` +
-    `&response_type=code&scope=${scopes}&state=y2kase-admin`;
+    `&response_type=code&scope=${scopes}&state=${state}`;
 
   return { ok: true, url, message: "Click the URL to connect Pinterest." };
 }
@@ -578,7 +587,8 @@ export async function getMetaConnectUrl(): Promise<{
   url?: string;
   message: string;
 }> {
-  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  const session = await requireAdmin(await headers());
+  if (!session) return { ok: false, message: "Not authorized." };
 
   const appId = process.env.META_APP_ID;
   if (!appId) {
@@ -607,10 +617,13 @@ export async function getMetaConnectUrl(): Promise<{
     ].join(","),
   );
   const version = process.env.META_GRAPH_VERSION ?? "v25.0";
+  const state = encodeURIComponent(
+    createSocialOAuthState("meta", session.user.id),
+  );
   const url =
     `https://www.facebook.com/${version}/dialog/oauth?` +
     `client_id=${appId}&redirect_uri=${redirectUri}` +
-    `&response_type=code&scope=${scope}&state=y2kase-admin`;
+    `&response_type=code&scope=${scope}&state=${state}`;
 
   return { ok: true, url, message: "Click to connect Instagram + Facebook." };
 }

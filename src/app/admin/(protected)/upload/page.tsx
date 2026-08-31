@@ -4,6 +4,7 @@ import { db, isDbConfigured } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import { listProductTypes } from "@/lib/catalog/product-types";
 import { UploadForm } from "./UploadForm";
+import { ClassifyForm } from "./ClassifyForm";
 
 export const metadata: Metadata = { title: "Admin · Upload" };
 export const dynamic = "force-dynamic";
@@ -38,19 +39,42 @@ export default async function UploadPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-black">Upload products</h1>
         <p className="mt-1 text-sm text-[var(--foreground)]/60">
-          Ingest a folder of product folders. Images are optimised to WebP,
-          analysed by AI for copy + style, uploaded to R2, and added as drafts.
+          Classify a QQ / WeChat supplier dump into brand and product-type
+          folders, then ingest. Images are optimised to WebP, analysed by AI
+          for copy + style, uploaded to R2, and added as drafts.
         </p>
       </div>
 
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
+        <h2 className="mb-1 text-lg font-black">1. Classify incoming folders</h2>
+        <p className="mb-5 text-sm text-[var(--foreground)]/55">
+          Vision AI reads each product folder and files it under Sanrio, Miffy,
+          AirPods, Others, or _review. Dry-run first. Does not upload or
+          publish anything.
+        </p>
+        <ClassifyForm defaultDir="" defaultDest={defaultDir} />
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
+        <h2 className="mb-1 text-lg font-black">2. Ingest into the catalog</h2>
+        <p className="mb-5 text-sm text-[var(--foreground)]/55">
+          After folders are filed, ingest writes drafts to the store. Auto-detect
+          is recommended — listing.json from step 1 already pins type and brand
+          collections.
+        </p>
         <UploadForm types={types} defaultDir={defaultDir} />
       </div>
 
       <div className="mt-6 rounded-2xl border border-dashed border-[var(--border)] p-4 text-sm text-[var(--foreground)]/70">
         <p className="font-semibold">CLI equivalent</p>
         <code className="mt-1 block rounded bg-[var(--muted)] px-2 py-1 text-xs">
-          npm run build:catalog -- --dir &quot;C:\path\to\folders&quot; --type iphone_case
+          npm run catalog:classify -- --dir &quot;C:\path\to\qq-dump&quot;
+        </code>
+        <code className="mt-1 block rounded bg-[var(--muted)] px-2 py-1 text-xs">
+          npm run catalog:classify:apply -- --dir &quot;C:\path\to\qq-dump&quot;
+        </code>
+        <code className="mt-1 block rounded bg-[var(--muted)] px-2 py-1 text-xs">
+          npm run build:catalog -- --dir &quot;C:\path\to\folders&quot; --type auto
         </code>
         <p className="mt-2 text-xs text-[var(--foreground)]/50">
           The ingest is resumable — re-running skips folders already pushed.

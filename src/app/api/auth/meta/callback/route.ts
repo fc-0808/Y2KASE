@@ -12,7 +12,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { requireAdmin } from "@/lib/auth";
 import { upsertToken } from "@/lib/social/token-store";
+import { verifySocialOAuthState } from "@/lib/social/oauth-state";
 import {
   exchangeCodeForUserToken,
   getLongLivedUserToken,
@@ -24,6 +27,16 @@ const REDIRECT_URI =
   `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://y2kase.com"}/api/auth/meta/callback`;
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return NextResponse.redirect(
+      new URL(
+        "/admin/sign-in?callbackUrl=%2Fadmin%2Fsocial%2Finstagram",
+        req.url,
+      ),
+    );
+  }
+
   const { searchParams } = req.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -35,7 +48,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       new URL(`/admin/social/instagram?meta_error=${encodeURIComponent(error)}`, req.url),
     );
   }
-  if (!code || state !== "y2kase-admin") {
+  if (
+    !code ||
+    !verifySocialOAuthState(state, "meta", session.user.id)
+  ) {
     return NextResponse.redirect(
       new URL("/admin/social/instagram?meta_error=invalid_state", req.url),
     );

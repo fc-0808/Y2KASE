@@ -18,6 +18,7 @@ import {
   Images,
   Users,
   SquarePen,
+  TriangleAlert,
 } from "lucide-react";
 import {
   STYLES,
@@ -418,6 +419,13 @@ function IndividualWorkspace({
                   View <ExternalLink className="h-3 w-3" />
                 </Link>
               </div>
+
+              {activeMeta.mediaWarning && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-800">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{activeMeta.mediaWarning}</p>
+                </div>
+              )}
 
               {activeMeta.productType === "iphone_case" ? (
                 <>

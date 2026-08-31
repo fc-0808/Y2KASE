@@ -1,64 +1,37 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { UploadCloud, FolderSearch, Image as ImageIcon } from "lucide-react";
-import { startIngest, type StartIngestState } from "./actions";
+import { FolderSearch, Image as ImageIcon, Sparkles } from "lucide-react";
+import { startClassify, type StartClassifyState } from "./actions";
 import {
   FolderBrowser,
   type FolderSummary,
 } from "./FolderBrowser";
 import { IngestProgress } from "./IngestProgress";
 
-type TypeOption = {
-  id: string;
-  label: string;
-  description: string;
-  enabled: boolean;
-};
+const initialState: StartClassifyState = { ok: false, message: "" };
 
-const initialState: StartIngestState = { ok: false, message: "" };
-
-export function UploadForm({
-  types,
+export function ClassifyForm({
   defaultDir,
+  defaultDest,
 }: {
-  types: TypeOption[];
   defaultDir: string;
+  defaultDest: string;
 }) {
   const [state, formAction, pending] = useActionState(
-    startIngest,
+    startClassify,
     initialState,
   );
   const [dir, setDir] = useState(defaultDir);
-  const [browsing, setBrowsing] = useState(false);
+  const [dest, setDest] = useState(defaultDest);
+  const [browsing, setBrowsing] = useState<"dir" | "dest" | null>(null);
   const [preview, setPreview] = useState<FolderSummary | null>(null);
 
   return (
     <form action={formAction} className="space-y-5">
       <div>
-        <label className="mb-1.5 block text-sm font-bold">Product type</label>
-        <select
-          name="type"
-          defaultValue="auto"
-          className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-sm"
-        >
-          <option value="auto">✨ Auto-detect (AI) — recommended</option>
-          {types.map((t) => (
-            <option key={t.id} value={t.id} disabled={!t.enabled}>
-              {t.label}
-              {t.enabled ? "" : " (coming soon)"}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1 text-xs text-[var(--foreground)]/50">
-          Auto-detect lets the vision model classify each product from its
-          photos. Pick a specific type to force it for the whole folder.
-        </p>
-      </div>
-
-      <div>
         <label className="mb-1.5 block text-sm font-bold">
-          Source folder (on this computer)
+          Incoming dump (QQ / WeChat downloads)
         </label>
         <div className="flex gap-2">
           <input
@@ -68,12 +41,12 @@ export function UploadForm({
               setDir(e.target.value);
               setPreview(null);
             }}
-            placeholder="C:\path\to\folder-of-product-folders"
+            placeholder="C:\path\to\qq-download"
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 font-mono text-sm"
           />
           <button
             type="button"
-            onClick={() => setBrowsing(true)}
+            onClick={() => setBrowsing("dir")}
             className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <FolderSearch className="h-4 w-4" /> Browse
@@ -86,7 +59,7 @@ export function UploadForm({
               {preview.productFolders} product folder
               {preview.productFolders === 1 ? "" : "s"} · {preview.imageCount}{" "}
               image
-              {preview.imageCount === 1 ? "" : "s"} ready to ingest
+              {preview.imageCount === 1 ? "" : "s"} to classify
             </p>
             {preview.ignoredHelperFolders > 0 && (
               <p className="text-amber-700">
@@ -100,28 +73,70 @@ export function UploadForm({
           </div>
         ) : (
           <p className="mt-1 text-xs text-[var(--foreground)]/50">
-            Click <span className="font-semibold">Browse</span> to pick a
-            folder, or type a path. It should contain one subfolder per product
-            (images + optional video); subfolders are scanned recursively.
+            One subfolder per product. Chinese names, numeric SKUs, mixed types
+            and chat screenshots are all fine — the vision model sorts them.
           </p>
         )}
       </div>
+
+      <div>
+        <label className="mb-1.5 block text-sm font-bold">
+          File into (catalog root)
+        </label>
+        <div className="flex gap-2">
+          <input
+            name="dest"
+            value={dest}
+            onChange={(e) => setDest(e.target.value)}
+            placeholder={defaultDest}
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 font-mono text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => setBrowsing("dest")}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border)] px-4 text-sm font-semibold hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            <FolderSearch className="h-4 w-4" /> Browse
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-[var(--foreground)]/50">
+          High-confidence products move into brand/type folders (Sanrio,
+          AirPods, Others). Unsure items go to _review/; junk to _rejected/.
+        </p>
+      </div>
+
+      <label className="flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          name="apply"
+          value="1"
+          className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+        />
+        <span>
+          <span className="font-semibold">Move folders</span>
+          <span className="block text-xs text-[var(--foreground)]/50">
+            Leave unchecked for a dry-run. Check this only after the plan looks
+            right — it writes listing.json and relocates folders.
+          </span>
+        </span>
+      </label>
 
       <button
         type="submit"
         disabled={pending || !dir.trim()}
         className="flex items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-6 py-3 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50"
       >
-        <UploadCloud className="h-4 w-4" />
-        {pending ? "Starting…" : "Start ingest"}
+        <Sparkles className="h-4 w-4" />
+        {pending ? "Starting…" : "Classify folders"}
       </button>
 
       {state.ok && state.logFile ? (
         <IngestProgress
           key={state.logFile}
+          kind="classify"
           logFile={state.logFile}
           dir={state.dir ?? dir}
-          type={state.type ?? "auto"}
+          type={state.apply ? "apply" : "dry-run"}
         />
       ) : (
         state.message && (
@@ -133,13 +148,17 @@ export function UploadForm({
 
       {browsing && (
         <FolderBrowser
-          initialPath={dir}
-          requireProducts
-          onClose={() => setBrowsing(false)}
+          initialPath={browsing === "dir" ? dir : dest}
+          requireProducts={browsing === "dir"}
+          onClose={() => setBrowsing(null)}
           onSelect={(selectedPath, summary) => {
-            setDir(selectedPath);
-            setPreview(summary ?? null);
-            setBrowsing(false);
+            if (browsing === "dir") {
+              setDir(selectedPath);
+              setPreview(summary ?? null);
+            } else {
+              setDest(selectedPath);
+            }
+            setBrowsing(null);
           }}
         />
       )}

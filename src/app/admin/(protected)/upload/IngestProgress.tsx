@@ -19,11 +19,16 @@ type Progress = {
   errorMessage?: string;
   total?: number;
   processed?: number;
+  progressTotal?: number;
+  progressProcessed?: number;
+  phase?: "ingest" | "classify" | "apply";
   created?: number;
   skipped?: number;
   failed?: number;
   duplicates?: number;
   autoTyped?: number;
+  review?: number;
+  rejected?: number;
   currentIndex?: number;
   current?: string;
   tail?: string[];
@@ -33,10 +38,12 @@ export function IngestProgress({
   logFile,
   dir,
   type,
+  kind = "ingest",
 }: {
   logFile: string;
   dir: string;
   type: string;
+  kind?: "ingest" | "classify";
 }) {
   const [p, setP] = useState<Progress | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -70,11 +77,13 @@ export function IngestProgress({
 
   const total = p?.total ?? 0;
   const processed = p?.processed ?? 0;
+  const progressTotal = p?.progressTotal ?? total;
+  const progressProcessed = p?.progressProcessed ?? processed;
   const done = p?.done ?? false;
   const crashed = p?.crashed ?? false;
   const pct =
-    total > 0
-      ? Math.min(100, Math.round((processed / total) * 100))
+    progressTotal > 0
+      ? Math.min(100, Math.round((progressProcessed / progressTotal) * 100))
       : done
         ? 100
         : 0;
@@ -98,11 +107,17 @@ export function IngestProgress({
         )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black">
-            {done
-              ? "Ingest complete"
-              : crashed
-                ? "Ingest failed"
-                : "Ingesting…"}
+            {kind === "classify"
+              ? done
+                ? "Classification complete"
+                : crashed
+                  ? "Classification failed"
+                  : "Classifying…"
+              : done
+                ? "Ingest complete"
+                : crashed
+                  ? "Ingest failed"
+                  : "Ingesting…"}
           </p>
           <p className="flex items-center gap-1 truncate text-xs text-[var(--foreground)]/55">
             <FolderOpen className="h-3.5 w-3.5 shrink-0" />
@@ -129,7 +144,9 @@ export function IngestProgress({
       {crashed ? (
         <p className="mt-1.5 text-xs font-semibold text-red-600">
           {p?.errorMessage ??
-            "The ingest stopped unexpectedly. See the log below."}
+            (kind === "classify"
+              ? "Classification stopped unexpectedly. See the log below."
+              : "The ingest stopped unexpectedly. See the log below.")}
         </p>
       ) : (
         <p className="mt-1.5 text-xs text-[var(--foreground)]/55">
@@ -138,26 +155,45 @@ export function IngestProgress({
             : done
               ? `Processed ${processed} of ${total || processed}.`
               : p?.current
-                ? `Processing ${p.currentIndex}/${total}: ${p.current}`
+                ? `${p.phase === "apply" ? "Filing" : "Processing"} ${p.currentIndex}/${total}: ${p.current}`
                 : `Discovered ${total} product folder${total === 1 ? "" : "s"}…`}
         </p>
       )}
 
       {/* Stat chips */}
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Created" value={p?.created ?? 0} tone="text-green-700" />
+        <Stat
+          label={kind === "classify" ? "Filed" : "Created"}
+          value={p?.created ?? 0}
+          tone="text-green-700"
+        />
         <Stat label="Skipped" value={p?.skipped ?? 0} />
         <Stat
           label="Failed"
           value={p?.failed ?? 0}
           tone={p?.failed ? "text-red-600" : undefined}
         />
-        <Stat
-          label="Duplicates"
-          value={p?.duplicates ?? 0}
-          tone={p?.duplicates ? "text-amber-600" : undefined}
-        />
+        {kind === "classify" ? (
+          <Stat
+            label="Review"
+            value={p?.review ?? 0}
+            tone={p?.review ? "text-amber-600" : undefined}
+          />
+        ) : (
+          <Stat
+            label="Duplicates"
+            value={p?.duplicates ?? 0}
+            tone={p?.duplicates ? "text-amber-600" : undefined}
+          />
+        )}
       </div>
+
+      {kind === "classify" && (p?.rejected ?? 0) > 0 && (
+        <p className="mt-2 text-xs font-medium text-[var(--foreground)]/55">
+          {p?.rejected} folder{p?.rejected === 1 ? "" : "s"} rejected (chat /
+          QR / junk) → _rejected/
+        </p>
+      )}
 
       {(p?.autoTyped ?? 0) > 0 && (
         <p className="mt-2 flex items-center gap-1 text-xs font-medium text-[var(--foreground)]/55">
@@ -182,20 +218,29 @@ export function IngestProgress({
       {/* Completion actions */}
       {done && (
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link
-            href="/admin/products"
-            className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white hover:opacity-90"
-          >
-            <Eye className="h-4 w-4" /> Review drafts
-          </Link>
-          {(p?.duplicates ?? 0) > 0 && (
-            <Link
-              href="/admin/products/duplicates"
-              className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold hover:border-[var(--primary)]"
-            >
-              <CopyCheck className="h-4 w-4" /> Review {p?.duplicates} duplicate
-              {p?.duplicates === 1 ? "" : "s"}
-            </Link>
+          {kind === "classify" ? (
+            <p className="text-xs text-[var(--foreground)]/55">
+              Next: review _review/, then ingest the catalog root with Auto-detect
+              below.
+            </p>
+          ) : (
+            <>
+              <Link
+                href="/admin/products"
+                className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white hover:opacity-90"
+              >
+                <Eye className="h-4 w-4" /> Review drafts
+              </Link>
+              {(p?.duplicates ?? 0) > 0 && (
+                <Link
+                  href="/admin/products/duplicates"
+                  className="flex items-center gap-1.5 rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold hover:border-[var(--primary)]"
+                >
+                  <CopyCheck className="h-4 w-4" /> Review {p?.duplicates} duplicate
+                  {p?.duplicates === 1 ? "" : "s"}
+                </Link>
+              )}
+            </>
           )}
         </div>
       )}

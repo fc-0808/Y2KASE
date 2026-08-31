@@ -157,6 +157,8 @@ export type SubmitReviewInput = {
   title?: string;
   body: string;
   userId?: string | null;
+  /** Server-derived session email; never accept this value from the browser. */
+  authenticatedEmail?: string;
 };
 
 export type SubmitReviewResult =
@@ -191,11 +193,13 @@ export async function submitReview(
     return { ok: false, error: "Please write a few words about the product." };
   }
 
-  // Verified-purchase detection: any non-pending order for this email containing
-  // this product.
+  // Verified-purchase detection requires control of the matching account email,
+  // not merely knowledge of a buyer's address.
   let verified = false;
   let orderId: number | null = null;
-  if (email) {
+  const authenticatedEmail =
+    input.authenticatedEmail?.trim().toLowerCase() || null;
+  if (email && authenticatedEmail === email) {
     try {
       const match = await db
         .select({ orderId: orders.id })

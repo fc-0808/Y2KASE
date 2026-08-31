@@ -15,16 +15,38 @@
       "productType": "iphone_case",
       "collections": ["miffy"]
     },
+    "Rilakkuma": {
+      "productType": "iphone_case",
+      "collections": ["rilakkuma"]
+    },
     "Others": {
       "productType": "iphone_case"
+    },
+    "Samsung": {
+      "productType": "samsung_case"
+    },
+    "Pixel": {
+      "productType": "pixel_case"
     },
     "AirPods": {
       "productType": "airpod_case",
       "price": 14.99
     },
+    "iPad": {
+      "productType": "ipad_case"
+    },
+    "MacBook": {
+      "productType": "macbook_case"
+    },
+    "Kindle": {
+      "productType": "kindle_case"
+    },
     "WatchBands": {
       "productType": "watch_band",
       "currency": "USD"
+    },
+    "Accessories": {
+      "productType": "apple_accessory"
     }
   }
 }

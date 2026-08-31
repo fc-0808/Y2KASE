@@ -6,6 +6,9 @@
     "vercel": {
       "url": "https://mcp.vercel.com"
     },
+    "neon": {
+      "url": "https://mcp.neon.tech/mcp"
+    },
     "resend": {
       "command": "npx",
       "args": ["-y", "resend-mcp"],

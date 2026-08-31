@@ -15,7 +15,7 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/auth";
-import { discoverProductFolders } from "@/lib/catalog/discover";
+import { inspectProductFolders } from "@/lib/catalog/discover";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,7 +83,13 @@ export async function GET(req: NextRequest) {
     path: string;
     parent: string | null;
     entries: Entry[];
-    summary?: { productFolders: number; imageCount: number };
+    summary?: {
+      productFolders: number;
+      imageCount: number;
+      ignoredHelperFolders: number;
+      ignoredHelperImages: number;
+      unreadableFolders: number;
+    };
   } = {
     path: abs,
     parent: parent !== abs ? parent : null,
@@ -92,13 +98,25 @@ export async function GET(req: NextRequest) {
 
   if (inspect) {
     try {
-      const folders = discoverProductFolders(abs);
+      const discovery = inspectProductFolders(abs);
       result.summary = {
-        productFolders: folders.length,
-        imageCount: folders.reduce((n, f) => n + f.imageFiles.length, 0),
+        productFolders: discovery.folders.length,
+        imageCount: discovery.folders.reduce(
+          (count, folder) => count + folder.imageFiles.length,
+          0,
+        ),
+        ignoredHelperFolders: discovery.ignoredMediaDirectories.length,
+        ignoredHelperImages: discovery.ignoredImageCount,
+        unreadableFolders: discovery.unreadableDirectories.length,
       };
     } catch {
-      result.summary = { productFolders: 0, imageCount: 0 };
+      result.summary = {
+        productFolders: 0,
+        imageCount: 0,
+        ignoredHelperFolders: 0,
+        ignoredHelperImages: 0,
+        unreadableFolders: 1,
+      };
     }
   }
 
