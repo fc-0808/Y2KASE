@@ -135,6 +135,7 @@ export default async function CheckoutSuccessPage({
                         src={item.imageUrl}
                         alt={item.productTitle}
                         fill
+                        unoptimized
                         sizes="56px"
                         className="object-cover"
                       />

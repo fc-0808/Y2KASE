@@ -197,6 +197,7 @@ function CartLine({
             src={item.imageUrl}
             alt={item.title}
             fill
+            unoptimized
             sizes="80px"
             className="object-cover"
           />

@@ -191,6 +191,7 @@ export function ProductDetailClient({
               alt={current.alt}
               fill
               quality={82}
+              unoptimized
               loading={activeSlide === 0 ? "eager" : "lazy"}
               fetchPriority={activeSlide === 0 ? "high" : "auto"}
               sizes="(max-width: 1024px) 100vw, 50vw"
@@ -257,6 +258,7 @@ export function ProductDetailClient({
                           alt=""
                           fill
                           quality={72}
+                          unoptimized
                           loading="lazy"
                           sizes="80px"
                           className="object-contain"
@@ -272,6 +274,7 @@ export function ProductDetailClient({
                       alt={slide.alt}
                       fill
                       quality={82}
+                      unoptimized
                       loading="lazy"
                       sizes="80px"
                       className="object-contain"

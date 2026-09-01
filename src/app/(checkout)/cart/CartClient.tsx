@@ -535,6 +535,7 @@ function CartRow({
             src={item.imageUrl}
             alt={item.title}
             fill
+            unoptimized
             sizes="112px"
             className="object-cover"
           />

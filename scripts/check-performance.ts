@@ -40,11 +40,22 @@ const heroSource = readFileSync(
   "src/components/home/HeroCarousel.tsx",
   "utf8",
 );
+const nextConfig = readFileSync("next.config.ts", "utf8");
+const productMedia = readFileSync("src/components/ProductMedia.tsx", "utf8");
+const productDetail = readFileSync(
+  "src/components/ProductDetailClient.tsx",
+  "utf8",
+);
 assert.match(proxySource, /matcher:\s*\["\/admin\/:path\*"\]/);
 assert.doesNotMatch(proxySource, /_next\/static/);
 assert.match(storefrontLayout, /CartDrawerLoader/);
 assert.doesNotMatch(storefrontLayout, /from "@\/components\/CartDrawer"/);
 assert.match(heroSource, /fetchPriority=\{i === 0 \? "high" : "low"\}/);
 assert.match(heroSource, /autoPlayArmed/);
+// Vercel `/_next/image` is 402ing. Optimization stays opt-in; catalog photos
+// must keep serving the stored R2 WebP directly even if someone opts back in.
+assert.match(nextConfig, /NEXT_IMAGE_OPTIMIZED !== "true"/);
+assert.match(productMedia, /unoptimized/);
+assert.match(productDetail, /unoptimized/);
 
 console.log("✓ storefront performance invariants passed");

@@ -143,6 +143,7 @@ export default async function BlogPostPage({
             alt={meta.title}
             fill
             preload
+            unoptimized
             sizes="(max-width: 768px) 100vw, 768px"
             className="object-cover"
           />

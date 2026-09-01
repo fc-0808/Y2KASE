@@ -24,6 +24,7 @@ export function BlogFigure({ figure }: { figure: PostFigure }) {
         src={figure.url}
         alt={figure.alt}
         fill
+        unoptimized
         sizes="(max-width: 640px) 100vw, 420px"
         className="object-contain transition-transform duration-500 group-hover:scale-[1.04]"
       />

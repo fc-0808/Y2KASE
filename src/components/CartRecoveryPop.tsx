@@ -482,6 +482,7 @@ export function CartRecoveryPop() {
                     src={firstItem.imageUrl}
                     alt=""
                     fill
+                    unoptimized
                     sizes="80px"
                     className="object-cover"
                   />

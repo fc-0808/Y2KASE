@@ -26,8 +26,16 @@ try {
   // A malformed R2 URL is reported by the code path that actually requires it.
 }
 
+// Vercel Image Optimization is a paid add-on. Production currently answers
+// every `/_next/image` request with 402 OPTIMIZED_IMAGE_REQUEST_PAYMENT_REQUIRED
+// (confirmed against y2kase.com). Catalog photos are already WebP on R2, so the
+// storefront serves those URLs directly unless optimization is explicitly opted
+// in after the Vercel add-on is enabled. Development stays direct-to-origin
+// because some VPNs resolve r2.dev to a private address, which Next's optimizer
+// correctly refuses. NEXT_IMAGE_UNOPTIMIZED remains an extra kill switch.
 const disableImageOptimization =
   process.env.NODE_ENV === "development" ||
+  process.env.NEXT_IMAGE_OPTIMIZED !== "true" ||
   process.env.NEXT_IMAGE_UNOPTIMIZED === "true";
 
 const nextConfig: NextConfig = {
@@ -75,12 +83,9 @@ const nextConfig: NextConfig = {
   ],
 
   images: {
-    // Production resizing is load-bearing for mobile Core Web Vitals: source
-    // catalog photos are 1024×1280, while a two-column phone card is ~180px
-    // wide. Development stays direct-to-R2 because some VPNs resolve r2.dev to
-    // a private address, which Next's secure optimizer correctly refuses.
-    // Self-hosted production and CI exercise the same path as Vercel; the env
-    // override remains an explicit operational escape hatch.
+    // Default is unoptimized: Vercel's optimizer is currently 402ing, and
+    // ingest already writes 1024×1280 WebP. Set NEXT_IMAGE_OPTIMIZED=true only
+    // after Image Optimization is enabled on the Vercel project.
     unoptimized: disableImageOptimization,
     minimumCacheTTL: 86_400,
     qualities: [72, 75, 82],

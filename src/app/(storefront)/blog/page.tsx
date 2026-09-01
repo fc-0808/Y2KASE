@@ -81,6 +81,7 @@ export default async function BlogIndexPage() {
                     alt={featured.meta.title}
                     fill
                     preload
+                    unoptimized
                     sizes="(max-width: 768px) 100vw, 50vw"
                     className="object-cover transition duration-500 group-hover:scale-105"
                   />
@@ -119,6 +120,7 @@ export default async function BlogIndexPage() {
                         src={post.meta.cover}
                         alt={post.meta.title}
                         fill
+                        unoptimized
                         sizes="(max-width: 640px) 100vw, 33vw"
                         className="object-cover transition duration-500 group-hover:scale-105"
                       />

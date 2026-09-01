@@ -57,6 +57,10 @@ export function ProductMedia({
           fill
           sizes={sizes}
           quality={82}
+          // Catalog photos are already WebP on R2. Never send them through
+          // `/_next/image` — Vercel is 402ing that path, and the volume would
+          // re-exhaust Image Optimization quota if it is later re-enabled.
+          unoptimized
           loading={loading}
           fetchPriority={fetchPriority}
           className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
