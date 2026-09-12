@@ -12,6 +12,7 @@ import {
 } from "@/lib/blog";
 import { JsonLd } from "@/components/JsonLd";
 import { Markdown } from "@/components/Markdown";
+import { PreferredSourceCard } from "@/components/PreferredSourceCard";
 import {
   absoluteUrl,
   articleJsonLd,
@@ -178,6 +179,10 @@ export default async function BlogPostPage({
         </section>
       )}
 
+      <div className="mt-14">
+        <PreferredSourceCard />
+      </div>
+
       {/* Related reading */}
       {related.length > 0 && (
         <section className="mt-16 border-t border-[var(--border)] pt-8">
@@ -207,10 +212,22 @@ export default async function BlogPostPage({
           Ready to express your vibe?
         </h2>
         <p className="mt-2 text-[var(--foreground)]/75">
-          Shop kawaii & Y2K phone cases, charms and accessories.
+          Shop{" "}
+          <Link href="/collections/kawaii" className="font-bold underline">
+            kawaii phone cases
+          </Link>
+          ,{" "}
+          <Link href="/collections/y2k" className="font-bold underline">
+            Y2K phone cases
+          </Link>
+          , and{" "}
+          <Link href="/collections/magsafe" className="font-bold underline">
+            MagSafe phone cases
+          </Link>
+          .
         </p>
         <Link
-          href="/products"
+          href="/collections/kawaii"
           className="btn-candy mt-5 inline-flex items-center gap-2 px-7 py-3"
         >
           Shop the collection ✨

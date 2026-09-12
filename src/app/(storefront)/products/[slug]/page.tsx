@@ -21,10 +21,12 @@ import {
   productJsonLd,
   truncateDescription,
 } from "@/lib/seo";
-import { productSerpTitle } from "@/lib/seo/copy";
+import { collectionHeading, productSerpTitle } from "@/lib/seo/copy";
 import { getProductEntryPrice } from "@/lib/pricing";
 import { SITE_URL } from "@/lib/site";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
+import { getProductCollectionLinks } from "@/lib/collections";
+import { MAGSAFE_TAG, magsafeFacetHref } from "@/lib/catalog/magsafe";
 
 export const revalidate = 3600; // ISR: refresh product pages hourly.
 
@@ -95,9 +97,13 @@ export default async function ProductPage({
     console.error("[product-page] related products unavailable:", error);
     return [];
   });
-  const [reviewSummary, reviews] = await Promise.all([
+  const [reviewSummary, reviews, collectionLinks] = await Promise.all([
     getReviewSummary(product.id),
     getPublishedReviews(product.id),
+    getProductCollectionLinks(product.id).catch((error) => {
+      console.error("[product-page] collection links unavailable:", error);
+      return [];
+    }),
   ]);
   const currency = (product.currency || "USD").toUpperCase();
   const entryPrice = getProductEntryPrice(
@@ -188,6 +194,23 @@ export default async function ProductPage({
         </section>
       )}
 
+      {collectionLinks.length > 0 && (
+        <section className="mt-10 max-w-3xl">
+          <h2 className="mb-3 text-xl font-black">Shop this look</h2>
+          <nav aria-label="Related collections" className="flex flex-wrap gap-2">
+            {collectionLinks.map((link) => (
+              <Link
+                key={link.slug}
+                href={`/collections/${link.slug}`}
+                className="rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+              >
+                {collectionHeading(link.name, link.slug)}
+              </Link>
+            ))}
+          </nav>
+        </section>
+      )}
+
       {/* Social sharing — Pinterest Save + copy link for organic virality */}
       <div className="mt-8">
         <SocialShare
@@ -202,7 +225,11 @@ export default async function ProductPage({
           {product.tags.map((tag) => (
             <Link
               key={tag}
-              href={`/products?tag=${encodeURIComponent(tag)}`}
+              href={
+                tag === MAGSAFE_TAG
+                  ? magsafeFacetHref(true)
+                  : `/products?tag=${encodeURIComponent(tag)}`
+              }
               className="rounded-full bg-[var(--muted)] px-3 py-1 text-xs font-semibold capitalize text-[var(--primary)]"
             >
               {tag.replace(/_/g, " ")}

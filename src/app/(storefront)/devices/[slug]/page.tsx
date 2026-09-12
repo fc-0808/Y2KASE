@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { DEVICE_FAMILIES, findDevice } from "@/lib/catalog/devices";
+import { isColorFamilySlug } from "@/lib/catalog/colors";
+import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 import { deviceSeo } from "@/lib/seo/device-content";
 import { getCatalogPage, type ProductQuery } from "@/lib/products";
 import { getBrandFacets } from "@/lib/collections";
@@ -124,6 +126,8 @@ export default async function DeviceLandingPage({
     tag: catalogParams.tag,
     device: slug,
     brands: catalogParams.brands,
+    colors: catalogParams.colors.filter(isColorFamilySlug),
+    motifs: catalogParams.motifs.filter(isMotifFamilySlug),
     magsafe: catalogParams.magsafe,
     page: catalogParams.page,
     sort: catalogParams.sort,

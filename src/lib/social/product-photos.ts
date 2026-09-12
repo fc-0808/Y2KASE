@@ -37,6 +37,8 @@ export type ProductGallery = {
   productType: string;
   description: string | null;
   tags: string[];
+  characterName: string | null;
+  brandName: string | null;
   videoUrl: string | null;
   photos: ProductPhoto[];
 };
@@ -64,6 +66,8 @@ export async function getProductGallery(
     productType: product.productType,
     description: product.description,
     tags: product.tags ?? [],
+    characterName: product.characterName ?? null,
+    brandName: product.brandName ?? null,
     videoUrl: product.videoUrl,
     photos: (product.images ?? []).map((img) => ({
       id: img.id,
@@ -134,6 +138,8 @@ export async function importProductPhotos(
         tags: gallery.tags,
         platform,
         preset: PRODUCT_PHOTO_PRESET,
+        characterName: gallery.characterName,
+        brandName: gallery.brandName,
       });
       caption = copy.caption;
       hashtags = copy.hashtags;

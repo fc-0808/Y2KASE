@@ -11,6 +11,8 @@ import {
 } from "@/lib/social/creatives";
 import { isImageGenConfigured } from "@/lib/social/image-gen";
 import { isPinterestConfigured } from "@/lib/social/pinterest";
+import { previewBoards } from "@/lib/social/pinterest-hygiene";
+import { getFollowSnapshot } from "@/lib/social/pinterest-follow";
 import { getJobCounts } from "@/lib/social/jobs";
 import {
   getAutoPinCoverage,
@@ -19,6 +21,7 @@ import {
 } from "@/lib/social/auto-pin";
 import { SocialStudio } from "./SocialStudio";
 import { AutoPinPanel } from "./AutoPinPanel";
+import { PinterestHygienePanel } from "./PinterestHygienePanel";
 import { PostingHistory } from "./PostingHistory";
 import { SocialChannelNav } from "./SocialChannelNav";
 
@@ -44,6 +47,8 @@ export default async function AdminSocialPage({
       ? sp.status
       : undefined;
 
+  const pinterestReady = isPinterestConfigured();
+
   const [
     creatives,
     counts,
@@ -53,6 +58,7 @@ export default async function AdminSocialPage({
     autoPinCoverage,
     postingHistory,
     nextListing,
+    hygiene,
   ] = await Promise.all([
     getCreatives(activeStatus),
     getCreativeStatusCounts(),
@@ -62,6 +68,19 @@ export default async function AdminSocialPage({
     getAutoPinCoverage(),
     getRecentPostedListings(20, "pinterest"),
     getNextListingPreview(),
+    pinterestReady
+      ? Promise.all([previewBoards(), getFollowSnapshot()])
+          .then(([boards, follow]) => ({
+            boardPlan: boards.plan,
+            follow,
+            error: follow.error ?? null,
+          }))
+          .catch((err: unknown) => ({
+            boardPlan: null,
+            follow: null,
+            error: err instanceof Error ? err.message : "Could not load Pinterest hygiene.",
+          }))
+      : Promise.resolve({ boardPlan: null, follow: null, error: null }),
   ]);
 
   const total =
@@ -81,7 +100,6 @@ export default async function AdminSocialPage({
 
   const spend = (counts.totalCostCents / 100).toFixed(2);
   const apiReady = isImageGenConfigured();
-  const pinterestReady = isPinterestConfigured();
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
@@ -110,10 +128,17 @@ export default async function AdminSocialPage({
         pinterestReady={pinterestReady}
       />
 
+      <PinterestHygienePanel
+        pinterestReady={pinterestReady}
+        boardPlan={hygiene.boardPlan}
+        follow={hygiene.follow}
+        loadError={hygiene.error}
+      />
+
       <PostingHistory
         history={postingHistory}
         heading="Pinterest pins"
-        emptyMessage="Nothing pinned yet. Runs will appear here once the auto-pin drip publishes its first listing."
+        emptyMessage="Nothing pinned yet. Runs will appear here once the auto-pin drip publishes its first pin."
       />
 
       <div className="mb-5 flex flex-wrap gap-2">

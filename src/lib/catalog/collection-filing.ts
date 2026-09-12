@@ -35,6 +35,7 @@ import {
   BRAND_COLLECTION_KINDS,
   flattenTaxonomy,
   matchCollectionSlugs,
+  ORIGINALS_SLUG,
 } from "@/lib/catalog/collections-config";
 import { collectionIdsForSlugs } from "@/lib/catalog/taxonomy-sync";
 import {
@@ -42,7 +43,10 @@ import {
   resolveBrandAssignment,
 } from "@/lib/catalog/brands";
 import { ensureBrandRegistry } from "@/lib/catalog/brand-registry";
-import { syncBrandCollections } from "@/lib/catalog/brand-assignment";
+import {
+  syncBrandCollections,
+  syncOriginalsMembership,
+} from "@/lib/catalog/brand-assignment";
 import { ipVerdict, listingIp } from "@/lib/catalog/listing-title";
 
 export type RefileResult = {
@@ -157,10 +161,33 @@ export async function refileProduct(productId: number): Promise<RefileResult> {
     }
   }
 
+  const originals = await syncOriginalsMembership(
+    productId,
+    product.brandName,
+    product.characterName,
+  );
+
   return {
-    added: [...new Set([...brandSync.linked, ...added])],
-    removed: brandSync.removed,
-    unseeded: [...new Set([...brandSync.unseeded, ...unseeded])],
+    added: [
+      ...new Set([
+        ...brandSync.linked,
+        ...added,
+        ...(originals.linked ? [ORIGINALS_SLUG] : []),
+      ]),
+    ],
+    removed: [
+      ...new Set([
+        ...brandSync.removed,
+        ...(originals.removed ? [ORIGINALS_SLUG] : []),
+      ]),
+    ],
+    unseeded: [
+      ...new Set([
+        ...brandSync.unseeded,
+        ...unseeded,
+        ...(originals.unseeded ? [ORIGINALS_SLUG] : []),
+      ]),
+    ],
     held,
   };
 }

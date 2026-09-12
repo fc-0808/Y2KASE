@@ -266,6 +266,30 @@ export const products = pgTable(
      * See `src/lib/catalog/magsafe.ts` and `/admin/products/magsafe-review`.
      */
     needsMagsafeReview: boolean("needs_magsafe_review").notNull().default(false),
+    /**
+     * Canonical color families this product belongs to (`pink`, `clear`, …).
+     * Closed vocabulary from `@/lib/catalog/colors`. Empty until classified.
+     * A product may belong to several (a clear case with a pink charm is
+     * `clear` AND `pink`); the storefront ORs within the facet.
+     */
+    colors: text("colors").array().notNull().default([]),
+    /**
+     * True once an operator has set `colors` by hand. Backfill and ingest
+     * reclassification must not overwrite a human decision — the same
+     * provenance rule MagSafe uses for a human assertion.
+     */
+    colorsLocked: boolean("colors_locked").notNull().default(false),
+    /**
+     * Canonical motif families this product belongs to (`puppy`, `clouds`, …).
+     * Closed vocabulary from `@/lib/catalog/motifs`. Empty until classified.
+     * Independent of brand: a Hello Kitty bow case can be `bows` *and* Sanrio.
+     */
+    motifs: text("motifs").array().notNull().default([]),
+    /**
+     * True once an operator has set `motifs` by hand. Same provenance rule
+     * as {@link products.colorsLocked}.
+     */
+    motifsLocked: boolean("motifs_locked").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -278,6 +302,8 @@ export const products = pgTable(
     index("products_status_idx").on(t.status),
     index("products_featured_idx").on(t.featured),
     index("products_brand_idx").on(t.brandName),
+    index("products_colors_gin_idx").using("gin", t.colors),
+    index("products_motifs_gin_idx").using("gin", t.motifs),
   ],
 );
 
@@ -733,6 +759,32 @@ export const socialTokens = pgTable("social_tokens", {
 export type SocialToken = typeof socialTokens.$inferSelect;
 
 /**
+ * pinterest_hygiene_events — audit log for follow drip, board rewrites, and
+ * duplicate-pin deletes. Used to cap follows per UTC day without a second
+ * round-trip to Pinterest.
+ */
+export const pinterestHygieneEvents = pgTable(
+  "pinterest_hygiene_events",
+  {
+    id: serial("id").primaryKey(),
+    /** follow | follow-skip | board-update | board-create | pin-delete */
+    kind: text("kind").notNull(),
+    /** Username, board id, or pin id. */
+    subject: text("subject").notNull(),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("pinterest_hygiene_events_kind_created_idx").on(t.kind, t.createdAt),
+    index("pinterest_hygiene_events_subject_idx").on(t.subject),
+  ],
+);
+
+export type PinterestHygieneEvent = typeof pinterestHygieneEvents.$inferSelect;
+
+/**
  * provenance_events — append-only audit log carried over from the MDM pipeline.
  */
 export const provenanceEvents = pgTable("provenance_events", {
@@ -987,6 +1039,49 @@ export const marketingCampaigns = pgTable(
 
 export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
 
+/**
+ * marketing_send_events — per-inbox log for Club cadence.
+ *
+ * Campaign Studio snapshots a list and Resend delivers the broadcast; this
+ * table is how we know *who* heard from us and *when*, so the next campaign
+ * can honour the 20-hour quiet window and the welcome series can stay
+ * exactly-once. Kinds are marketing-stream only (never receipts / magic links).
+ */
+export const marketingSendEvents = pgTable(
+  "marketing_send_events",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    /** campaign | welcome | welcome-followup | abandoned-cart | review-request */
+    kind: text("kind").notNull(),
+    /**
+     * Idempotency facet inside a kind: campaign UUID, welcome step ("1"|"2"|"3"),
+     * or `order-{id}` for cart/review flows.
+     */
+    stepKey: text("step_key").notNull(),
+    campaignId: text("campaign_id").references(() => marketingCampaigns.id, {
+      onDelete: "set null",
+    }),
+    providerMessageId: text("provider_message_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("marketing_send_events_idempotency_idx").on(
+      t.email,
+      t.kind,
+      t.stepKey,
+    ),
+    index("marketing_send_events_email_sent_idx").on(t.email, t.sentAt),
+    index("marketing_send_events_kind_sent_idx").on(t.kind, t.sentAt),
+    check(
+      "marketing_send_events_kind_check",
+      sql`${t.kind} in ('campaign', 'welcome', 'welcome-followup', 'abandoned-cart', 'review-request')`,
+    ),
+  ],
+);
+
+export type MarketingSendEvent = typeof marketingSendEvents.$inferSelect;
+
 /** Successfully processed Resend webhook ids for replay-safe idempotency. */
 export const resendWebhookEvents = pgTable(
   "resend_webhook_events",
@@ -1015,8 +1110,9 @@ export const resendWebhookEvents = pgTable(
  * count *unique* visitors without third-party fingerprinting.
  *
  * This is the same model used by self-hosted analytics (Plausible, Fathom,
- * Umami): no external tracker, the data stays in our own database, and bots are
- * filtered out at capture time so the numbers reflect real humans.
+ * Umami): no external tracker and the data stays in our own database. Known
+ * crawlers and abuse are filtered at capture and reporting time; no analytics
+ * system should claim that every remaining request is provably human.
  */
 export const pageViews = pgTable(
   "page_views",

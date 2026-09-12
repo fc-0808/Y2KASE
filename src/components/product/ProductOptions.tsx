@@ -3,17 +3,18 @@
 /**
  * PDP variation pickers.
  *
- * A phone case is sold across twelve models and up to six styles. Rendered as
- * one flat wrap of pills — which is what this used to be — that's eighteen
- * tap targets stacked ten rows deep on a phone, pushing Add to Bag off the
- * screen and hiding the fact that Style is what moves the price.
+ * A phone case is sold across the current iPhone lineup and up to six styles.
+ * Rendered as one flat wrap of pills — which is what this used to be — that's
+ * a stack of tap targets that pushes Add to Bag off the screen and hides the
+ * fact that Style is what moves the price.
  *
  * So each axis gets the shape that fits it:
  *
- *  • Model — two tiers. A generation segment (13/14 · 15 · 16 · 17) narrows
- *    twelve choices to three, then a tier row picks base / Pro / Pro Max. The
- *    shopper knows both halves of their answer before they look, so it reads
- *    as two taps rather than a scan of twelve near-identical strings. Moving
+ *  • Model — two tiers. A generation segment (13/14 · 15 · 16 · 17 · 18)
+ *    narrows the lineup to a few SKUs, then a tier row picks base / Pro /
+ *    Pro Max (a generation that ships without a base model simply omits it).
+ *    The shopper knows both halves of their answer before they look, so it
+ *    reads as two taps rather than a scan of near-identical strings. Moving
  *    between generations preserves the tier: a Pro Max owner who taps "16"
  *    lands on iPhone 16 Pro Max, not iPhone 16.
  *
@@ -137,9 +138,8 @@ function tierLabels(models: string[]): string[] {
 
 /**
  * Indexed by how many cards sit in a row — Tailwind needs whole class names,
- * not a computed `grid-cols-${n}`, so every column count this component ever
- * renders (a series' tiers, or the series segment itself) is spelled out here
- * once and shared by both grids below.
+ * not a computed `grid-cols-${n}`, so every column count the tier row (and
+ * generation rows of four or fewer) ever renders is spelled out here.
  */
 const GRID_COLUMNS: Record<number, string> = {
   1: "grid-cols-1",
@@ -147,6 +147,16 @@ const GRID_COLUMNS: Record<number, string> = {
   3: "grid-cols-3",
   4: "grid-cols-4",
 };
+
+/**
+ * Generation chips have to keep growing (15, 16, 17, 18, …) without crowding
+ * "13 / 14" off a phone. Four-or-fewer stay one equal row; five-plus wrap
+ * 3-up on small screens and 5-up from `sm`.
+ */
+function generationGridClass(count: number): string {
+  if (count <= 4) return GRID_COLUMNS[count] ?? "grid-cols-4";
+  return "grid-cols-3 sm:grid-cols-5";
+}
 
 function ModelPicker({ optionId, name, values, value, onSelect }: PickerProps) {
   const labelId = `option-${optionId}-label`;
@@ -172,10 +182,7 @@ function ModelPicker({ optionId, name, values, value, onSelect }: PickerProps) {
         <div
           role="group"
           aria-label="iPhone series"
-          className={cn(
-            "grid gap-2",
-            GRID_COLUMNS[Math.min(groups.length, 4)] ?? "grid-cols-4",
-          )}
+          className={cn("grid gap-2", generationGridClass(groups.length))}
         >
           {groups.map((group) => {
             const isActive = group.id === active.id;

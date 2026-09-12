@@ -498,6 +498,61 @@ async function computeCollectionImagePoolEntries(): Promise<
   return result;
 }
 
+export type StorefrontCollectionLink = {
+  slug: string;
+  name: string;
+  kind: string;
+};
+
+const COLLECTION_LINK_KIND_RANK: Record<string, number> = {
+  character: 0,
+  brand: 1,
+  feature: 2,
+  genre: 3,
+};
+
+/**
+ * Indexable collection landings a PDP should link to — character first, then
+ * brand, MagSafe, genre. Facet URLs stay off this list so we never pass
+ * ranking into a noindex filter.
+ */
+export async function getProductCollectionLinks(
+  productId: number,
+  limit = 5,
+): Promise<StorefrontCollectionLink[]> {
+  const [ids, tree] = await Promise.all([
+    getProductCollectionIds(productId),
+    getCollectionTree(),
+  ]);
+  if (ids.length === 0) return [];
+
+  const wanted = new Set(ids);
+  const found: StorefrontCollectionLink[] = [];
+
+  function walk(nodes: CollectionNode[]): void {
+    for (const node of nodes) {
+      if (wanted.has(node.id) && node.totalCount > 0) {
+        found.push({
+          slug: node.slug,
+          name: node.name,
+          kind: node.kind,
+        });
+      }
+      walk(node.children);
+    }
+  }
+  walk(tree);
+
+  return found
+    .sort((a, b) => {
+      const rank =
+        (COLLECTION_LINK_KIND_RANK[a.kind] ?? 9) -
+        (COLLECTION_LINK_KIND_RANK[b.kind] ?? 9);
+      return rank || a.name.localeCompare(b.name);
+    })
+    .slice(0, limit);
+}
+
 /** Count of products assigned per collection id (active only). */
 export async function getCollectionCounts(): Promise<Map<number, number>> {
   if (!isDbConfigured()) return new Map();

@@ -1,0 +1,101 @@
+export const meta = {
+  title: "How we verify MagSafe on Y2KASE phone cases",
+  description:
+    "The merchandising process behind the MagSafe badge at Y2KASE — photo evidence, a human review queue, and why a title never decides the tag.",
+  excerpt:
+    "MagSafe on Y2KASE is a catalog tag after review, not a word in the title and not Apple certification.",
+  date: "2026-09-06",
+  author: "The Y2KASE Team",
+  tags: ["magsafe", "how we work", "buying guide"],
+  cover: "/brand/hero-2.webp",
+  readingMinutes: 6,
+};
+
+A MagSafe badge on a phone case is a purchase decision: someone will try a
+charger or a wallet and expect it to snap. Getting that wrong is worse than
+leaving the badge off. This is how merchandising at Y2KASE actually files
+MagSafe — the same rules the ingest pipeline and the admin review queue use.
+
+It is **our catalog tag**, not Apple certification. Live counts of how much of
+the shop currently carries that tag are on
+[What's in the catalog](/insights). The shoppable set is
+[MagSafe phone cases](/collections/magsafe).
+
+## The rule we will not break
+
+MagSafe is **not** inferred from the word appearing in a title or description.
+An earlier version of the pipeline asked a writing model to mention MagSafe in
+the title whenever it thought the case was MagSafe, then treated that mention as
+a second "signal." One guess was counted twice. The review queue never fired.
+
+The copy model is now forbidden from writing MagSafe. Wording is applied only
+after a confirmed decision, from a single function, so the flag and the prose
+cannot corroborate each other.
+
+## What counts as evidence
+
+A dedicated photo pass (temperature 0, not the creative copy pass) has to name
+what it saw:
+
+- a **magnet ring** moulded into the back or inside of the case
+- the **word MagSafe** printed on the case, packaging, or listing art
+- a charger, wallet, or stand **snapped on** with no clip or strap
+
+Anything else is treated as no evidence. A boolean "this looks MagSafe" without
+an admissible reason is not enough to badge a live product.
+
+## How a product is routed
+
+Every product is routed to one of three states:
+
+1. **Confirmed** — a human said it is MagSafe (listing spec, operator edit), or
+   the photo pass saw admissible evidence at **high** confidence. Only then do
+   we apply the `magsafe` tag and the MagSafe line in the title and description.
+2. **Review** — plausible but unproven. The product is queued for a human and
+   the **live copy is left unmarked**. Shoppers do not see a MagSafe claim while
+   we are still looking.
+3. **None** — not MagSafe. If we had previously claimed it, we strip the tag and
+   every MagSafe sentence from the title and description.
+
+The bias is **false negatives**. A missed MagSafe case can still be confirmed
+later. A false MagSafe badge is a charger that will not hold.
+
+A provisional flag from the creative pass can send a product to review. It
+cannot confirm MagSafe on its own. With no photo verdict, model output stops at
+the queue.
+
+## What you see on the product
+
+Confirmed products:
+
+- carry the `magsafe` tag
+- appear in [MagSafe phone cases](/collections/magsafe)
+- get a title suffix and a description line that they snap to MagSafe chargers
+  and accessories
+
+If we later dismiss or veto a product, we remove the tag **and** every MagSafe
+claim in the copy — not only the suffix we added. Leaving a mid-sentence
+mention would keep advertising a feature we had just decided the case does not
+have.
+
+## Chargers, wallets, grips, charms
+
+- **Chargers and wallets.** A tagged case has the ring those accessories use.
+  Third-party pull strength still varies. Unmarked cases should not be expected
+  to hold a MagSafe charger or wallet.
+- **Grips.** Some styles include a MagSafe-compatible pop grip. That is a
+  product option, not a reason to tag an unmarked case.
+- **Charms.** Charms clip on. They are not MagSafe. See
+  [how to style phone charms](/blog/how-to-style-phone-charms).
+
+Fit is still iPhone 13 through iPhone 18, including Pro and Pro Max — pick the
+model on the [iPhone cases](/devices/iphone) product page.
+
+## Why this page exists
+
+Search advice often wants "original data." Inventing a lab test or a survey
+would be a worse page than this one. The original fact here is operational: how
+this shop decides the badge you see. If you want the current split of tagged vs
+untagged SKUs, that is a live query on
+[What's in the catalog](/insights), not a round number we typed into a blog
+post.

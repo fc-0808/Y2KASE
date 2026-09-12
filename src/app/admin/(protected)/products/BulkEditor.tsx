@@ -661,7 +661,7 @@ function ModelAvailabilityPicker({
         </button>
       </div>
 
-      <div className="mt-2.5 grid grid-cols-2 gap-2">
+      <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {IPHONE_GENERATIONS.map((gen) => {
           const have = gen.models.filter((m) => set.has(m)).length;
           const allOn = have === gen.models.length;

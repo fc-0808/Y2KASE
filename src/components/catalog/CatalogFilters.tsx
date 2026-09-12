@@ -3,11 +3,12 @@
 /**
  * CatalogFilters — the storefront's faceted browse controls.
  *
- * Two facets, because those are the two questions a shopper actually arrives
- * with: *will it work with my charger* (compatibility) and *whose face is on
- * it* (brand). Everything else the catalog can express — device, tag, free text
- * — already has a better entry point (the nav, the PDP, the search box), and
- * duplicating them here is what turned this bar into a wall of pills.
+ * Four facets, because those are the four questions a shopper actually
+ * arrives with: *will it work with my charger* (compatibility), *whose face is
+ * on it* (brand / character), *what's on it* (theme / motif) and *what colour
+ * is it* (color). Everything else the catalog can express — device, tag, free
+ * text — already has a better entry point (the nav, the PDP, the search box),
+ * and duplicating them here is what turned this bar into a wall of pills.
  *
  * The second facet is a vocabulary, not a fixed list: `/products` fills it with
  * top-level brands (and nests their stocked characters underneath), while a
@@ -18,11 +19,23 @@
  * it: `?brand=sanrio&brand=hello-kitty` would still return all of Sanrio,
  * because brands are OR-ed. Narrowing to Hello Kitty is `?brand=hello-kitty`.
  *
+ * Color is a closed family list (`?color=pink&color=blue`) with OR-within
+ * semantics, so a shopper who will take pink *or* blue does not have to run
+ * two searches. Families, not raw names: "navy" and "sky" both tick Blue.
+ *
+ * Theme is the same shape for what is *depicted* (`?motif=puppy&motif=clouds`):
+ * the browse path for products that have no licensed character, and a useful
+ * narrowing inside a brand ("Hello Kitty, but bows").
+ *
  * ── Why it looks the way it does ────────────────────────────────────────────
  *  - Compatibility is single-select (a case is MagSafe or it isn't) and so is
- *    rendered as radios that commit and close. Brands are multi-select and stay
- *    open, so picking three brands is three clicks rather than three round
- *    trips through the menu.
+ *    rendered as radios that commit and close. Brands, themes and colors are
+ *    multi-select and stay open, so picking three values is three clicks
+ *    rather than three round trips through the menu.
+ *  - Color is a *visual* facet (Baymard: use visual filters for visually
+ *    distinct attributes). Each option is a swatch plus a label plus a count,
+ *    never a color-only control — labels keep it usable for color-blind
+ *    shoppers and for screen readers.
  *  - The controls are real <input type="radio"|"checkbox"> elements inside
  *    <label>s. Native semantics give us arrow-key navigation within the radio
  *    group, Space to toggle, correct screen-reader announcements and form
@@ -34,10 +47,10 @@
  *
  * ── State ───────────────────────────────────────────────────────────────────
  * The URL is the state; this component only reads `params` and pushes new URLs.
- * Brand toggles are wrapped in `useOptimistic` so a checkbox flips on the same
- * frame it is clicked while the server re-renders the grid behind it, and the
- * optimistic value falls back to the URL automatically if that navigation is
- * superseded.
+ * Brand, theme and color toggles are wrapped in `useOptimistic` so a checkbox flips
+ * on the same frame it is clicked while the server re-renders the grid behind
+ * it, and the optimistic value falls back to the URL automatically if that
+ * navigation is superseded.
  */
 
 import {
@@ -51,9 +64,18 @@ import {
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown } from "lucide-react";
 import { MAGSAFE_FACETS } from "@/lib/catalog/magsafe";
+import {
+  COLOR_FAMILIES,
+  type ColorFamilySlug,
+} from "@/lib/catalog/colors";
+import {
+  MOTIF_FAMILIES,
+  type MotifFamilySlug,
+} from "@/lib/catalog/motifs";
 import { cn } from "@/lib/utils";
 import { buildCatalogHref, type CatalogParams } from "@/lib/catalog/params";
 import { type BrandOption, brandOptionName } from "./brand-options";
+import { ColorSwatch } from "./ColorSwatch";
 
 export type { BrandOption } from "./brand-options";
 
@@ -61,9 +83,11 @@ export type { BrandOption } from "./brand-options";
 export type FacetCounts = {
   magsafe: { on: number; off: number };
   brands: Record<string, number>;
+  colors: Record<string, number>;
+  motifs: Record<string, number>;
 };
 
-type OpenFacet = "compatibility" | "brands" | null;
+type OpenFacet = "compatibility" | "brands" | "motifs" | "colors" | null;
 
 /** Every slug that belongs to this brand's checkbox group (parent + children). */
 function treeSlugs(brand: BrandOption): string[] {
@@ -85,6 +109,8 @@ export function CatalogFilters({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [selectedBrands, setSelectedBrands] = useOptimistic(params.brands);
+  const [selectedColors, setSelectedColors] = useOptimistic(params.colors);
+  const [selectedMotifs, setSelectedMotifs] = useOptimistic(params.motifs);
   const [open, setOpen] = useState<OpenFacet>(null);
   // Character trees are closed by default. These two sets capture only the
   // shopper's explicit toggles — selection-driven auto-open is derived below,
@@ -148,6 +174,8 @@ export function CatalogFilters({
   function navigate(overrides: Partial<CatalogParams>) {
     startTransition(() => {
       if (overrides.brands !== undefined) setSelectedBrands(overrides.brands);
+      if (overrides.colors !== undefined) setSelectedColors(overrides.colors);
+      if (overrides.motifs !== undefined) setSelectedMotifs(overrides.motifs);
       // `scroll: false` — the filter bar sits at the top of the page, so the
       // shopper is already where the new results will appear; jumping would
       // only yank the open menu out from under the cursor.
@@ -215,6 +243,22 @@ export function CatalogFilters({
     navigate({ brands: [...without, ...next] });
   }
 
+  function toggleColor(slug: ColorFamilySlug) {
+    navigate({
+      colors: selectedColors.includes(slug)
+        ? selectedColors.filter((s) => s !== slug)
+        : [...selectedColors, slug],
+    });
+  }
+
+  function toggleMotif(slug: MotifFamilySlug) {
+    navigate({
+      motifs: selectedMotifs.includes(slug)
+        ? selectedMotifs.filter((s) => s !== slug)
+        : [...selectedMotifs, slug],
+    });
+  }
+
   const compatibilityLabel =
     MAGSAFE_FACETS.find((facet) => facet.magsafe === params.magsafe)?.label ??
     "Compatibility";
@@ -229,6 +273,32 @@ export function CatalogFilters({
   const selectedTreeCount = brands.filter((brand) =>
     treeSlugs(brand).some((s) => selectedBrands.includes(s)),
   ).length;
+
+  const selectedColorFamilies = COLOR_FAMILIES.filter((family) =>
+    selectedColors.includes(family.slug),
+  );
+  const colorTriggerLabel =
+    selectedColorFamilies.length === 1
+      ? selectedColorFamilies[0]!.label
+      : "Color";
+  // Hide the facet entirely until at least one product in this view has a
+  // colour — an empty Color menu on an unclassified catalogue is worse than
+  // no menu. A selected value still shows, so a stale bookmark remains
+  // recoverable.
+  const colorFacetVisible =
+    selectedColors.length > 0 ||
+    COLOR_FAMILIES.some((family) => (counts.colors[family.slug] ?? 0) > 0);
+
+  const selectedMotifFamilies = MOTIF_FAMILIES.filter((family) =>
+    selectedMotifs.includes(family.slug),
+  );
+  const motifTriggerLabel =
+    selectedMotifFamilies.length === 1
+      ? selectedMotifFamilies[0]!.label
+      : "Theme";
+  const motifFacetVisible =
+    selectedMotifs.length > 0 ||
+    MOTIF_FAMILIES.some((family) => (counts.motifs[family.slug] ?? 0) > 0);
 
   return (
     <div
@@ -407,6 +477,111 @@ export function CatalogFilters({
           )}
         </div>
       )}
+
+      {motifFacetVisible && (
+        <div className="sm:relative">
+          <FacetTrigger
+            panelId={`${facetId}-motifs`}
+            label={motifTriggerLabel}
+            badge={selectedMotifs.length > 1 ? selectedMotifs.length : 0}
+            active={selectedMotifs.length > 0}
+            expanded={open === "motifs"}
+            onToggle={() =>
+              setOpen(open === "motifs" ? null : "motifs")
+            }
+          />
+          {open === "motifs" && (
+            <FacetPanel
+              id={`${facetId}-motifs`}
+              busy={isPending}
+              className="sm:w-80"
+            >
+              <fieldset>
+                <legend className="sr-only">Theme</legend>
+                {MOTIF_FAMILIES.map((family) => {
+                  const count = counts.motifs[family.slug] ?? 0;
+                  const checked = selectedMotifs.includes(family.slug);
+                  if (count === 0 && !checked) return null;
+                  return (
+                    <OptionRow
+                      key={family.slug}
+                      type="checkbox"
+                      label={family.label}
+                      count={count}
+                      checked={checked}
+                      disabled={count === 0 && !checked}
+                      onSelect={() => toggleMotif(family.slug)}
+                      compact
+                    />
+                  );
+                })}
+              </fieldset>
+              {selectedMotifs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigate({ motifs: [] })}
+                  className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-[var(--primary)] transition hover:bg-[var(--muted)]"
+                >
+                  Clear themes
+                </button>
+              )}
+            </FacetPanel>
+          )}
+        </div>
+      )}
+
+      {colorFacetVisible && (
+        <div className="sm:relative">
+          <FacetTrigger
+            panelId={`${facetId}-colors`}
+            label={colorTriggerLabel}
+            badge={selectedColors.length > 1 ? selectedColors.length : 0}
+            active={selectedColors.length > 0}
+            expanded={open === "colors"}
+            onToggle={() =>
+              setOpen(open === "colors" ? null : "colors")
+            }
+          />
+          {open === "colors" && (
+            <FacetPanel
+              id={`${facetId}-colors`}
+              busy={isPending}
+              className="sm:w-80"
+            >
+              <fieldset>
+                <legend className="sr-only">Color</legend>
+                {COLOR_FAMILIES.map((family) => {
+                  const count = counts.colors[family.slug] ?? 0;
+                  const checked = selectedColors.includes(family.slug);
+                  if (count === 0 && !checked) return null;
+                  return (
+                    <OptionRow
+                      key={family.slug}
+                      type="checkbox"
+                      label={family.label}
+                      count={count}
+                      checked={checked}
+                      disabled={count === 0 && !checked}
+                      onSelect={() => toggleColor(family.slug)}
+                      compact
+                      swatch={<ColorSwatch family={family} size="md" />}
+                    />
+                  );
+                })}
+              </fieldset>
+              {selectedColors.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => navigate({ colors: [] })}
+                  className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-bold text-[var(--primary)] transition hover:bg-[var(--muted)]"
+                >
+                  Clear colors
+                </button>
+              )}
+            </FacetPanel>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -467,10 +642,12 @@ function FacetTrigger({
 function FacetPanel({
   id,
   busy,
+  className,
   children,
 }: {
   id: string;
   busy: boolean;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -482,6 +659,7 @@ function FacetPanel({
         "shadow-[0_24px_60px_-24px_rgba(120,60,120,0.55)] sm:right-auto sm:w-72",
         "max-h-[min(60vh,24rem)] overflow-y-auto overscroll-contain",
         busy && "opacity-60",
+        className,
       )}
     >
       {children}

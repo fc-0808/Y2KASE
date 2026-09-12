@@ -8,12 +8,13 @@
  *
  *   - At most one Instagram post per UTC day (env-capped at 2).
  *   - One media type per run — Reel if the listing still has a video, otherwise
- *     a carousel of real catalog photos. Never both the same day.
+ *     a feed tile. Never both the same day.
  *   - Coverage-first product order: SKUs with zero Instagram posts go out
- *     before a second-pass carousel of something already shown. The grid fills
- *     with assortment, not the same case twice.
- *   - AI writes the caption. AI never becomes the image. Publishing always
- *     uses the catalog gallery / product video (see publish.ts).
+ *     before a second-pass of something already shown.
+ *   - Feed tiles follow the fashion mix in instagram-fashion.ts (look / still /
+ *     graphic / world / detail) so the grid reads as a magazine, not a catalog.
+ *   - Cron auto-publish still uses catalog gallery / product video (trust +
+ *     Meta policies). Fashion stills are generated on the manual desk.
  *
  * Facebook gets the same piece of content the same day (cross-post). Dedup is
  * still keyed by (productId, platform, mediaType) on `social_creatives`.
@@ -50,9 +51,19 @@ import {
   instagramPhase,
   instagramPostsPerDay,
   planInstagramSlot,
+  sanitizeInstagramHashtags,
   type InstagramAccountPhase,
   type InstagramMediaType,
 } from "@/lib/social/instagram-strategy";
+import {
+  buildFashionLookBrief,
+  describeFashionBrief,
+  fashionFeedMediaType,
+  fashionGridPreview,
+  fashionPillarAt,
+  type FashionLookBrief,
+  type FashionPillar,
+} from "@/lib/social/instagram-fashion";
 
 export type MetaPlatform = "instagram" | "facebook";
 type MetaMediaType = "carousel" | "video";
@@ -230,6 +241,15 @@ async function countIgPostedToday(): Promise<number> {
   return rows<{ n: number }>(res)[0]?.n ?? 0;
 }
 
+export async function countPublishedInstagramPosts(): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const res = await db.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM social_creatives
+    WHERE platform = 'instagram' AND status = 'published'
+  `);
+  return rows<{ n: number }>(res)[0]?.n ?? 0;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Coverage
 // ─────────────────────────────────────────────────────────────────────────────
@@ -389,6 +409,7 @@ export type InstagramDeskSlot = {
   videoUrl: string | null;
   plannedMediaType: InstagramMediaType;
   plannedReason: string;
+  fashion: FashionLookBrief;
 };
 
 export type InstagramDesk = {
@@ -400,6 +421,7 @@ export type InstagramDesk = {
   remainingProducts: number;
   phase: InstagramAccountPhase;
   bootstrapRemaining: number;
+  mix: FashionPillar[];
 };
 
 /**
@@ -419,6 +441,7 @@ export async function getInstagramDesk(): Promise<InstagramDesk> {
     remainingProducts: 0,
     phase: "bootstrap",
     bootstrapRemaining: bootstrapRemaining(0),
+    mix: fashionGridPreview(0),
   };
   if (!isDbConfigured()) return empty;
 
@@ -437,33 +460,27 @@ export async function getInstagramDesk(): Promise<InstagramDesk> {
   const remainingProducts = stats?.remaining ?? 0;
   const phase = instagramPhase(igPosts);
   const remainingBootstrap = bootstrapRemaining(igPosts);
+  const mix = fashionGridPreview(igPosts);
+
+  const base = {
+    slotUsedToday,
+    igPostedToday,
+    igPostsPerDay,
+    igPosts,
+    remainingProducts,
+    phase,
+    bootstrapRemaining: remainingBootstrap,
+    mix,
+  };
 
   const productId = await getNextProductId(["instagram"]);
   if (!productId) {
-    return {
-      slot: null,
-      slotUsedToday,
-      igPostedToday,
-      igPostsPerDay,
-      igPosts,
-      remainingProducts,
-      phase,
-      bootstrapRemaining: remainingBootstrap,
-    };
+    return { slot: null, ...base };
   }
 
   const gallery = await getProductGallery(productId);
   if (!gallery) {
-    return {
-      slot: null,
-      slotUsedToday,
-      igPostedToday,
-      igPostsPerDay,
-      igPosts,
-      remainingProducts,
-      phase,
-      bootstrapRemaining: remainingBootstrap,
-    };
+    return { slot: null, ...base };
   }
 
   const photos = gallery.photos
@@ -482,6 +499,18 @@ export async function getInstagramDesk(): Promise<InstagramDesk> {
     dailyCap: igPostsPerDay,
   });
 
+  const fashion = buildFashionLookBrief({
+    publishedCount: igPosts,
+    mediaType: fashionFeedMediaType({
+      pillar: fashionPillarAt(igPosts),
+      catalogMediaType: plan.action === "post" ? plan.mediaType : "carousel",
+    }),
+    productTitle: gallery.title,
+    tags: gallery.tags,
+    characterName: gallery.characterName,
+    brandName: gallery.brandName,
+  });
+
   const slot: InstagramDeskSlot | null =
     plan.action === "post"
       ? {
@@ -491,37 +520,60 @@ export async function getInstagramDesk(): Promise<InstagramDesk> {
           coverUrl: photos[0] ?? null,
           photoUrls: photos,
           videoUrl: gallery.videoUrl,
-          plannedMediaType: plan.mediaType,
-          plannedReason: describeSlot(plan),
+          plannedMediaType:
+            fashion.assetSource === "reel" ? "video" : "carousel",
+          plannedReason: describeFashionBrief(fashion),
+          fashion,
         }
       : null;
 
-  return {
-    slot,
-    slotUsedToday,
-    igPostedToday,
-    igPostsPerDay,
-    igPosts,
-    remainingProducts,
-    phase,
-    bootstrapRemaining: remainingBootstrap,
-  };
+  return { slot, ...base };
 }
 
 export async function prepareInstagramCaption(productId: number): Promise<{
   caption: string;
   hashtags: string[];
+  overlay?: string;
+  pillar?: FashionPillar;
 }> {
   const gallery = await getProductGallery(productId);
   if (!gallery) throw new Error("Product not found.");
-  const copy = await generateListingCopy(gallery);
+  const igPosts = await countPublishedInstagramPosts();
+  const posted = await getPostedMedia(gallery.id, "instagram");
+  const hasPhotos = gallery.photos.some((p) => /^https?:\/\//.test(p.url));
+  const plan = planInstagramSlot({
+    hasPhotos,
+    hasVideo: Boolean(gallery.videoUrl),
+    photosPosted: posted.carousel,
+    videoPosted: posted.video,
+    igPostedToday: 0,
+    dailyCap: 1,
+  });
+  const brief = buildFashionLookBrief({
+    publishedCount: igPosts,
+    mediaType: fashionFeedMediaType({
+      pillar: fashionPillarAt(igPosts),
+      catalogMediaType: plan.action === "post" ? plan.mediaType : "carousel",
+    }),
+    productTitle: gallery.title,
+    tags: gallery.tags,
+    characterName: gallery.characterName,
+    brandName: gallery.brandName,
+  });
+  const copy = await generateListingCopy(gallery, brief);
   return {
     caption: buildInstagramCaption({
       caption: copy.caption,
       hashtags: copy.hashtags,
       productTitle: gallery.title,
+      pillar: brief.pillar,
+      characterName: gallery.characterName,
+      brandName: gallery.brandName,
+      tags: gallery.tags,
     }),
     hashtags: copy.hashtags,
+    overlay: brief.overlay,
+    pillar: brief.pillar,
   };
 }
 
@@ -530,6 +582,8 @@ export async function recordManualInstagramPost(input: {
   mediaType: MetaMediaType;
   caption: string;
   hashtags: string[];
+  imageUrl?: string | null;
+  preset?: string | null;
 }): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
   if (!isDbConfigured()) return { ok: false, error: "Database is not configured." };
 
@@ -542,32 +596,60 @@ export async function recordManualInstagramPost(input: {
   if (!gallery) return { ok: false, error: "Product not found." };
 
   const photos = gallery.photos.filter((p) => /^https?:\/\//.test(p.url));
+  const fashionUrl =
+    input.imageUrl && /^https?:\/\//.test(input.imageUrl.trim())
+      ? input.imageUrl.trim()
+      : null;
   const posted = await getPostedMedia(gallery.id, "instagram");
   if (input.mediaType === "video") {
     if (!gallery.videoUrl) return { ok: false, error: "This listing has no video." };
     if (posted.video) return { ok: false, error: "This Reel is already recorded." };
   } else {
-    if (photos.length === 0) return { ok: false, error: "This listing has no photos." };
+    if (photos.length === 0 && !fashionUrl) {
+      return { ok: false, error: "This listing has no photos." };
+    }
     if (posted.carousel) return { ok: false, error: "This carousel is already recorded." };
   }
 
-  const cover = photos[0]?.url ?? "";
+  const igPosts = await countPublishedInstagramPosts();
+  const brief = buildFashionLookBrief({
+    publishedCount: igPosts,
+    mediaType: input.mediaType,
+    productTitle: gallery.title,
+    tags: gallery.tags,
+    characterName: gallery.characterName,
+    brandName: gallery.brandName,
+  });
+  const cover = fashionUrl ?? photos[0]?.url ?? "";
   const caption = buildInstagramCaption({
     caption: input.caption,
     hashtags: input.hashtags,
     productTitle: gallery.title,
+    pillar: brief.pillar,
+    characterName: gallery.characterName,
+    brandName: gallery.brandName,
+    tags: gallery.tags,
   });
+  const preset =
+    input.preset?.trim() ||
+    (input.mediaType === "video"
+      ? PRODUCT_VIDEO_PRESET
+      : fashionUrl
+        ? brief.preset
+        : PRODUCT_PHOTO_PRESET);
 
   const id = await insertCreative({
     productId: gallery.id,
     productTitle: gallery.title,
     productSlug: gallery.slug,
-    preset: input.mediaType === "video" ? PRODUCT_VIDEO_PRESET : PRODUCT_PHOTO_PRESET,
+    preset,
     platform: "instagram",
     mediaType: input.mediaType,
     imageUrl: cover,
     videoUrl: input.mediaType === "video" ? gallery.videoUrl : null,
-    prompt: "(manual Instagram post — real catalog media, posted in the app)",
+    prompt: fashionUrl
+      ? `FASHION:${brief.pillar} overlay:${brief.overlay}`
+      : `(manual Instagram post — ${brief.pillar} — catalog media, posted in the app)`,
     caption,
     hashtags: input.hashtags,
     model: MANUAL_POST_MODEL,
@@ -768,7 +850,9 @@ export async function runMetaAutopost(
 
 async function generateListingCopy(
   gallery: ProductGallery,
+  brief?: FashionLookBrief,
 ): Promise<{ caption: string; hashtags: string[] }> {
+  const pillar = brief?.pillar ?? "look";
   if (isCaptionGenConfigured()) {
     try {
       const generated = await generateCaption({
@@ -777,14 +861,33 @@ async function generateListingCopy(
         description: gallery.description,
         tags: gallery.tags,
         platform: "instagram",
-        preset: PRODUCT_PHOTO_PRESET,
+        preset: brief?.preset ?? PRODUCT_PHOTO_PRESET,
+        extra: brief
+          ? `Pillar ${brief.pillar}: ${brief.shoot} Overlay: ${brief.overlay}`
+          : undefined,
+        pillar,
+        characterName: gallery.characterName,
+        brandName: gallery.brandName,
       });
-      return { caption: generated.caption, hashtags: generated.hashtags };
+      return {
+        caption: generated.caption,
+        hashtags: sanitizeInstagramHashtags([
+          ...(brief?.hashtags ?? []),
+          ...generated.hashtags,
+        ]),
+      };
     } catch (err) {
       console.error("[meta-autopost] caption generation failed:", err);
     }
   }
-  return { caption: fallbackInstagramCaption(gallery.title), hashtags: [] };
+  return {
+    caption: fallbackInstagramCaption(gallery.title, pillar, {
+      characterName: gallery.characterName,
+      brandName: gallery.brandName,
+      tags: gallery.tags,
+    }),
+    hashtags: sanitizeInstagramHashtags(brief?.hashtags ?? []),
+  };
 }
 
 async function publishSlot(opts: {
@@ -794,7 +897,16 @@ async function publishSlot(opts: {
   result: MetaAutopostResult;
 }): Promise<{ posted: number; postedInstagram: boolean }> {
   const { gallery, platforms, mediaType, result } = opts;
-  const copy = await generateListingCopy(gallery);
+  const igPosts = await countPublishedInstagramPosts();
+  const brief = buildFashionLookBrief({
+    publishedCount: igPosts,
+    mediaType,
+    productTitle: gallery.title,
+    tags: gallery.tags,
+    characterName: gallery.characterName,
+    brandName: gallery.brandName,
+  });
+  const copy = await generateListingCopy(gallery, brief);
   let posted = 0;
   let postedInstagram = false;
 

@@ -60,7 +60,18 @@ export default async function BlogIndexPage() {
         </h1>
         <p className="mt-3 text-[var(--foreground)]/70">
           Everything you need to style your phone like a main character —
-          straight from the Y2KASE team. ✨
+          straight from the Y2KASE team. ✨ First-party catalog counts live on{" "}
+          <Link href="/insights" className="font-semibold text-[var(--primary)]">
+            What&apos;s in the catalog
+          </Link>
+          . How we actually badge MagSafe is in{" "}
+          <Link
+            href="/blog/how-we-verify-magsafe"
+            className="font-semibold text-[var(--primary)]"
+          >
+            How we verify MagSafe
+          </Link>
+          .
         </p>
       </header>
 

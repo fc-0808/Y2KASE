@@ -28,13 +28,23 @@ import {
   runMetaAutopostNow,
 } from "./actions";
 
+const nextRunTimeFmt = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+const nextRunDayFmt = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+});
+
 function formatNextRun(iso: string): string {
   const then = new Date(iso);
   const hours = Math.max(0, Math.round((then.getTime() - Date.now()) / 3_600_000));
-  const time = then.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = nextRunTimeFmt.format(then);
   if (hours <= 0) return `today · ${time}`;
   if (hours < 24) return `${time} · in ${hours}h`;
-  return `${then.toLocaleDateString([], { month: "short", day: "numeric" })} · ${time}`;
+  return `${nextRunDayFmt.format(then)} · ${time}`;
 }
 
 export function MetaAutopostPanel({
@@ -135,8 +145,9 @@ export function MetaAutopostPanel({
               </span>
             </h3>
             <p className="mt-0.5 text-xs text-[var(--foreground)]/55">
-              One real post/day from catalog photos or the product video. AI
-              writes the caption — it never becomes the image.
+              Graph API still publishes catalog media (trust + Meta policy).
+              Fashion stills live on the pack above — generate, post in the
+              app, mark recorded. Captions are fashion-editorial either way.
             </p>
             {isConnected && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -245,7 +256,7 @@ export function MetaAutopostPanel({
                 : nextPreview.plannedMediaType === "video"
                   ? "Today's slot: Reel"
                   : nextPreview.plannedMediaType === "carousel"
-                    ? "Today's slot: photo carousel"
+                    ? "Today's slot: fashion feed tile"
                     : `${nextPreview.photoCount} photo${nextPreview.photoCount === 1 ? "" : "s"}`}
               {nextPreview.hasVideo && nextPreview.plannedMediaType !== "video"
                 ? " · video saved for a later Reel"
@@ -306,8 +317,8 @@ export function MetaAutopostPanel({
           {connected.includes("instagram") && (
             <p className="mt-3 text-[11px] text-[var(--foreground)]/50">
               {phase === "bootstrap"
-                ? `Grid bootstrap: ${igPosts} / 12 posts. Fill the first 3×4 with real product Reels and carousels before worrying about volume.`
-                : `Sustain cadence: ${igPostsPerDay} real post/day. Stories, UGC, and comments still need a human.`}
+                ? `Grid bootstrap: ${igPosts} / 12 posts. Fill the first 3×4 with the fashion mix (look / still / graphic / world / detail) before raising volume.`
+                : `Sustain cadence: ${igPostsPerDay} fashion tile/day. Stories, UGC, and comments still need a human.`}
               {bootstrapRemaining > 0 && phase === "bootstrap"
                 ? ` ${bootstrapRemaining} to go.`
                 : ""}

@@ -37,6 +37,11 @@ import {
   styleTagsFor,
   stylesForAddons,
   IPHONE_MODELS,
+  IPHONE_GENERATIONS,
+  IPHONE_FIT,
+  defaultModelFor,
+  extendModelsWithGeneration,
+  summarizeModels,
 } from "../src/lib/pricing";
 import {
   auditListingTitle,
@@ -199,6 +204,8 @@ test("accepts well-formed English copy unchanged", () => {
   assert.deepEqual(repaired, []);
   assert.equal(copy.title, GOOD_COPY.title);
   assert.equal(copy.suggestedPriceUsd, 24.5);
+  assert.deepEqual(copy.colors, []);
+  assert.deepEqual(copy.motifs, []);
 });
 
 test("blocks a Chinese title instead of persisting it", () => {
@@ -268,6 +275,22 @@ test("clamps an absurd suggested price", () => {
       .suggestedPriceUsd,
     1,
   );
+});
+
+test("coerces model colors onto the closed family list", () => {
+  const { copy } = coerceProductCopy({
+    ...GOOD_COPY,
+    colors: ["Navy", "pink", "chartreuse", "clear"],
+  });
+  assert.deepEqual(copy.colors, ["pink", "blue", "clear"]);
+});
+
+test("coerces model motifs onto the closed family list", () => {
+  const { copy } = coerceProductCopy({
+    ...GOOD_COPY,
+    motifs: ["Puppy", "clouds", "chartreuse", "bows"],
+  });
+  assert.deepEqual(copy.motifs, ["puppy", "clouds", "bows"]);
 });
 
 // ── MagSafe decision table ──────────────────────────────────────────────────
@@ -795,7 +818,9 @@ test("alias input is split, trimmed and de-duplicated", () => {
 // advertising an iPhone generation the product is not sold for, and a title
 // that never names the character the product is classified as.
 
-const CASE_15_TO_17 = IPHONE_MODELS.filter((m) => !m.includes("14"));
+const CASE_15_TO_17 = IPHONE_GENERATIONS.filter((g) =>
+  g.id === "15" || g.id === "16" || g.id === "17",
+).flatMap((g) => g.models);
 
 /**
  * A product whose classification is corroborated by its own source folder —
@@ -820,9 +845,39 @@ test("device coverage is derived from the models actually sold", () => {
   assert.equal(
     deviceCoveragePhrase([...IPHONE_MODELS]),
     // The 13/14 mould fits both phones, so both numerals may be claimed.
-    "iPhone 17 16 15 14 13 Pro Max",
+    "iPhone 18 17 16 15 14 13 Pro Max",
   );
   assert.equal(deviceCoveragePhrase([]), null);
+  assert.equal(
+    deviceCoveragePhrase(["iPhone 18 Pro", "iPhone 18 Pro Max"]),
+    "iPhone 18 Pro Max",
+  );
+  assert.equal(deviceCoveragePhrase(["iPhone 18 Pro"]), "iPhone 18 Pro");
+});
+
+test("iPhone 18 Pro and Pro Max are first-class catalogue SKUs", () => {
+  const gen18 = IPHONE_GENERATIONS.find((g) => g.id === "18");
+  assert.ok(gen18, "generation 18 must exist");
+  assert.deepEqual(gen18.models, ["iPhone 18 Pro", "iPhone 18 Pro Max"]);
+  assert.ok(IPHONE_MODELS.includes("iPhone 18 Pro"));
+  assert.ok(IPHONE_MODELS.includes("iPhone 18 Pro Max"));
+  // The 18 lineup in this catalogue is Pro / Pro Max only.
+  assert.equal(
+    (IPHONE_MODELS as readonly string[]).includes("iPhone 18"),
+    false,
+  );
+  assert.equal(IPHONE_FIT.oldest, "13");
+  assert.equal(IPHONE_FIT.newest, "18");
+  assert.match(IPHONE_FIT.through, /iPhone 13 through iPhone 18/);
+  assert.equal(summarizeModels([...IPHONE_MODELS]), "All models");
+  assert.equal(defaultModelFor([...IPHONE_MODELS]), "iPhone 18 Pro");
+  assert.equal(defaultModelFor(CASE_15_TO_17), "iPhone 17");
+  assert.deepEqual(
+    extendModelsWithGeneration(CASE_15_TO_17, "18"),
+    [...CASE_15_TO_17, "iPhone 18 Pro", "iPhone 18 Pro Max"],
+  );
+  const once = extendModelsWithGeneration(CASE_15_TO_17, "18");
+  assert.deepEqual(extendModelsWithGeneration(once, "18"), once);
 });
 
 test("the Pro / Pro Max qualifier is only claimed when every generation has it", () => {
@@ -849,7 +904,7 @@ test("a false device claim is reported as an error", () => {
     phoneCase(),
   );
   const overclaim = issues.find((i) => i.code === "device_overclaim");
-  assert.ok(overclaim, "iPhone 18 does not exist and 13 is not sold");
+  assert.ok(overclaim, "13 and 18 are not on a 15–17 mould");
   assert.equal(overclaim.severity, "error");
 });
 

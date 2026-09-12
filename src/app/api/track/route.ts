@@ -1,73 +1,51 @@
 /**
  * POST /api/track — first-party visitor analytics beacon.
  *
- * The client (`<VisitorTracker />`) sends `{ path, referrer }` on each page
- * view. The server is the source of truth for everything sensitive/spoofable:
- * it derives the real client IP and approximate geolocation from the edge
- * headers Vercel injects, classifies the device from the User-Agent, and
- * stamps the event with a first-party visitor cookie used for unique counts.
+ * The client (`<VisitorTracker />`) sends a small same-origin beacon on each
+ * page view. The server is the source of truth for everything sensitive or
+ * spoofable: it validates browser context, filters network/automation signals,
+ * derives edge geolocation, and requires a signed first-party visitor-cookie
+ * round trip before a view can enter unique-visitor reporting.
  *
  * Returns 204 No Content. Analytics must never affect the user experience, so
  * every failure mode degrades silently.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { getSession } from "@/lib/auth";
 import { parseUserAgent, recordPageView } from "@/lib/analytics";
+import {
+  analyticsFingerprintKey,
+  analyticsNetworkKey,
+  analyticsRequestRejection,
+  automationRejection,
+  isExcludedAnalyticsIp,
+  isValidVisitorId,
+  normalizeClientIp,
+} from "@/lib/analytics/bot-defense";
 import { isTrackablePath } from "@/lib/analytics/paths";
+import {
+  ANALYTICS_VISITOR_COOKIE,
+  ANALYTICS_VISITOR_PROOF_COOKIE,
+  ANALYTICS_VISITOR_SEEDED_HEADER,
+  ANALYTICS_VISITOR_SEEDED_VALUE,
+  MAX_ANALYTICS_REQUEST_BYTES,
+  type AnalyticsBeaconPayload,
+} from "@/lib/analytics/protocol";
+import {
+  createVisitorProof,
+  verifyVisitorProof,
+} from "@/lib/analytics/visitor-cookie";
 import { QA_EXCLUSION_COOKIE } from "@/lib/preview/visitor-state";
 import { hit } from "@/lib/rate-limit";
 
-/** First-party cookie holding the anonymous visitor id. */
-const VISITOR_COOKIE = "y2k_vid";
+export const runtime = "nodejs";
+
 const ONE_YEAR = 60 * 60 * 24 * 365;
 const SESSION_COOKIES = [
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Known crawler IP prefixes (first two octets).
-//
-// Google's JavaScript Rendering Service sends a real Chrome User-Agent so it
-// bypasses User-Agent-based bot detection. The only reliable signal is the
-// source IP, which always falls within Google's published ASN ranges.
-// Bing, Meta, and other major crawlers are listed for the same reason.
-// Format: "A.B." matches any IP starting with that prefix.
-// ---------------------------------------------------------------------------
-const CRAWLER_IP_PREFIXES: readonly string[] = [
-  // Google (Googlebot + Rendering Service + Ads + APIs)
-  "66.249.", // Primary Googlebot range (most common)
-  "64.233.",
-  "66.102.",
-  "72.14.",
-  "74.125.",
-  "209.85.",
-  "216.58.",
-  "216.239.",
-  "35.191.", // Google Cloud / health checks
-  "130.211.", // Google Cloud load balancer
-  // Bing / Microsoft
-  "40.77.",
-  "157.55.",
-  "207.46.",
-  "65.52.",
-  "199.30.",
-  // Meta (Facebook crawler, Instagram)
-  "66.220.",
-  "69.63.",
-  "69.171.",
-  "173.252.",
-  // Apple (Applebot)
-  "17.0.",
-  "17.172.",
-  "17.253.",
-];
-
-/** Returns true if the IP belongs to a known crawler network. */
-function isCrawlerIp(ip: string | null): boolean {
-  if (!ip) return false;
-  return CRAWLER_IP_PREFIXES.some((prefix) => ip.startsWith(prefix));
-}
+const MINUTE = 60_000;
 
 /** Pull the first public IP from the proxy chain. */
 function clientIp(req: NextRequest): string | null {
@@ -97,60 +75,240 @@ function geo(req: NextRequest) {
   };
 }
 
-export async function POST(req: NextRequest) {
-  const ip = clientIp(req);
+function noContent(extraHeaders?: Record<string, string>): NextResponse {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Cache-Control": "private, no-store, max-age=0",
+      ...extraHeaders,
+    },
+  });
+}
 
-  // Cap the beacon so a single source can't flood the analytics table. On limit
-  // we drop silently (204) — analytics must never surface an error to the user.
-  if (!hit(`track:${ip}`, { limit: 120, windowMs: 60_000 }).ok) {
-    return new NextResponse(null, { status: 204 });
+function seedVisitorCookies(existingVisitorId?: string): NextResponse {
+  const visitorId = existingVisitorId && isValidVisitorId(existingVisitorId)
+    ? existingVisitorId
+    : crypto.randomUUID();
+  const response = noContent({
+    [ANALYTICS_VISITOR_SEEDED_HEADER]: ANALYTICS_VISITOR_SEEDED_VALUE,
+  });
+  const options = {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: ONE_YEAR,
+    path: "/",
+  };
+  response.cookies.set(ANALYTICS_VISITOR_COOKIE, visitorId, options);
+  response.cookies.set(
+    ANALYTICS_VISITOR_PROOF_COOKIE,
+    createVisitorProof(visitorId),
+    options,
+  );
+  return response;
+}
+
+/**
+ * Read a tiny JSON body with a streaming hard limit. Content-Length is only a
+ * hint; a custom client can omit it and send a chunked body.
+ */
+async function readBeaconBody(
+  req: NextRequest,
+): Promise<Partial<AnalyticsBeaconPayload> | null> {
+  if (!req.body) return null;
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_ANALYTICS_REQUEST_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Partial<AnalyticsBeaconPayload>;
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function trackedPath(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > 512) {
+    return null;
+  }
+  if (
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    value.startsWith("/\\") ||
+    /[\u0000-\u001f\u007f\s\\]/.test(value)
+  ) {
+    return null;
   }
 
-  // Drop known crawler IPs before doing any further work. Google's JS renderer
-  // uses a real Chrome UA and bypasses User-Agent detection, so IP is the only
-  // reliable signal for these bots.
-  if (isCrawlerIp(ip)) return new NextResponse(null, { status: 204 });
+  try {
+    const url = new URL(value, "https://analytics.invalid");
+    if (
+      url.origin !== "https://analytics.invalid" ||
+      url.search ||
+      url.hash ||
+      !isTrackablePath(url.pathname)
+    ) {
+      return null;
+    }
+    return url.pathname;
+  } catch {
+    return null;
+  }
+}
+
+function safeReferrer(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string" || value.length > 512) return null;
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const ip = normalizeClientIp(clientIp(req));
+
+  // The edge firewall owns the first line of defense. Repeating the exact
+  // network deny here protects preview hosts and keeps capture safe if firewall
+  // configuration drifts.
+  if (isExcludedAnalyticsIp(ip)) return noContent();
 
   // An operator walking the storefront from a fresh-visit link is rehearsing,
   // not shopping. Dropping the beacon before it mints `y2k_vid` keeps the run
   // out of the Visitors dashboard *and* leaves the browser unidentified, so a
   // second pass is as anonymous as the first.
   if (req.cookies.has(QA_EXCLUSION_COOKIE)) {
-    return new NextResponse(null, { status: 204 });
+    return noContent();
   }
 
-  let body: { path?: unknown; referrer?: unknown } = {};
-  try {
-    body = await req.json();
-  } catch {
-    return new NextResponse(null, { status: 204 });
+  // Reject requests that could not have been emitted by the current same-origin
+  // tracker before parsing attacker-controlled input.
+  if (analyticsRequestRejection(req.headers)) return noContent();
+
+  // A real shopper cannot produce 30 route changes in one minute. This local
+  // limiter is intentionally only a backstop; the network/fingerprint buckets
+  // below catch rotation, and Vercel's edge block is globally enforced.
+  if (ip && !hit(`track:ip:${ip}`, { limit: 30, windowMs: MINUTE }).ok) {
+    return noContent();
   }
 
-  const path =
-    typeof body.path === "string" && body.path.startsWith("/")
-      ? body.path.slice(0, 512)
-      : null;
-  if (!path) return new NextResponse(null, { status: 204 });
-
-  // Never record the admin console, API calls or internal routes in storefront
-  // analytics — re-applied here because the client beacon is not trusted.
-  if (!isTrackablePath(path)) return new NextResponse(null, { status: 204 });
-
-  const referrer =
-    typeof body.referrer === "string" && body.referrer
-      ? body.referrer.slice(0, 512)
-      : null;
+  const body = await readBeaconBody(req);
+  if (!body) return noContent();
+  const path = trackedPath(body.path);
+  if (!path) return noContent();
+  const referrer = safeReferrer(body.referrer);
 
   const ua = req.headers.get("user-agent");
   const parsed = parseUserAgent(ua);
 
-  // Skip bots identified by User-Agent (catches most non-JS crawlers).
-  if (parsed.device === "bot") return new NextResponse(null, { status: 204 });
+  // The maintained UA corpus catches declared crawlers; positive browser
+  // automation and contradictory platform hints catch common stealth drivers.
+  if (parsed.device === "bot" || !ua) return noContent();
+  const runtimePlatform =
+    typeof body.platform === "string" && body.platform.length <= 64
+      ? body.platform
+      : null;
+  if (
+    automationRejection({
+      headers: req.headers,
+      userAgent: ua,
+      webdriver: body.webdriver === true,
+      runtimePlatform,
+    })
+  ) {
+    return noContent();
+  }
 
-  // Resolve (or mint) the anonymous visitor id.
-  let visitorId = req.cookies.get(VISITOR_COOKIE)?.value ?? null;
-  const isNewVisitor = !visitorId;
-  if (!visitorId) visitorId = crypto.randomUUID();
+  const g = geo(req);
+  const network = analyticsNetworkKey(ip);
+  if (
+    network &&
+    !hit(`track:network:${network}`, { limit: 240, windowMs: MINUTE }).ok
+  ) {
+    return noContent();
+  }
+
+  const rawVisitorId =
+    req.cookies.get(ANALYTICS_VISITOR_COOKIE)?.value ?? null;
+  const visitorId = isValidVisitorId(rawVisitorId) ? rawVisitorId : null;
+  const proof =
+    req.cookies.get(ANALYTICS_VISITOR_PROOF_COOKIE)?.value ?? null;
+  let hasValidProof = false;
+  try {
+    hasValidProof = verifyVisitorProof(visitorId, proof);
+  } catch {
+    // A missing production secret is a deployment error, but analytics must
+    // still fail closed and never take down the storefront.
+    return noContent();
+  }
+
+  if (!visitorId || !hasValidProof) {
+    // Unproven identities get much tighter aggregate limits. The incident used
+    // hundreds of IPs but one browser fingerprint and a handful of /24s.
+    if (
+      network &&
+      !hit(`track:new-network:${network}`, {
+        limit: 12,
+        windowMs: MINUTE,
+      }).ok
+    ) {
+      return noContent();
+    }
+
+    const fingerprint = analyticsFingerprintKey([
+      ua,
+      g.country,
+      req.headers.get("sec-ch-ua"),
+      req.headers.get("sec-ch-ua-platform"),
+    ]);
+    if (
+      !hit(`track:new-fingerprint:${fingerprint}`, {
+        limit: 24,
+        windowMs: MINUTE,
+      }).ok
+    ) {
+      return noContent();
+    }
+
+    // Do not count this request. Plant (or migrate) the signed HttpOnly cookie,
+    // then let VisitorTracker retry the exact beacon once.
+    try {
+      return seedVisitorCookies(visitorId ?? undefined);
+    } catch {
+      return noContent();
+    }
+  }
+
+  if (
+    !hit(`track:visitor:${visitorId}`, { limit: 60, windowMs: MINUTE }).ok
+  ) {
+    return noContent();
+  }
 
   // Attribute the view to a user only if one is signed in.
   let userId: string | null = null;
@@ -159,14 +317,15 @@ export async function POST(req: NextRequest) {
   );
   if (hasSessionCookie) {
     try {
+      // Anonymous traffic is the common path. Lazy-loading auth keeps its
+      // adapters and email stack out of the beacon's normal cold start.
+      const { getSession } = await import("@/lib/auth");
       const session = await getSession(req.headers);
       userId = session?.user?.id ?? null;
     } catch {
       userId = null;
     }
   }
-
-  const g = geo(req);
 
   await recordPageView({
     visitorId,
@@ -186,15 +345,5 @@ export async function POST(req: NextRequest) {
     os: parsed.os,
   });
 
-  const res = new NextResponse(null, { status: 204 });
-  if (isNewVisitor) {
-    res.cookies.set(VISITOR_COOKIE, visitorId, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: ONE_YEAR,
-      path: "/",
-    });
-  }
-  return res;
+  return noContent();
 }

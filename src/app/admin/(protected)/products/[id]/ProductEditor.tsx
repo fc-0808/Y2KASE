@@ -24,8 +24,12 @@ import type { BrandOption } from "@/lib/catalog/brands";
 import type { TitleIssue } from "@/lib/catalog/listing-title";
 import { StyleTagPicker, StyleCoverageHint } from "../StyleTagPicker";
 import { BrandReassignmentCard, type BrandState } from "./BrandReassignmentCard";
+import { ColorEditorCard } from "./ColorEditorCard";
+import { MotifEditorCard } from "./MotifEditorCard";
 import { ListingTitleEditor } from "./ListingTitleEditor";
 import { saveProduct, type SaveProductPayload } from "./actions";
+import type { ColorFamilySlug } from "@/lib/catalog/colors";
+import type { MotifFamilySlug } from "@/lib/catalog/motifs";
 
 type ImageInput = {
   id: number;
@@ -58,6 +62,10 @@ export function ProductEditor({
   filedIn,
   images,
   availableStyles: initialStyles,
+  colors,
+  colorsLocked,
+  motifs,
+  motifsLocked,
 }: {
   productId: number;
   title: string;
@@ -73,6 +81,10 @@ export function ProductEditor({
   filedIn: string[];
   images: ImageInput[];
   availableStyles: string[];
+  colors: ColorFamilySlug[];
+  colorsLocked: boolean;
+  motifs: MotifFamilySlug[];
+  motifsLocked: boolean;
 }) {
   // ── Available styles: stored as a set, edited via grip/charm toggles ───────
   // Declared first because the offered set decides which per-image tags below
@@ -373,6 +385,18 @@ export function ProductEditor({
           current={brand}
           options={brandOptions}
           filedIn={filedIn}
+        />
+
+        <ColorEditorCard
+          productId={productId}
+          initialColors={colors}
+          locked={colorsLocked}
+        />
+
+        <MotifEditorCard
+          productId={productId}
+          initialMotifs={motifs}
+          locked={motifsLocked}
         />
 
         {isIphoneCase && (

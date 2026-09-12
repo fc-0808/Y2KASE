@@ -90,7 +90,8 @@ export default async function AdminVisitorsPage({
         <h1 className="text-3xl font-black">Visitors</h1>
         <p className="mt-1 text-sm text-[var(--foreground)]/60">
           First-party, privacy-conscious analytics — traffic, geography and
-          devices. Bots are filtered out so these are real humans.
+          devices. Known crawlers and abusive traffic are filtered at capture
+          and reporting time.
         </p>
       </div>
 

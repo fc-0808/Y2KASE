@@ -21,6 +21,7 @@ import { Package, RotateCcw, Smartphone, Tag, Truck } from "lucide-react";
 import { BUNDLE, WELCOME_COUPON } from "@/lib/promotions";
 import { ROUTES } from "@/lib/routes";
 import { SHIPPING_ESTIMATE_SUMMARY } from "@/lib/shipping";
+import { IPHONE_FIT } from "@/lib/pricing";
 
 export type SupportTopic = {
   id: string;
@@ -60,7 +61,7 @@ export const SUPPORT_TOPICS: SupportTopic[] = [
     icon: Smartphone,
     question: "Will it fit my phone?",
     answer:
-      "Pick your exact model on the product page — we cover iPhone 13 through 17, including Pro and Pro Max. Anything labelled MagSafe has magnets aligned to Apple's standard.",
+      `Pick your exact model on the product page — we cover ${IPHONE_FIT.throughShort}, including Pro and Pro Max. Anything labelled MagSafe has magnets aligned to Apple's standard.`,
     link: { label: "Browse all cases", href: "/products" },
   },
   {

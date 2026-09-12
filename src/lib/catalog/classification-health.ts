@@ -33,6 +33,7 @@ import {
 } from "@/lib/catalog/brands";
 import {
   BRAND_COLLECTION_KINDS,
+  ORIGINALS_SLUG,
   flattenTaxonomy,
   taxonomySlugChain,
 } from "@/lib/catalog/collections-config";
@@ -157,13 +158,16 @@ export function assessClassification(
         }`.trim(),
       };
     }
+    const inOriginals = otherSlugs.includes(ORIGINALS_SLUG);
     return {
       ...base,
       unsupportedSlugs,
       state: titleReadsAs ? "unknown_brand" : "unclassified",
       detail: titleReadsAs
         ? `Not classified, but the title reads as ${titleReadsAs}.`
-        : "No brand set and nothing in the title suggests one.",
+        : inOriginals
+          ? "No licensed IP. Shoppers find this under Originals and by theme."
+          : "No brand set and nothing in the title suggests one.",
     };
   }
 

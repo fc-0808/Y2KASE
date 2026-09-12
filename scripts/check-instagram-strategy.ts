@@ -13,6 +13,7 @@ import {
   INSTAGRAM_BOOTSTRAP_POSTS,
   INSTAGRAM_BANNED_HASHTAGS,
   INSTAGRAM_LINK_IN_BIO_CTA,
+  INSTAGRAM_MANIFESTO_CTA,
   INSTAGRAM_MAX_HASHTAGS,
   bootstrapRemaining,
   buildFacebookCaption,
@@ -27,6 +28,33 @@ import {
   sanitizeInstagramCaption,
   sanitizeInstagramHashtags,
 } from "../src/lib/social/instagram-strategy";
+import {
+  FASHION_PRESET_BY_PILLAR,
+  FASHION_PRESET_KEYS,
+  INSTAGRAM_BIO_CATEGORY,
+  INSTAGRAM_BOOTSTRAP_GRID,
+  INSTAGRAM_OVERLAY_MAX_WORDS,
+  INSTAGRAM_SUSTAIN_CYCLE,
+  INSTAGRAM_TAGLINE,
+  buildFashionLookBrief,
+  fashionAssetPlan,
+  fashionFeedMediaType,
+  fashionGridPreview,
+  fashionPillarAt,
+  fallbackFashionCaption,
+  inferLookCues,
+  isCatalogDumpCaption,
+  isFashionPreset,
+  pillarFromPreset,
+  sanitizeFashionOverlay,
+  stripCatalogSlogans,
+  type FashionPillar,
+} from "../src/lib/social/instagram-fashion";
+import { getPreset } from "../src/lib/social/presets";
+import {
+  catalogReferenceUrls,
+  supportsInputFidelity,
+} from "../src/lib/social/image-gen-policy";
 import {
   createSocialOAuthState,
   verifySocialOAuthState,
@@ -51,6 +79,198 @@ assert.equal(instagramPhase(40), "sustain");
 assert.equal(bootstrapRemaining(0), 12);
 assert.equal(bootstrapRemaining(12), 0);
 assert.equal(bootstrapRemaining(20), 0);
+
+assert.equal(INSTAGRAM_BOOTSTRAP_POSTS, INSTAGRAM_BOOTSTRAP_GRID.length);
+
+function assertNoConsecutive(pillars: readonly FashionPillar[], label: string) {
+  for (let i = 1; i < pillars.length; i++) {
+    assert.notEqual(
+      pillars[i],
+      pillars[i - 1],
+      `${label} consecutive duplicate at ${i}: ${pillars[i]}`,
+    );
+  }
+}
+
+assertNoConsecutive(INSTAGRAM_BOOTSTRAP_GRID, "bootstrap");
+assertNoConsecutive(INSTAGRAM_SUSTAIN_CYCLE, "sustain");
+assert.notEqual(
+  INSTAGRAM_BOOTSTRAP_GRID[INSTAGRAM_BOOTSTRAP_GRID.length - 1],
+  INSTAGRAM_SUSTAIN_CYCLE[0],
+  "bootstrap must not collide with the first sustain pillar",
+);
+assert.notEqual(
+  INSTAGRAM_SUSTAIN_CYCLE[INSTAGRAM_SUSTAIN_CYCLE.length - 1],
+  INSTAGRAM_SUSTAIN_CYCLE[0],
+  "sustain cycle must not collide with itself",
+);
+
+assert.equal(fashionPillarAt(0), "look");
+assert.equal(fashionPillarAt(1), "still");
+assert.equal(fashionPillarAt(2), "graphic");
+assert.equal(fashionPillarAt(11), "look");
+assert.equal(fashionPillarAt(12), "still");
+assert.equal(fashionPillarAt(18), fashionPillarAt(12));
+
+const preview = fashionGridPreview(0, 12);
+assert.deepEqual(preview, [...INSTAGRAM_BOOTSTRAP_GRID]);
+assertNoConsecutive(fashionGridPreview(0, 24), "24-post horizon");
+
+assert.equal(INSTAGRAM_BIO_CATEGORY, "Fashion Accessories");
+assert.match(INSTAGRAM_TAGLINE, /CUTE BUT TOUGH/);
+
+assert.deepEqual(fashionAssetPlan({ pillar: "look", mediaType: "video" }), {
+  assetSource: "fashion-still",
+  allowGenerate: true,
+});
+assert.deepEqual(fashionAssetPlan({ pillar: "look", mediaType: "carousel" }), {
+  assetSource: "fashion-still",
+  allowGenerate: true,
+});
+assert.deepEqual(fashionAssetPlan({ pillar: "detail", mediaType: "carousel" }), {
+  assetSource: "catalog-photos",
+  allowGenerate: true,
+});
+assert.equal(
+  fashionFeedMediaType({ pillar: "look", catalogMediaType: "video" }),
+  "carousel",
+);
+assert.equal(
+  fashionFeedMediaType({ pillar: "detail", catalogMediaType: "video" }),
+  "video",
+);
+
+const kuromi = inferLookCues({
+  title: "Kuromi Jirai iPhone Case",
+  tags: ["jirai", "bow"],
+});
+assert.equal(kuromi.character, "Kuromi");
+assert.equal(kuromi.aesthetic, "jirai");
+
+assert.equal(
+  inferLookCues({ title: "Clear holographic case", tags: ["y2k"] }).aesthetic,
+  "y2k",
+);
+
+assert.equal(
+  inferLookCues({
+    title: "Miffy Green Leaf Charm Case Cute Kawaii Y2K for iPhone 17",
+    characterName: "Miffy",
+  }).aesthetic,
+  "kawaii",
+  "SEO 'Y2K' in a Miffy title must not force a chrome gyaru look",
+);
+
+assert.equal(
+  sanitizeFashionOverlay(
+    "this is the CUTEST jirai phone case ever",
+    "jirai girl era",
+  ),
+  "jirai girl era",
+);
+assert.equal(
+  sanitizeFashionOverlay("chrome hearts forever and a day extra", "x").split(" ")
+    .length,
+  INSTAGRAM_OVERLAY_MAX_WORDS,
+);
+
+assert.equal(
+  isCatalogDumpCaption("Kuromi Jirai iPhone Case", "Kuromi Jirai iPhone Case"),
+  true,
+);
+assert.equal(
+  isCatalogDumpCaption("Black bow. White beads.", "Kuromi Jirai iPhone Case"),
+  false,
+);
+assert.equal(
+  stripCatalogSlogans("this is the CUTEST jirai phone case ever\nThe bow stays."),
+  "The bow stays.",
+);
+
+const lookCaption = fallbackFashionCaption("look", kuromi);
+assert.match(lookCaption, /Kuromi/);
+assert.doesNotMatch(lookCaption, /phone case ever/i);
+
+const brief = buildFashionLookBrief({
+  publishedCount: 0,
+  mediaType: "carousel",
+  productTitle: "Kuromi Jirai iPhone Case",
+  tags: ["jirai"],
+  characterName: "Kuromi",
+});
+assert.equal(brief.pillar, "look");
+assert.equal(brief.preset, "fashion_look");
+assert.equal(brief.assetSource, "fashion-still");
+assert.match(brief.overlay, /kuromi girl era/i);
+assert.ok(brief.hashtags.includes("kuromi"));
+assert.ok(brief.allowGenerate);
+
+const lookEvenWithVideo = buildFashionLookBrief({
+  publishedCount: 0,
+  mediaType: "video",
+  productTitle: "Miffy Green Leaf Charm Case Cute Kawaii Y2K for iPhone 17",
+  characterName: "Miffy",
+});
+assert.equal(lookEvenWithVideo.assetSource, "fashion-still");
+assert.equal(lookEvenWithVideo.allowGenerate, true);
+assert.match(lookEvenWithVideo.shoot, /kawaii|mint|cafe/i);
+assert.match(lookEvenWithVideo.shoot, /attached catalog photo/i);
+assert.match(lookEvenWithVideo.shoot, /smile|smirk|alive/i);
+assert.match(lookEvenWithVideo.shoot, /half the frame/i);
+assert.doesNotMatch(lookEvenWithVideo.shoot, /2000s gyaru magazine/i);
+assert.doesNotMatch(lookEvenWithVideo.shoot, /iPhone 17/);
+assert.doesNotMatch(lookEvenWithVideo.shoot, /at most a third/i);
+assert.doesNotMatch(lookEvenWithVideo.shoot, /looking at her/i);
+assert.doesNotMatch(lookEvenWithVideo.promptExtra, /iPhone 17/);
+
+const lookPreset = getPreset("fashion_look");
+assert.ok(lookPreset);
+assert.equal(lookPreset.usesProductReference, true);
+assert.equal(getPreset("manifesto_card")?.usesProductReference, false);
+
+const kawaiiLookPrompt = lookPreset.buildPrompt(
+  {
+    title:
+      "Miffy Kawaii 3D Magnetic Phone Case with Beaded Strap for iPhone 17 16 15 14 13 Pro Max — MagSafe",
+    productType: "phone_case",
+    characterName: "Miffy",
+  },
+  lookEvenWithVideo.promptExtra,
+);
+assert.match(kawaiiLookPrompt, /attached catalog photo/i);
+assert.match(kawaiiLookPrompt, /smile|smirk|alive|lively/i);
+assert.match(kawaiiLookPrompt, /half the frame/i);
+assert.doesNotMatch(kawaiiLookPrompt, /jirai-kei/);
+assert.doesNotMatch(kawaiiLookPrompt, /iPhone 17/);
+assert.doesNotMatch(kawaiiLookPrompt, /at most (a |one )?third/i);
+assert.doesNotMatch(
+  kawaiiLookPrompt,
+  /Miffy Kawaii 3D Magnetic Phone Case/,
+);
+
+const defaultLookPrompt = lookPreset.buildPrompt({
+  title: "Kuromi Jirai iPhone Case",
+  productType: "phone_case",
+  characterName: "Kuromi",
+});
+assert.match(defaultLookPrompt, /jirai-kei/);
+
+const reelBrief = buildFashionLookBrief({
+  publishedCount: 5,
+  mediaType: "video",
+  productTitle: "Kuromi Jirai iPhone Case",
+});
+assert.equal(reelBrief.pillar, "detail");
+assert.equal(reelBrief.assetSource, "reel");
+assert.equal(reelBrief.allowGenerate, true);
+
+for (const key of FASHION_PRESET_KEYS) {
+  assert.ok(getPreset(key), `missing fashion preset ${key}`);
+  assert.ok(isFashionPreset(key));
+}
+assert.equal(pillarFromPreset("fashion_look"), "look");
+assert.equal(pillarFromPreset("lifestyle_flatlay"), null);
+assert.equal(FASHION_PRESET_BY_PILLAR.graphic, "manifesto_card");
 
 // ── Slot picker: Reels first, never both, honour the daily cap ───────────────
 
@@ -231,16 +451,70 @@ assert.match(fb, /Shop: https:\/\/y2kase\.com\/products\/kuromi/);
 assert.doesNotMatch(fb, /spam\.example/);
 assert.doesNotMatch(fb, /#fyp/);
 
-assert.equal(fallbackInstagramCaption("Kuromi Case"), "Kuromi Case");
-assert.equal(fallbackInstagramCaption("  "), "New drop in the shop.");
+assert.equal(
+  fallbackInstagramCaption("Kuromi Case"),
+  fallbackFashionCaption(
+    "look",
+    inferLookCues({ title: "Kuromi Case" }),
+  ),
+);
+assert.doesNotMatch(fallbackInstagramCaption("Kuromi Case"), /^Kuromi Case$/);
+assert.doesNotMatch(
+  fallbackInstagramCaption("  "),
+  /new drop in the shop/i,
+);
 
 const fromTitle = buildInstagramCaption({
   caption: "",
   hashtags: [],
   productTitle: "My Melody Wallet Case",
 });
-assert.match(fromTitle, /My Melody Wallet Case/);
+assert.doesNotMatch(fromTitle, /^My Melody Wallet Case/);
 assert.ok(fromTitle.includes(INSTAGRAM_LINK_IN_BIO_CTA));
+assert.match(fromTitle, /Melody girl era|last accessory|uniform/i);
+
+const sloganPost = buildInstagramCaption({
+  caption: "this is the CUTEST jirai phone case ever",
+  hashtags: ["jirai"],
+  productTitle: "Kuromi Jirai iPhone Case",
+});
+assert.doesNotMatch(sloganPost, /CUTEST/i);
+assert.doesNotMatch(sloganPost, /phone case ever/i);
+
+const dump = buildInstagramCaption({
+  caption: "Kuromi Jirai iPhone Case",
+  productTitle: "Kuromi Jirai iPhone Case",
+  hashtags: ["kuromi"],
+});
+assert.doesNotMatch(dump, /^Kuromi Jirai iPhone Case/);
+
+const manifesto = buildInstagramCaption({
+  caption: "Pretty is not the opposite of durable.",
+  pillar: "graphic",
+  hashtags: ["y2kase"],
+});
+assert.ok(manifesto.includes(INSTAGRAM_MANIFESTO_CTA));
+assert.doesNotMatch(
+  manifesto,
+  new RegExp(INSTAGRAM_LINK_IN_BIO_CTA.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+);
+
+assert.deepEqual(
+  catalogReferenceUrls([
+    "https://cdn.example/a.jpg",
+    "/relative.jpg",
+    "https://cdn.example/a.jpg",
+    "https://cdn.example/b.jpg",
+    "https://cdn.example/c.jpg",
+    "",
+    null,
+  ]),
+  ["https://cdn.example/a.jpg", "https://cdn.example/b.jpg", "https://cdn.example/c.jpg"],
+);
+assert.equal(supportsInputFidelity("gpt-image-1"), true);
+assert.equal(supportsInputFidelity("gpt-image-1.5"), true);
+assert.equal(supportsInputFidelity("gpt-image-1-mini"), false);
+assert.equal(supportsInputFidelity("dall-e-3"), false);
 
 // ── Admin-bound OAuth state ─────────────────────────────────────────────────
 

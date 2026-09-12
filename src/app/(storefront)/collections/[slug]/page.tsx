@@ -9,6 +9,8 @@ import {
   type CollectionNode,
 } from "@/lib/collections";
 import { getCatalogPage, type ProductQuery } from "@/lib/products";
+import { isColorFamilySlug } from "@/lib/catalog/colors";
+import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 import { ProductCard } from "@/components/ProductCard";
 import { JsonLd } from "@/components/JsonLd";
 import {
@@ -27,6 +29,8 @@ import {
 } from "@/components/catalog/CatalogSummary";
 import { CatalogPagination } from "@/components/catalog/CatalogPagination";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
+import { CollectionEditorialBlock } from "@/components/CollectionEditorialBlock";
+import { collectionEditorial } from "@/lib/seo/collection-editorial";
 import {
   buildCatalogHref,
   hasActiveFilters,
@@ -145,6 +149,8 @@ export default async function CollectionPage({
     device: catalogParams.device,
     collection: slug,
     brands: catalogParams.brands,
+    colors: catalogParams.colors.filter(isColorFamilySlug),
+    motifs: catalogParams.motifs.filter(isMotifFamilySlug),
     magsafe: catalogParams.magsafe,
     page: catalogParams.page,
     sort: catalogParams.sort,
@@ -169,6 +175,14 @@ export default async function CollectionPage({
   const filtered = hasActiveFilters(catalogParams);
   const chips = buildCatalogChips(catalogParams, { brands: children });
   const copy = collectionSeo(collection);
+  const parent =
+    breadcrumb.length >= 2 ? breadcrumb[breadcrumb.length - 2] : null;
+  const editorial = collectionEditorial({
+    slug: collection.slug,
+    name: collection.name,
+    kind: collection.kind,
+    parent,
+  });
 
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
@@ -326,6 +340,8 @@ export default async function CollectionPage({
           </div>
         </section>
       )}
+
+      <CollectionEditorialBlock editorial={editorial} />
     </div>
   );
 }

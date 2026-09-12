@@ -164,6 +164,7 @@ const SLUG_TO_SHAPE: Record<string, keyof typeof SHAPES> = {
   kawaii: "heart",
   y2k: "cd",
   characters: "bear",
+  originals: "sparkle",
 };
 
 /** Heuristic fallback by collection kind when the slug is unknown. */

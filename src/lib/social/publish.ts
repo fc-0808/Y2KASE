@@ -39,6 +39,12 @@ import {
   buildFacebookCaption,
   buildInstagramCaption,
 } from "@/lib/social/instagram-strategy";
+import {
+  altTextFromPrompt,
+  buildPinterestAltText,
+  buildPinterestDescription,
+  sanitizePinterestTitle,
+} from "@/lib/social/pinterest-strategy";
 
 export type PublishOutcome =
   | { ok: true; externalId: string; externalUrl: string }
@@ -96,46 +102,40 @@ function tiktokVideoUrl(productId: number): string {
 
 /**
  * Pinterest is a visual SEARCH engine — pins rank for the keywords in their
- * title, description and board. We therefore:
- *   - title:       keyword-rich, ≤100 chars, brand suffix for recognition.
- *   - description: front-loads the caption (the part Pinterest indexes most
- *                  heavily), then a soft CTA, then hashtags as discovery aids.
- *   - alt_text:    a literal, accessible description that also feeds Pinterest
- *                  visual search and improves ranking.
+ * title, description and board. Copy is sanitised in pinterest-strategy so we
+ * never ship "Stylish iPhone 17 Case:" stuffing or comma-separated keyword lists.
  */
 function buildPinTitle(creative: SocialCreative): string | undefined {
-  // Prefer the per-pin SEO title (distinct across a listing's pins); fall back
-  // to the product title with a brand suffix for recognition.
   const perPin = creative.title?.trim();
-  if (perPin) return perPin.slice(0, 100);
+  if (perPin) {
+    const cleaned = sanitizePinterestTitle(perPin, creative.productTitle ?? "");
+    if (cleaned) return cleaned;
+  }
   const base = creative.productTitle?.trim();
-  if (!base) return undefined;
-  const withBrand = /y2kase/i.test(base) ? base : `${base} | Y2KASE`;
-  return withBrand.slice(0, 100);
+  return base ? sanitizePinterestTitle(base) || base.slice(0, 100) : undefined;
 }
 
 function buildPinDescription(creative: SocialCreative): string | undefined {
-  const caption = creative.caption?.trim();
-  const hashtags = creative.hashtags.map((t) => `#${t}`).join(" ");
-  const cta = "Shop now at y2kase.com ✨";
-  const parts = [caption, cta, hashtags].filter(Boolean);
-  const description = parts.join("\n\n");
-  return description ? description.slice(0, 800) : undefined;
+  const description = buildPinterestDescription({
+    caption: creative.caption,
+    hashtags: creative.hashtags,
+    productTitle: creative.productTitle,
+  });
+  return description || undefined;
 }
 
 function buildPinAltText(creative: SocialCreative): string | undefined {
-  const title = creative.productTitle?.trim();
-  if (!title) return undefined;
-  const cues = creative.hashtags.slice(0, 4).join(", ");
-  const alt = cues
-    ? `${title} — kawaii Y2K phone accessory. Style: ${cues}.`
-    : `${title} — kawaii Y2K phone accessory by Y2KASE.`;
-  return alt.slice(0, 500);
+  const alt = buildPinterestAltText({
+    imageAlt: altTextFromPrompt(creative.prompt),
+    productTitle: creative.productTitle,
+  });
+  return alt || undefined;
 }
 
 async function publishToPinterest(
   creative: SocialCreative,
   boardId: string,
+  imageUrlOverride?: string,
 ): Promise<PublishOutcome> {
   if (!isPinterestConfigured()) {
     throw new Error("PINTEREST_ACCESS_TOKEN is not set.");
@@ -152,6 +152,8 @@ async function publishToPinterest(
     link: productLink(creative, "pinterest"),
   };
 
+  const pinImageUrl = imageUrlOverride || creative.imageUrl;
+
   // Video pins upload the source clip and require a cover image; photo pins post
   // the image URL directly.
   if (creative.mediaType === "video") {
@@ -161,14 +163,14 @@ async function publishToPinterest(
     const pin = await createVideoPin({
       ...common,
       videoUrl: creative.videoUrl,
-      coverImageUrl: creative.imageUrl,
+      coverImageUrl: pinImageUrl,
     });
     return { ok: true, externalId: pin.id, externalUrl: pin.url };
   }
 
   const pin = await createPin({
     ...common,
-    imageUrl: creative.imageUrl,
+    imageUrl: pinImageUrl,
   });
 
   return { ok: true, externalId: pin.id, externalUrl: pin.url };
@@ -327,7 +329,12 @@ async function publishToFacebook(
  */
 export async function publishCreative(
   creative: SocialCreative,
-  opts: { boardId?: string; revertToScheduledOnError?: boolean } = {},
+  opts: {
+    boardId?: string;
+    revertToScheduledOnError?: boolean;
+    /** Fresh 2:3 pin card. Catalog URL stays on the row for dedup. */
+    imageUrlOverride?: string;
+  } = {},
 ): Promise<PublishOutcome> {
   const boardId = opts.boardId ?? creative.boardId ?? undefined;
 
@@ -335,7 +342,11 @@ export async function publishCreative(
     let outcome: PublishOutcome;
 
     if (creative.platform === "pinterest") {
-      outcome = await publishToPinterest(creative, boardId ?? "");
+      outcome = await publishToPinterest(
+        creative,
+        boardId ?? "",
+        opts.imageUrlOverride,
+      );
     } else if (creative.platform === "tiktok") {
       outcome = await publishToTikTok(creative);
     } else if (creative.platform === "instagram") {

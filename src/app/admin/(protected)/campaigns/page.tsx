@@ -7,6 +7,7 @@ import { senderFor } from "@/lib/email";
 import { getSubscriberStats } from "@/lib/admin/subscribers";
 import { getAdminProductOverviews } from "@/lib/products";
 import { getMarketingCampaigns } from "@/lib/marketing/campaigns";
+import { getCadenceSnapshot } from "@/lib/marketing/cadence-audience";
 import { isMarketingAiConfigured } from "@/lib/marketing/ai";
 import { isMarketingHeroGenerationConfigured } from "@/lib/marketing/hero-config";
 import {
@@ -17,17 +18,22 @@ import {
   marketingMaxRecipients,
   marketingPostalAddress,
 } from "@/lib/marketing/compliance";
-import type {
-  MarketingCapabilities,
-  MarketingProductOption,
+import {
+  parseEmailStudioView,
+  type MarketingCapabilities,
+  type MarketingProductOption,
 } from "@/lib/marketing/types";
 import { CampaignStudio } from "./CampaignStudio";
 
-export const metadata: Metadata = { title: "Admin · Email Campaigns" };
+export const metadata: Metadata = { title: "Admin · Email" };
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-export default async function AdminCampaignsPage() {
+export default async function AdminCampaignsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string | string[] }>;
+}) {
   if (!isDbConfigured()) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-16 text-center">
@@ -39,10 +45,12 @@ export default async function AdminCampaignsPage() {
   const session = await requireAdmin(await headers());
   if (!session) return null;
 
-  const [campaigns, stats, products] = await Promise.all([
+  const view = parseEmailStudioView((await searchParams).view);
+  const [campaigns, stats, products, cadence] = await Promise.all([
     getMarketingCampaigns(),
     getSubscriberStats(),
     getAdminProductOverviews(),
+    getCadenceSnapshot(),
   ]);
   const productOptions: MarketingProductOption[] = products
     .filter((product) => product.status === "active")
@@ -80,6 +88,8 @@ export default async function AdminCampaignsPage() {
       activeSubscriberCount={stats.active}
       products={productOptions}
       capabilities={capabilities}
+      cadence={cadence}
+      initialView={view}
     />
   );
 }

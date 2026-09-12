@@ -19,6 +19,33 @@ import {
 
 const TOKEN_URL = "https://api.pinterest.com/v5/oauth/token";
 
+/**
+ * Scopes requested at connect time. `user_accounts:write` is required to follow
+ * other accounts (beta). Reconnect Pinterest after this list changes.
+ */
+export const PINTEREST_OAUTH_SCOPES = [
+  "boards:read",
+  "boards:write",
+  "pins:read",
+  "pins:write",
+  "user_accounts:read",
+  "user_accounts:write",
+] as const;
+
+export const PINTEREST_OAUTH_SCOPE_PARAM = PINTEREST_OAUTH_SCOPES.join(",");
+
+export const PINTEREST_FOLLOW_SCOPE = "user_accounts:write";
+
+/** True when the stored token grant includes `needed` (comma or space separated). */
+export function tokenHasScope(
+  scopes: string | null | undefined,
+  needed: string,
+): boolean {
+  if (!scopes) return false;
+  const set = new Set(scopes.split(/[\s,]+/).filter(Boolean));
+  return set.has(needed);
+}
+
 /** Refresh when access token is already expired or will expire within this window. */
 export const PINTEREST_REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 

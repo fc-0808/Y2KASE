@@ -16,6 +16,7 @@ import {
 } from "@/lib/products";
 import { absoluteUrl, BRAND } from "@/lib/seo";
 import { googleProductCategoryId } from "@/lib/catalog/merchant";
+import { merchantColorValue } from "@/lib/catalog/colors";
 
 // Never bake an empty catalog into a deployment when the build environment
 // lacks database access. The CDN caches successful responses for one hour.
@@ -52,6 +53,7 @@ function item(p: CatalogFeedItem): string {
   const [primaryImage, ...additionalImages] = p.images;
   if (!primaryImage) return "";
   const googleCategory = googleProductCategoryId(p.productType);
+  const color = merchantColorValue(p.colors);
   const imageTags = [
     `<g:image_link>${xmlEscape(absoluteUrl(primaryImage))}</g:image_link>`,
     ...additionalImages
@@ -76,6 +78,7 @@ function item(p: CatalogFeedItem): string {
       <g:identifier_exists>no</g:identifier_exists>
       <g:product_type>${xmlEscape(p.productTypeLabel)}</g:product_type>
       ${googleCategory ? `<g:google_product_category>${googleCategory}</g:google_product_category>` : ""}
+      ${color ? `<g:color>${xmlEscape(color)}</g:color>` : ""}
     </item>`;
 }
 

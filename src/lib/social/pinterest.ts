@@ -118,18 +118,273 @@ export type PinterestBoard = {
   id: string;
   name: string;
   privacy?: string;
+  description?: string | null;
+  pinCount?: number;
 };
+
+type PinterestPage<T> = {
+  items?: T[];
+  bookmark?: string | null;
+};
+
+async function paginate<T>(
+  pathWithQuery: string,
+  opts: { maxPages?: number } = {},
+): Promise<T[]> {
+  const maxPages = opts.maxPages ?? 10;
+  const out: T[] = [];
+  let bookmark: string | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    const joiner = pathWithQuery.includes("?") ? "&" : "?";
+    const path: string = bookmark
+      ? `${pathWithQuery}${joiner}bookmark=${encodeURIComponent(bookmark)}`
+      : pathWithQuery;
+    const data: PinterestPage<T> = await pinterestFetch<PinterestPage<T>>(path);
+    out.push(...(data.items ?? []));
+    bookmark = data.bookmark ?? null;
+    if (!bookmark) break;
+  }
+  return out;
+}
 
 /** List the authenticated account's boards (for the publish target picker). */
 export async function listBoards(): Promise<PinterestBoard[]> {
-  const data = await pinterestFetch<{
-    items: { id: string; name: string; privacy?: string }[];
-  }>("/boards?page_size=100");
-  return (data.items ?? []).map((b) => ({
+  const items = await paginate<{
+    id: string;
+    name: string;
+    privacy?: string;
+    description?: string | null;
+    pin_count?: number;
+  }>("/boards?page_size=100", { maxPages: 5 });
+  return items.map((b) => ({
     id: b.id,
     name: b.name,
     privacy: b.privacy,
+    description: b.description ?? null,
+    pinCount: b.pin_count,
   }));
+}
+
+export async function updateBoard(
+  boardId: string,
+  patch: { name?: string; description?: string },
+): Promise<PinterestBoard> {
+  const data = await pinterestFetch<{
+    id: string;
+    name: string;
+    privacy?: string;
+    description?: string | null;
+    pin_count?: number;
+  }>(`/boards/${encodeURIComponent(boardId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...(patch.name ? { name: patch.name } : {}),
+      ...(patch.description != null ? { description: patch.description } : {}),
+    }),
+  });
+  return {
+    id: data.id,
+    name: data.name,
+    privacy: data.privacy,
+    description: data.description ?? null,
+    pinCount: data.pin_count,
+  };
+}
+
+export async function createBoard(input: {
+  name: string;
+  description: string;
+  privacy?: "PUBLIC" | "PROTECTED" | "SECRET";
+}): Promise<PinterestBoard> {
+  const data = await pinterestFetch<{
+    id: string;
+    name: string;
+    privacy?: string;
+    description?: string | null;
+    pin_count?: number;
+  }>("/boards", {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      description: input.description,
+      privacy: input.privacy ?? "PUBLIC",
+    }),
+  });
+  return {
+    id: data.id,
+    name: data.name,
+    privacy: data.privacy,
+    description: data.description ?? null,
+    pinCount: data.pin_count,
+  };
+}
+
+export type ListedPin = {
+  id: string;
+  createdAt: string | null;
+  link: string | null;
+  title: string | null;
+  creativeType: string | null;
+  isOwner: boolean;
+  isVideo: boolean;
+  impressions: number;
+  saves: number;
+  outbound: number;
+};
+
+function numMetric(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+function metricsFromBucket(
+  bucket: Record<string, unknown> | undefined,
+): { impressions: number; saves: number; outbound: number } | null {
+  if (!bucket) return null;
+  const impressions = numMetric(bucket.impression ?? bucket.IMPRESSION);
+  const saves = numMetric(bucket.save ?? bucket.SAVE);
+  const outbound = numMetric(
+    bucket.clickthrough ??
+      bucket.CLICKTHROUGH ??
+      bucket.outbound_click ??
+      bucket.OUTBOUND_CLICK,
+  );
+  if (impressions === 0 && saves === 0 && outbound === 0) {
+    // Empty object vs real zeros — still treat as zeros, but only if the
+    // bucket actually looked like metrics (has at least one known key).
+    const hasKey =
+      "impression" in bucket ||
+      "IMPRESSION" in bucket ||
+      "save" in bucket ||
+      "SAVE" in bucket ||
+      "clickthrough" in bucket ||
+      "CLICKTHROUGH" in bucket ||
+      "outbound_click" in bucket ||
+      "OUTBOUND_CLICK" in bucket;
+    if (!hasKey) return null;
+  }
+  return { impressions, saves, outbound };
+}
+
+export function parseListedPinMetrics(raw: unknown): {
+  impressions: number;
+  saves: number;
+  outbound: number;
+} {
+  const zero = { impressions: 0, saves: 0, outbound: 0 };
+  if (!raw) return zero;
+  const items = Array.isArray(raw) ? raw : [raw];
+  let best = zero;
+  let bestTotal = -1;
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const bucket =
+      metricsFromBucket(rec.all_time as Record<string, unknown> | undefined) ??
+      metricsFromBucket(rec["90d"] as Record<string, unknown> | undefined) ??
+      metricsFromBucket(rec);
+    if (!bucket) continue;
+    const total = bucket.impressions + bucket.saves + bucket.outbound;
+    if (total > bestTotal) {
+      best = bucket;
+      bestTotal = total;
+    }
+  }
+  return best;
+}
+
+function listedPinFromApi(raw: {
+  id: string;
+  created_at?: string;
+  link?: string | null;
+  title?: string | null;
+  creative_type?: string | null;
+  is_owner?: boolean;
+  pin_metrics?: unknown;
+  media?: { media_type?: string } | null;
+}): ListedPin {
+  const creative = (raw.creative_type ?? "").toUpperCase();
+  const mediaType = (raw.media?.media_type ?? "").toLowerCase();
+  const metrics = parseListedPinMetrics(raw.pin_metrics);
+  return {
+    id: raw.id,
+    createdAt: raw.created_at ?? null,
+    link: raw.link ?? null,
+    title: raw.title ?? null,
+    creativeType: raw.creative_type ?? null,
+    isOwner: raw.is_owner !== false,
+    isVideo: creative.includes("VIDEO") || mediaType === "video",
+    impressions: metrics.impressions,
+    saves: metrics.saves,
+    outbound: metrics.outbound,
+  };
+}
+
+/** Every pin on the authenticated account (Created tab), with 90d/lifetime metrics. */
+export async function listAllPins(opts: { maxPages?: number } = {}): Promise<ListedPin[]> {
+  const items = await paginate<{
+    id: string;
+    created_at?: string;
+    link?: string | null;
+    title?: string | null;
+    creative_type?: string | null;
+    is_owner?: boolean;
+    pin_metrics?: unknown;
+    media?: { media_type?: string } | null;
+  }>("/pins?page_size=100&pin_metrics=true", { maxPages: opts.maxPages ?? 15 });
+  return items.map(listedPinFromApi);
+}
+
+export async function deletePin(pinId: string): Promise<void> {
+  await pinterestFetch(`/pins/${encodeURIComponent(pinId)}`, {
+    method: "DELETE",
+  });
+}
+
+export type PinterestFollowedUser = { username: string };
+
+function usernameFromFollowItem(item: unknown): string | null {
+  if (!item || typeof item !== "object") return null;
+  const rec = item as Record<string, unknown>;
+  if (typeof rec.username === "string" && rec.username.trim()) {
+    return rec.username.trim();
+  }
+  const nested = rec.user;
+  if (nested && typeof nested === "object") {
+    const u = (nested as { username?: unknown }).username;
+    if (typeof u === "string" && u.trim()) return u.trim();
+  }
+  return null;
+}
+
+/** Accounts this user explicitly follows. */
+export async function listFollowing(opts: { maxPages?: number } = {}): Promise<
+  PinterestFollowedUser[]
+> {
+  const items = await paginate<unknown>(
+    "/user_account/following?explicit_following=true&page_size=100",
+    { maxPages: opts.maxPages ?? 8 },
+  );
+  const seen = new Set<string>();
+  const out: PinterestFollowedUser[] = [];
+  for (const item of items) {
+    const username = usernameFromFollowItem(item);
+    if (!username) continue;
+    const key = username.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ username });
+  }
+  return out;
+}
+
+export async function followUser(username: string): Promise<void> {
+  await pinterestFetch(
+    `/user_account/following/${encodeURIComponent(username)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ auto_follow: false }),
+    },
+  );
 }
 
 export type PinterestAccount = {

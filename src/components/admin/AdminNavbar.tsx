@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { signOut } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
+import { EMAIL_STUDIO_PATH } from "@/lib/marketing/types";
 import type { AuthUser } from "@/lib/auth";
 
 type NavItem = {
@@ -84,7 +85,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Marketing",
     items: [
-      { href: "/admin/campaigns", label: "Email Campaigns", icon: Send },
+      { href: EMAIL_STUDIO_PATH, label: "Email", icon: Send },
       { href: "/admin/social", label: "Social", icon: Megaphone },
       { href: "/admin/blog", label: "Blog", icon: Newspaper },
     ],

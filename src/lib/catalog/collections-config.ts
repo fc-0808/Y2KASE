@@ -346,7 +346,23 @@ export const COLLECTION_TAXONOMY: CollectionSeed[] = [
       "Cases with a built-in magnetic ring — snap-on MagSafe charging and accessories.",
     match: ["magsafe", "mag safe"],
   },
+  {
+    slug: "originals",
+    name: "Originals",
+    kind: "genre",
+    featured: true,
+    icon: "✨",
+    accentColor: "#7ec8ff",
+    description:
+      "Cute designs that aren't tied to a licensed character — clouds, animals, bows and more.",
+    // Membership is NOT keyword-matched. Unlicensed products are filed by
+    // `syncOriginalsMembership` so a title saying "original" cannot leak a
+    // Sanrio case in, and clearing a brand automatically lands it here.
+  },
 ];
+
+/** Browse node for products with no licensed brand/character. */
+export const ORIGINALS_SLUG = "originals";
 
 /**
  * Collections intentionally hidden from the "Shop the universe" homepage rail

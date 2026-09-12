@@ -26,6 +26,17 @@ import {
   collectionSeo,
   productSerpTitle,
 } from "../src/lib/seo/copy";
+import { collectionEditorial } from "../src/lib/seo/collection-editorial";
+import { IPHONE_FIT } from "../src/lib/pricing";
+import {
+  FAQ_ITEMS,
+  faqAnswerSegments,
+} from "../src/lib/seo/faq";
+import {
+  PREFERRED_SOURCES_HOST,
+  preferredSourcesDeeplink,
+} from "../src/lib/seo/preferred-sources";
+import { ROUTES } from "../src/lib/routes";
 import type { CatalogParams } from "../src/lib/catalog/params";
 import {
   SHIPPING_COUNTRIES,
@@ -80,6 +91,8 @@ assert.equal(
 const pageTwo: CatalogParams = {
   basePath: "/products",
   brands: [],
+  colors: [],
+  motifs: [],
   sort: "newest",
   page: 2,
 };
@@ -103,6 +116,36 @@ assert.equal(
     title: "Shop All",
     description: "Browse the catalog.",
     params: filtered,
+  }).robots as { index?: boolean }).index,
+  false,
+);
+
+const colorFiltered: CatalogParams = {
+  ...pageTwo,
+  page: 1,
+  colors: ["pink"],
+};
+assert.equal(catalogCanonicalHref(colorFiltered), "/products");
+assert.equal(
+  (catalogPageMetadata({
+    title: "Shop All",
+    description: "Browse the catalog.",
+    params: colorFiltered,
+  }).robots as { index?: boolean }).index,
+  false,
+);
+
+const motifFiltered: CatalogParams = {
+  ...pageTwo,
+  page: 1,
+  motifs: ["clouds"],
+};
+assert.equal(catalogCanonicalHref(motifFiltered), "/products");
+assert.equal(
+  (catalogPageMetadata({
+    title: "Shop All",
+    description: "Browse the catalog.",
+    params: motifFiltered,
   }).robots as { index?: boolean }).index,
   false,
 );
@@ -259,5 +302,71 @@ assert.ok(
 );
 assert.equal(productSerpTitle("Kuromi Bow Case"), "Kuromi Bow Case");
 assert.equal(BRAND_TITLE_TEMPLATE, "%s · Y2KASE");
+
+assert.equal(PAGE_COPY.contact.heading, PAGE_COPY.contact.title);
+assert.equal(PAGE_COPY.insights.primary, "y2kase catalog snapshot");
+assert.notEqual(PAGE_COPY.insights.primary, PAGE_COPY.home.primary);
+assert.notEqual(PAGE_COPY.insights.primary, PAGE_COPY.blog.primary);
+assert.notEqual(PAGE_COPY.insights.primary, PAGE_COPY.catalog.primary);
+assert.notEqual(PAGE_COPY.insights.title, PAGE_COPY.home.title);
+assert.notEqual(PAGE_COPY.insights.title, PAGE_COPY.blog.title);
+assert.notEqual(PAGE_COPY.insights.title, PAGE_COPY.catalog.title);
+
+const kuromiEditorial = collectionEditorial({
+  slug: "kuromi",
+  name: "Kuromi",
+  kind: "character",
+  parent: { slug: "sanrio", name: "Sanrio" },
+});
+assert.match(kuromiEditorial.paragraphs.join(" "), /Kuromi/);
+assert.ok(
+  kuromiEditorial.related.some((link) => link.href === "/collections/sanrio"),
+);
+assert.ok(
+  kuromiEditorial.related.some((link) => link.href === "/devices/iphone"),
+);
+assert.match(
+  kuromiEditorial.paragraphs.join(" "),
+  new RegExp(IPHONE_FIT.newest),
+);
+
+assert.equal(
+  preferredSourcesDeeplink(),
+  "https://www.google.com/preferences/source?q=y2kase.com",
+);
+assert.equal(PREFERRED_SOURCES_HOST, "y2kase.com");
+assert.equal(ROUTES.insights, "/insights");
+
+assert.ok(
+  FAQ_ITEMS.some((item) => item.question.includes("decide a case is MagSafe")),
+);
+assert.ok(
+  FAQ_ITEMS.some((item) => item.question.includes("MagSafe wallets")),
+);
+const fitFaq = FAQ_ITEMS.find((item) =>
+  item.question.includes("iPhone models are compatible"),
+);
+assert.ok(fitFaq);
+assert.match(fitFaq.answer, new RegExp(IPHONE_FIT.newest));
+for (const item of FAQ_ITEMS) {
+  assert.equal(
+    faqAnswerSegments(item.answer)
+      .map((segment) => segment.text)
+      .join(""),
+    item.answer,
+  );
+}
+const magSafeFaq = FAQ_ITEMS.find((item) =>
+  item.question.includes("decide a case is MagSafe"),
+);
+assert.ok(magSafeFaq);
+assert.match(magSafeFaq.answer, /How we verify MagSafe/);
+assert.ok(
+  faqAnswerSegments(magSafeFaq.answer).some(
+    (segment) =>
+      segment.type === "link" &&
+      segment.href === "/blog/how-we-verify-magsafe",
+  ),
+);
 
 console.log("SEO invariants passed.");

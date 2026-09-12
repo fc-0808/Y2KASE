@@ -1252,6 +1252,7 @@ function ProductRow({
               health={classification}
               brandOptions={brandOptions}
               collectionOptions={collectionOptions}
+              motifs={product.motifs}
             />
           )}
         </div>

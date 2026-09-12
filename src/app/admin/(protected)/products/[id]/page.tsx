@@ -10,6 +10,8 @@ import { currentCollectionSlugs } from "@/lib/catalog/collection-filing";
 import { loadProductTitleState } from "@/lib/catalog/listing-title-service";
 import { ProductEditor } from "./ProductEditor";
 import type { BrandState } from "./BrandReassignmentCard";
+import { isColorFamilySlug } from "@/lib/catalog/colors";
+import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 
 export const metadata: Metadata = { title: "Admin · Edit product" };
 export const dynamic = "force-dynamic";
@@ -67,6 +69,10 @@ export default async function AdminProductEditPage({
           styleTags: i.styleTags ?? [],
         }))}
         availableStyles={styleOption?.values ?? []}
+        colors={(product.colors ?? []).filter(isColorFamilySlug)}
+        colorsLocked={product.colorsLocked}
+        motifs={(product.motifs ?? []).filter(isMotifFamilySlug)}
+        motifsLocked={product.motifsLocked}
       />
     </div>
   );

@@ -30,9 +30,10 @@ Every product page has two choices:
 2. **Style** — this is what sets the price.
 
 Supported models: iPhone 14 / 13, 14 Pro, 14 Pro Max, 15, 15 Pro, 15 Pro Max,
-16, 16 Pro, 16 Pro Max, 17, 17 Pro and 17 Pro Max. An individual design may be
-molded for only some of these; the product page lists exactly which models it
-offers.
+16, 16 Pro, 16 Pro Max, 17, 17 Pro, 17 Pro Max, 18 Pro and 18 Pro Max. The 18
+lineup is Pro and Pro Max only — there is no standard iPhone 18 cut. An
+individual design may be molded for only some of these; the product page lists
+exactly which models it offers.
 
 Styles, most to least complete:
 

@@ -166,6 +166,11 @@ html {
   background: var(--muted);
   font-weight: 800;
 }
+.legal-prose code {
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--foreground);
+}
 
 body {
   color: var(--foreground);

@@ -38,7 +38,11 @@ export function proxy(request: NextRequest) {
 
     if (!sessionCookie) {
       const signIn = new URL("/admin/sign-in", request.url);
-      signIn.searchParams.set("callbackUrl", pathname);
+      // Keep `?view=` (and any other query) so a cadence deep link survives login.
+      signIn.searchParams.set(
+        "callbackUrl",
+        `${pathname}${request.nextUrl.search}`,
+      );
       return NextResponse.redirect(signIn);
     }
   }

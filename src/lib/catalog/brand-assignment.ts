@@ -7,17 +7,19 @@
  * what keeps the admin, the backfill script and any future importer honest.
  *
  * Genre ("kawaii", "y2k") and feature ("magsafe") memberships are curated on a
- * different axis and are never touched here.
+ * different axis and are never touched here. Originals is the exception: it is
+ * the inverse of the brand axis (no licensed IP → file; licensed IP → unfile).
  */
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { collections, productCollections, products } from "@/lib/db/schema";
 import {
   BRAND_COLLECTION_KINDS,
+  ORIGINALS_SLUG,
   taxonomySlugChain,
 } from "@/lib/catalog/collections-config";
 import { collectionIdsForSlugs } from "@/lib/catalog/taxonomy-sync";
-import type { BrandConfidence } from "@/lib/catalog/brands";
+import { isUnlicensedProduct, type BrandConfidence } from "@/lib/catalog/brands";
 
 export type BrandCollectionSync = {
   /** Slugs the product is now a member of. */
@@ -94,6 +96,58 @@ export async function syncBrandCollections(
   };
 }
 
+/**
+ * File unlicensed products into Originals, and take licensed ones back out.
+ *
+ * Genre filing is additive and keyword-matched, which cannot express "has no
+ * brand". Originals is the inverse of the brand axis: membership is a function
+ * of whether the product currently has a resolvable IP, so assigning a brand
+ * automatically leaves the shelf and clearing one automatically enters it.
+ */
+export async function syncOriginalsMembership(
+  productId: number,
+  brandName: string | null,
+  characterName: string | null,
+): Promise<{ linked: boolean; removed: boolean; unseeded: boolean }> {
+  const wanted = isUnlicensedProduct(brandName, characterName);
+  const idBySlug = await collectionIdsForSlugs([ORIGINALS_SLUG]);
+  const originalsId = idBySlug.get(ORIGINALS_SLUG);
+  if (!originalsId) {
+    return { linked: false, removed: false, unseeded: wanted };
+  }
+
+  const [existing] = await db
+    .select({ collectionId: productCollections.collectionId })
+    .from(productCollections)
+    .where(
+      and(
+        eq(productCollections.productId, productId),
+        eq(productCollections.collectionId, originalsId),
+      ),
+    )
+    .limit(1);
+
+  if (wanted) {
+    if (existing) return { linked: false, removed: false, unseeded: false };
+    await db
+      .insert(productCollections)
+      .values({ productId, collectionId: originalsId })
+      .onConflictDoNothing();
+    return { linked: true, removed: false, unseeded: false };
+  }
+
+  if (!existing) return { linked: false, removed: false, unseeded: false };
+  await db
+    .delete(productCollections)
+    .where(
+      and(
+        eq(productCollections.productId, productId),
+        eq(productCollections.collectionId, originalsId),
+      ),
+    );
+  return { linked: false, removed: true, unseeded: false };
+}
+
 export type BrandAssignment = {
   brandId: string | null;
   brandName: string | null;
@@ -122,9 +176,15 @@ export async function applyBrandAssignment(
     })
     .where(eq(products.id, productId));
 
-  return syncBrandCollections(
+  const brandSync = await syncBrandCollections(
     productId,
     assignment.brandId,
     assignment.characterId,
   );
+  await syncOriginalsMembership(
+    productId,
+    assignment.brandName,
+    assignment.characterName,
+  );
+  return brandSync;
 }

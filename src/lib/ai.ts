@@ -45,7 +45,7 @@ export type { IncomingFolderVerdict } from "@/lib/catalog/folder-sort";
  * verification, per-image Style tags, thumbnail suitability. Nothing here
  * becomes customer-visible prose, so it runs on a cheap open-weight vision
  * model through an OpenAI-compatible gateway (OpenRouter). Default in
- * `.env.example` is Qwen 3.8 Flash — the production successor to 3.7 Plus
+ * Default vision model is Qwen 3.8 Flash — the production successor to 3.7 Plus
  * for high-volume visual classification.
  *
  * ── Product copy (`copyClient`) ────────────────────────────────────────────
@@ -435,6 +435,8 @@ Return STRICT JSON matching this TypeScript type:
   "magsafe": boolean,     // see the MagSafe steps above — default false
   "magsafeConfidence": string, // "high" | "low" | "none"
   "magsafeEvidence": string,   // "magnet_ring_visible" | "magsafe_text_visible" | "magsafe_accessory_attached" | "none"
+  "colors": string[],     // 1-3 of: pink, purple, blue, red, black, white, clear, yellow, green, orange, brown, beige, grey, gold, silver, multicolor. Dominant colours you can SEE on the case, not the character's typical colours. "navy" → "blue". Clear/transparent cases include "clear".
+  "motifs": string[],     // 1-3 of: puppy, bunny, cat, bear, animals, clouds, stars, florals, bows, hearts, fruit, food, dolls, patterns. What is DEPICTED on the case. A licensed character is NOT a motif — Hello Kitty is not "cat", Cinnamoroll is not "clouds", Miffy is not "bunny". Empty is honest.
   "suggestedPriceUsd": number, // realistic USD retail price for this item
   "altText": string,      // <= 120 chars, plain accessibility description of the main image
   "materials": string     // e.g. "soft TPU", "hard polycarbonate", "silicone" — infer from photo if possible

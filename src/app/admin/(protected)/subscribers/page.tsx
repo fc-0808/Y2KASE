@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Send } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { getSubscribers, getSubscriberStats } from "@/lib/admin/subscribers";
+import { EMAIL_STUDIO_PATH } from "@/lib/marketing/types";
 import { SubscribersConsole } from "./SubscribersConsole";
 
 export const metadata: Metadata = { title: "Admin · Subscribers" };
@@ -36,11 +37,12 @@ export default async function AdminSubscribersPage() {
           <h1 className="text-3xl font-black">Subscribers</h1>
           <p className="mt-1 text-sm text-[var(--foreground)]/60">
             Your list from the welcome pop-up, footer and checkout. Provider
-            opt-outs are reconciled before every campaign.
+            opt-outs are reconciled before every campaign. Club cadence holds
+            new joiners out of broadcasts for 48 hours.
           </p>
         </div>
         <Link
-          href="/admin/campaigns"
+          href={EMAIL_STUDIO_PATH}
           className="inline-flex items-center justify-center gap-2 self-start rounded-full bg-primary px-4 py-2 text-sm font-bold text-foreground transition hover:brightness-95"
         >
           <Send className="h-4 w-4" />

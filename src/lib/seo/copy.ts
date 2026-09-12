@@ -63,8 +63,10 @@ export type CollectionSeoCopy = {
  * | `/collections/y2k`          | "y2k phone cases"                         |                                       |
  * | `/collections/{character}`  | "{character} phone cases"                 | Device-only queries                   |
  * | `/collections/magsafe`      | "magsafe phone cases"                     |                                       |
+ * | `/collections/originals`    | "original cute phone cases"               | Licensed character queries            |
  * | `/devices/iphone`           | "iphone cases"                            | Character queries                     |
  * | `/blog`                     | Informational guides                      | Commercial category queries           |
+ * | `/insights`                 | First-party catalog snapshot              | Commercial category queries           |
  */
 export const PAGE_COPY = {
   home: {
@@ -85,14 +87,14 @@ export const PAGE_COPY = {
     title: "Shop by Character & Brand",
     heading: "Shop by Character & Brand",
     description:
-      "Browse Y2KASE phone cases by MagSafe, character and brand — Sanrio, Hello Kitty, Kuromi, Miffy, Tamagotchi and more.",
+      "Browse Y2KASE phone cases by MagSafe, character, original design and brand — Sanrio, Hello Kitty, Kuromi, Miffy, Tamagotchi and more.",
     primary: "shop phone cases by character",
   },
   about: {
     title: "About Us",
     heading: "About Y2KASE ✨",
     description:
-      "Y2KASE is a kawaii and Y2K phone case brand — character cases, grips and charms designed to express your vibe.",
+      "Y2KASE is a Hong Kong kawaii and Y2K phone-accessories merchant — character cases, grips and charms, with MagSafe labelled after review.",
     primary: "y2kase brand",
   },
   faq: {
@@ -104,7 +106,7 @@ export const PAGE_COPY = {
   },
   contact: {
     title: "Contact Us",
-    heading: "Contact",
+    heading: "Contact Us",
     description:
       "Email the Y2KASE team about orders, iPhone case fit, MagSafe and returns — we reply within 24 hours.",
     primary: "y2kase contact",
@@ -115,6 +117,13 @@ export const PAGE_COPY = {
     description:
       "Style guides, trend reports and how-tos for kawaii and Y2K phone cases, charms and accessories — from the Y2KASE team.",
     primary: "kawaii phone case guides",
+  },
+  insights: {
+    title: "What's in the Catalog",
+    heading: "What's in the Y2KASE catalog",
+    description:
+      "A live count of active Y2KASE phone cases by MagSafe, product type and character — first-party catalog data, not a survey.",
+    primary: "y2kase catalog snapshot",
   },
 } as const satisfies Record<string, StaticPageCopy & { socialDescription?: string }>;
 
@@ -130,6 +139,7 @@ const COLLECTION_HEADING_OVERRIDES: Record<string, string> = {
   y2k: "Y2K Phone Cases",
   anime: "Anime Phone Cases",
   cartoon: "Cartoon Phone Cases",
+  originals: "Original Phone Cases",
 };
 
 const PRODUCT_NOUN_RE = /\b(phone cases?|iphone cases?|cases)\b/i;

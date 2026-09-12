@@ -16,13 +16,37 @@ import { NextResponse, type NextRequest } from "next/server";
 type Bucket = { count: number; resetAt: number };
 
 const store = new Map<string, Bucket>();
+const SWEEP_INTERVAL_MS = 60_000;
+const MAX_BUCKETS = 10_000;
+const TRIM_TO_BUCKETS = 7_500;
+let nextSweepAt = 0;
 
-// Opportunistically evict expired buckets so the Map can't grow unbounded.
+/**
+ * Opportunistically evict expired buckets, with a hard high-cardinality cap.
+ *
+ * Iterating thousands of entries on every request is itself a denial-of-service
+ * vector, so routine sweeps run at most once per minute. Under pressure we trim
+ * the oldest insertion-order entries immediately. Losing a few local counters
+ * is safer than allowing a rotating proxy pool to exhaust a serverless worker.
+ */
 function sweep(now: number): void {
-  if (store.size < 5000) return;
+  const underPressure = store.size >= MAX_BUCKETS;
+  if (!underPressure && now < nextSweepAt) return;
+
   for (const [key, b] of store) {
     if (b.resetAt <= now) store.delete(key);
   }
+
+  if (store.size >= MAX_BUCKETS) {
+    const removeCount = store.size - TRIM_TO_BUCKETS;
+    const keys = store.keys();
+    for (let i = 0; i < removeCount; i += 1) {
+      const next = keys.next();
+      if (next.done) break;
+      store.delete(next.value);
+    }
+  }
+  nextSweepAt = now + SWEEP_INTERVAL_MS;
 }
 
 export type RateLimitOptions = {

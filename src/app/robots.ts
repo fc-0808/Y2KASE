@@ -19,6 +19,11 @@ export default function robots(): MetadataRoute.Robots {
         allow: ["/", "/api/feed/pinterest"],
         disallow: PRIVATE_PATHS,
       },
+      {
+        userAgent: ["Pinterestbot", "Pinterest"],
+        allow: ["/", "/api/feed/pinterest"],
+        disallow: PRIVATE_PATHS,
+      },
       // Explicit answer-engine search access documents product intent and keeps
       // these crawlers allowed if the broad policy is tightened in the future.
       {

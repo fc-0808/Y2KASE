@@ -15,6 +15,12 @@ import {
 } from "lucide-react";
 import type { BrandOption } from "@/lib/catalog/brands";
 import type { AdminCollectionOption } from "@/lib/collections";
+import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
+import {
+  isMotifFamilySlug,
+  motifFamily,
+  type MotifFamilySlug,
+} from "@/lib/catalog/motifs";
 import type {
   ClassificationHealth,
   ClassificationState,
@@ -40,11 +46,13 @@ export function ClassificationCell({
   health,
   brandOptions,
   collectionOptions,
+  motifs = [],
 }: {
   productId: number;
   health: ClassificationHealth;
   brandOptions: BrandOption[];
   collectionOptions: AdminCollectionOption[];
+  motifs?: MotifFamilySlug[];
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -62,6 +70,7 @@ export function ClassificationCell({
 
   const tone = STATE_TONE[health.state];
   const label = health.characterName ?? health.brandName ?? health.storedRaw;
+  const inOriginals = health.otherSlugs.includes(ORIGINALS_SLUG);
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -84,7 +93,30 @@ export function ClassificationCell({
           unsupported={health.unsupportedSlugs.includes(slug)}
         />
       ))}
-      {health.brandSlugs.length === 0 && health.state !== "unclassified" && (
+      {inOriginals && (
+        <span
+          title="No licensed character — shoppers browse this under Originals and Theme."
+          className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-inset ring-sky-600/20"
+        >
+          Originals
+        </span>
+      )}
+      {motifs.filter(isMotifFamilySlug).map((slug) => {
+        const family = motifFamily(slug);
+        if (!family) return null;
+        return (
+          <span
+            key={slug}
+            title={`Theme: ${family.label}`}
+            className="inline-flex items-center rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--foreground)]/70 ring-1 ring-inset ring-black/5"
+          >
+            {family.label}
+          </span>
+        );
+      })}
+      {health.brandSlugs.length === 0 &&
+        health.state !== "unclassified" &&
+        !inOriginals && (
         <span
           title="This product is in no brand collection, so it can't be browsed by character."
           className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20"

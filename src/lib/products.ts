@@ -26,6 +26,16 @@ import {
 import { productTypeLabel } from "@/lib/catalog/product-types";
 import { MAGSAFE_TAG } from "@/lib/catalog/magsafe";
 import { deviceProductTypes } from "@/lib/catalog/devices";
+import {
+  COLOR_FAMILY_SLUGS,
+  isColorFamilySlug,
+  type ColorFamilySlug,
+} from "@/lib/catalog/colors";
+import {
+  MOTIF_FAMILY_SLUGS,
+  isMotifFamilySlug,
+  type MotifFamilySlug,
+} from "@/lib/catalog/motifs";
 import { resolveCollectionFilterIds } from "@/lib/collections";
 import { getReviewSummaries } from "@/lib/reviews";
 
@@ -98,6 +108,17 @@ export type ProductQuery = {
    */
   brands?: string[];
   /**
+   * Color facet: canonical families OR-ed together (`pink` OR `blue`). Empty /
+   * omitted means any colour. Closed vocabulary — see `@/lib/catalog/colors`.
+   */
+  colors?: ColorFamilySlug[];
+  /**
+   * Motif facet: canonical families OR-ed together (`puppy` OR `clouds`).
+   * Empty / omitted means any motif. Closed vocabulary — see
+   * `@/lib/catalog/motifs`.
+   */
+  motifs?: MotifFamilySlug[];
+  /**
    * MagSafe compatibility facet: `true` = MagSafe only, `false` = non-MagSafe
    * only, `undefined` = no filter. Modelled as a tri-state boolean rather than
    * a tag string so the negated ("Non-MagSafe") case is expressible.
@@ -126,6 +147,12 @@ function normalizeProductQuery(query: ProductQuery): ProductQuery {
   const brands = query.brands
     ? [...new Set(query.brands.filter(Boolean))].sort().slice(0, 24)
     : undefined;
+  const colorSet = new Set(
+    (query.colors ?? []).filter(isColorFamilySlug),
+  );
+  const colors = COLOR_FAMILY_SLUGS.filter((slug) => colorSet.has(slug));
+  const motifSet = new Set((query.motifs ?? []).filter(isMotifFamilySlug));
+  const motifs = MOTIF_FAMILY_SLUGS.filter((slug) => motifSet.has(slug));
   const search = query.search?.trim().replace(/\s+/g, " ").slice(0, 120);
 
   return {
@@ -134,6 +161,8 @@ function normalizeProductQuery(query: ProductQuery): ProductQuery {
     ...(query.device ? { device: query.device } : {}),
     ...(query.collection ? { collection: query.collection } : {}),
     ...(brands && brands.length > 0 ? { brands } : {}),
+    ...(colors.length > 0 ? { colors } : {}),
+    ...(motifs.length > 0 ? { motifs } : {}),
     ...(query.magsafe !== undefined ? { magsafe: query.magsafe } : {}),
     page,
     sort: query.sort ?? "newest",
@@ -172,7 +201,7 @@ async function collectionMembership(slugs: string[]): Promise<SQL> {
  */
 async function catalogFilters(
   query: ProductQuery,
-  omit?: "magsafe" | "brands",
+  omit?: "magsafe" | "brands" | "colors" | "motifs",
 ): Promise<SQL[]> {
   const filters: SQL[] = [eq(products.status, "active")];
 
@@ -216,7 +245,31 @@ async function catalogFilters(
     filters.push(await collectionMembership(query.brands));
   }
 
+  // Color facet → product must carry ANY of the selected families.
+  if (omit !== "colors" && query.colors && query.colors.length > 0) {
+    filters.push(colorsOverlap(query.colors));
+  }
+
+  if (omit !== "motifs" && query.motifs && query.motifs.length > 0) {
+    filters.push(motifsOverlap(query.motifs));
+  }
+
   return filters;
+}
+
+/** `colors && ARRAY['pink','blue']` — OR within the facet. */
+function colorsOverlap(selected: readonly string[]): SQL {
+  return sql`${products.colors} && ARRAY[${sql.join(
+    selected.map((slug) => sql`${slug}`),
+    sql`, `,
+  )}]::text[]`;
+}
+
+function motifsOverlap(selected: readonly string[]): SQL {
+  return sql`${products.motifs} && ARRAY[${sql.join(
+    selected.map((slug) => sql`${slug}`),
+    sql`, `,
+  )}]::text[]`;
 }
 
 export function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
@@ -238,7 +291,7 @@ const getProductsCached = cachedCatalogRead(
   computeProducts,
   // v2: default sort now leads with curated bestsellers — bump so stale v1
   // entries (newest-only order) don't linger for the revalidate window.
-  ["catalog-product-page-v2"],
+  ["catalog-product-page-v5"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
     revalidate: 300,
@@ -306,11 +359,17 @@ export type CatalogFacetCounts = {
   magsafe: { on: number; off: number };
   /** Brand slug → count, with every filter EXCEPT the brand facet. */
   brands: Record<string, number>;
+  /** Color family slug → count, with every filter EXCEPT the color facet. */
+  colors: Record<string, number>;
+  /** Motif family slug → count, with every filter EXCEPT the motif facet. */
+  motifs: Record<string, number>;
 };
 
 const EMPTY_FACET_COUNTS: CatalogFacetCounts = {
   magsafe: { on: 0, off: 0 },
   brands: {},
+  colors: {},
+  motifs: {},
 };
 
 /**
@@ -376,7 +435,7 @@ export function getCatalogPage(
 const getCatalogPageCached = cachedCatalogRead(
   computeCatalogPage,
   // v2: see getProductsCached — same default-sort change, same reason to bump.
-  ["catalog-page-with-facets-v2"],
+  ["catalog-page-with-facets-v5"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
     revalidate: 300,
@@ -400,7 +459,7 @@ async function computeCatalogFacetCounts(
   facetSlugs?: string[],
   alsoCountSlugs?: string[],
 ): Promise<CatalogFacetCounts> {
-  const [magsafe, brands, extras] = await Promise.all([
+  const [magsafe, brands, extras, colors, motifs] = await Promise.all([
     countCompatibilityFacet(query),
     facetSlugs
       ? countCollectionFacet(query, facetSlugs)
@@ -408,8 +467,10 @@ async function computeCatalogFacetCounts(
     !facetSlugs && alsoCountSlugs && alsoCountSlugs.length > 0
       ? countCollectionFacet(query, alsoCountSlugs)
       : Promise.resolve({} as Record<string, number>),
+    countColorFacet(query),
+    countMotifFacet(query),
   ]);
-  return { magsafe, brands: { ...brands, ...extras } };
+  return { magsafe, brands: { ...brands, ...extras }, colors, motifs };
 }
 
 /** Both halves of the compatibility facet from one aggregate scan. */
@@ -424,6 +485,51 @@ async function countCompatibilityFacet(
     .from(products)
     .where(and(...(await catalogFilters(query, "magsafe"))));
   return { on: row?.on ?? 0, off: row?.off ?? 0 };
+}
+
+/** Per-family counts from one aggregate scan, ignoring the color facet itself. */
+async function countColorFacet(
+  query: ProductQuery,
+): Promise<Record<string, number>> {
+  const columns = Object.fromEntries(
+    COLOR_FAMILY_SLUGS.map((slug) => [
+      slug,
+      sql<number>`count(*) filter (where ${slug} = any(${products.colors}))::int`,
+    ]),
+  ) as Record<ColorFamilySlug, ReturnType<typeof sql<number>>>;
+
+  const [row] = await db
+    .select(columns)
+    .from(products)
+    .where(and(...(await catalogFilters(query, "colors"))));
+
+  const counts: Record<string, number> = {};
+  for (const slug of COLOR_FAMILY_SLUGS) {
+    counts[slug] = row?.[slug] ?? 0;
+  }
+  return counts;
+}
+
+async function countMotifFacet(
+  query: ProductQuery,
+): Promise<Record<string, number>> {
+  const columns = Object.fromEntries(
+    MOTIF_FAMILY_SLUGS.map((slug) => [
+      slug,
+      sql<number>`count(*) filter (where ${slug} = any(${products.motifs}))::int`,
+    ]),
+  ) as Record<MotifFamilySlug, ReturnType<typeof sql<number>>>;
+
+  const [row] = await db
+    .select(columns)
+    .from(products)
+    .where(and(...(await catalogFilters(query, "motifs"))));
+
+  const counts: Record<string, number> = {};
+  for (const slug of MOTIF_FAMILY_SLUGS) {
+    counts[slug] = row?.[slug] ?? 0;
+  }
+  return counts;
 }
 
 /**
@@ -680,7 +786,7 @@ export function getRelatedProducts(opts: {
 
 const getRelatedProductsCached = cachedCatalogRead(
   computeRelatedProducts,
-  ["related-products-v1"],
+  ["related-products-v2"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
     revalidate: 3600,
@@ -762,7 +868,9 @@ async function computeProductBySlug(
 
 const getProductBySlugCached = cachedCatalogRead(
   computeProductBySlug,
-  ["storefront-product-by-slug-v1"],
+  // v2: iPhone 18 Pro / Pro Max option values + repaired titles. Bump so the
+  // previous hour-long entries cannot keep a 13–17 picker on the PDP.
+  ["storefront-product-by-slug-v2"],
   {
     tags: [CACHE_TAGS.products],
     revalidate: 3600,
@@ -834,6 +942,8 @@ export type CatalogFeedItem = {
   compareAtPrice: string | null;
   currency: string;
   tags: string[];
+  /** Canonical color families, for `g:color` in merchant feeds. */
+  colors: string[];
   /** Ordered gallery image URLs (first = primary). */
   images: string[];
 };
@@ -845,7 +955,7 @@ export function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
 
 const getCatalogFeedItemsCached = cachedCatalogRead(
   computeCatalogFeedItems,
-  ["catalog-feed-items-v1"],
+  ["catalog-feed-items-v3"],
   {
     tags: [CACHE_TAGS.products],
     revalidate: 3600,
@@ -875,6 +985,7 @@ async function computeCatalogFeedItems(): Promise<CatalogFeedItem[]> {
     compareAtPrice: p.compareAtPrice,
     currency: p.currency,
     tags: p.tags ?? [],
+    colors: p.colors ?? [],
     images: p.images.map((i) => i.url).filter((u): u is string => Boolean(u)),
   }));
 }
@@ -905,6 +1016,8 @@ export type AdminProductOverview = {
   availableModels: string[];
   /** Collection ids this product is assigned to (for facet filtering). */
   collectionIds: number[];
+  /** Closed motif vocabulary currently on the product. Empty until classified. */
+  motifs: MotifFamilySlug[];
   /** True when the product is classified as MagSafe (has the `magsafe` tag). */
   isMagsafe: boolean;
   /** True when MagSafe was a low-confidence guess awaiting human review. */
@@ -954,6 +1067,7 @@ export async function getAdminProductOverviews(): Promise<
       availableStyles: orderStyles(styleOpt?.values ?? []),
       availableModels: orderModels(modelOpt?.values ?? []),
       collectionIds: p.collections.map((c) => c.collectionId),
+      motifs: (p.motifs ?? []).filter(isMotifFamilySlug),
       isMagsafe: (p.tags ?? []).includes(MAGSAFE_TAG),
       needsMagsafeReview: p.needsMagsafeReview,
     };

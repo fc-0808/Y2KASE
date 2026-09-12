@@ -12,6 +12,12 @@
  */
 
 import type { ImageSize } from "@/lib/social/image-gen";
+import {
+  FASHION_FRAME_LOCK,
+  FASHION_MOOD_LOCK,
+  FASHION_PHOTO_LOCK,
+  FASHION_PRODUCT_LOCK,
+} from "@/lib/social/instagram-fashion";
 
 export type SocialPlatform = "pinterest" | "tiktok" | "instagram" | "generic";
 
@@ -27,8 +33,15 @@ export type CreativePreset = {
   /** Emoji shown in the picker. */
   emoji: string;
   /**
+   * When true, generation must attach a catalog photo and use images.edit so
+   * the model cannot invent a SKU. Graphic/promo cards stay text-only.
+   */
+  usesProductReference?: boolean;
+  /**
    * Build the image prompt. `product` is the listing being marketed; `extra`
    * is optional free-text the operator can add (e.g. "Valentine's Day", "pink").
+   * For fashion presets, `extra` *replaces* the default scene so a mint Miffy
+   * Look is not generated on top of a jirai-kei wardrobe.
    */
   buildPrompt: (product: PresetProductContext, extra?: string) => string;
 };
@@ -39,12 +52,18 @@ export type PresetProductContext = {
   description?: string | null;
   materials?: string | null;
   tags?: string[];
+  characterName?: string | null;
+  brandName?: string | null;
 };
 
 const BRAND_VOICE = `Brand: Y2KASE — a Gen-Z kawaii / Y2K aesthetic phone accessories brand (phone cases, charms, grips). Aesthetic: playful, cute, holographic, pastel, maximalist but tasteful, trend-forward. Always photoreal, high-end e-commerce quality, sharp focus, professional studio or lifestyle photography. No text, no watermarks, no logos unless described.`;
 
+const FASHION_VOICE = `Brand: Y2KASE — CUTE BUT TOUGH. A Gen-Z jirai / Y2K / kawaii FASHION accessories house (cases, charms, grips). The phone case is a fashion accessory, never an Amazon product shot. Photoreal, editorial, magazine quality. Match the wardrobe to the product in the attached catalog photo (mint kawaii, jirai black-pink, or Y2K chrome) — never default every girl to gothic lolita. When a person appears she is an adult in her early 20s, styled, not sexualized, lively not vacant. No watermarks. No invented licensed mascots standing in the scene — character prints appear only as they exist on the physical product.`;
+
 function productLine(p: PresetProductContext): string {
   const bits = [`Product: ${p.title} (${p.productType.replace(/_/g, " ")})`];
+  if (p.characterName) bits.push(`Character print: ${p.characterName}`);
+  if (p.brandName) bits.push(`IP brand: ${p.brandName}`);
   if (p.materials) bits.push(`Materials: ${p.materials}`);
   if (p.tags && p.tags.length) bits.push(`Style cues: ${p.tags.slice(0, 6).join(", ")}`);
   return bits.join(". ");
@@ -54,6 +73,43 @@ function withExtra(base: string, extra?: string): string {
   return extra && extra.trim()
     ? `${base}\nAdditional art direction: ${extra.trim()}.`
     : base;
+}
+
+/** Identity without the SEO title — the title is how models invent fake prints. */
+function fashionProductIdent(p: PresetProductContext): string {
+  const kind = p.productType.replace(/_/g, " ") || "accessory";
+  const who = [p.characterName?.trim(), p.brandName?.trim()]
+    .filter(Boolean)
+    .join(" ");
+  const label = who ? `${who} ${kind}` : `Y2KASE ${kind}`;
+  return `Product identity: the real ${label} in the attached catalog photo. Copy that exact case, print, charm and grip. Do not redesign. Do not invent a flat character print. Do not illustrate any listing title.`;
+}
+
+function fashionScene(extra: string | undefined, fallback: string): string {
+  return `Scene: ${extra?.trim() || fallback}`;
+}
+
+function fashionPrompt(
+  p: PresetProductContext,
+  extra: string | undefined,
+  fallbackScene: string,
+  opts: { people?: boolean; square?: boolean; productHero?: boolean } = {},
+): string {
+  const frame = opts.square
+    ? "1:1 square."
+    : "Vertical 2:3 for the Instagram grid.";
+  return [
+    FASHION_VOICE,
+    fashionProductIdent(p),
+    FASHION_PHOTO_LOCK,
+    opts.productHero !== false ? FASHION_FRAME_LOCK : "",
+    opts.people ? FASHION_MOOD_LOCK : "",
+    FASHION_PRODUCT_LOCK,
+    fashionScene(extra, fallbackScene),
+    `${frame} Do NOT render any text, watermarks, or logos.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export const PRESETS: CreativePreset[] = [
@@ -86,7 +142,8 @@ export const PRESETS: CreativePreset[] = [
   {
     key: "studio_hero",
     label: "Studio Hero",
-    description: "Clean premium product shot on a colour-pop backdrop. For Pinterest / download — Instagram auto-post uses real catalog photos, not this still.",
+    description:
+      "Clean premium product shot. For Pinterest / download — Instagram feed uses fashion presets (Look / Vanity / Manifesto), not this still.",
     platform: "instagram",
     size: "1024x1024",
     emoji: "✨",
@@ -133,6 +190,89 @@ export const PRESETS: CreativePreset[] = [
       withExtra(
         `${BRAND_VOICE}\n${productLine(p)}\nScene: a Y2K-inspired aesthetic moodboard composition featuring the product alongside chrome hearts, butterflies, glitter gradients, star motifs and holographic textures arranged in a pleasing collage. Nostalgic 2000s digital-print energy, saturated but cohesive. Vertical 2:3 for Pinterest.`,
         extra,
+      ),
+  },
+  {
+    key: "fashion_look",
+    label: "Fashion Look",
+    description:
+      "Product-hero fashion still — the case fills the frame, the girl is styled context. Instagram mix: Look days.",
+    platform: "instagram",
+    size: "1024x1536",
+    emoji: "🖤",
+    usesProductReference: true,
+    buildPrompt: (p, extra) =>
+      fashionPrompt(
+        p,
+        extra,
+        "Product-hero fashion still of a woman in her early 20s in a jirai-kei / Y2K outfit (black-and-pink, dark bows, twin tails or space buns). Styled hands and sleeve in frame. She holds the exact product in the attached catalog photo toward the camera so the case fills at least half the frame — sharp, front-facing. Face at the edge or cropped at the cheek, never a beauty-filter portrait with a tiny phone. Harajuku night, a bedroom floor, or a cafe window. Candid iPhone light, CUTE BUT TOUGH energy.",
+        { people: true, productHero: true },
+      ),
+  },
+  {
+    key: "vanity_still",
+    label: "Vanity Still Life",
+    description:
+      "Bows, gloss, charms, bedroom lamp — plantica's object world, in jirai. Instagram mix: Still days.",
+    platform: "instagram",
+    size: "1024x1536",
+    emoji: "🎀",
+    usesProductReference: true,
+    buildPrompt: (p, extra) =>
+      fashionPrompt(
+        p,
+        extra,
+        "A vanity still life shot from slightly above. The exact product in the attached catalog photo sits among a black glitter bow, a beaded phone charm, lip gloss, loose ribbons, jewelry. Moody bedroom lamp, not ecommerce white. The product is one object in a girl's world. Photoreal, rich blacks and pinks.",
+        { productHero: false },
+      ),
+  },
+  {
+    key: "manifesto_card",
+    label: "Manifesto Card",
+    description:
+      "BURGA-style personality tile. Empty centre — you add CUTE BUT TOUGH in Instagram. Graphic days.",
+    platform: "instagram",
+    size: "1024x1024",
+    emoji: "🗯️",
+    usesProductReference: false,
+    buildPrompt: (_p, extra) =>
+      withExtra(
+        `${FASHION_VOICE}\n${FASHION_PHOTO_LOCK}\nScene: a square Y2K graphic poster — chrome hearts, pink-to-black gradient, sparkle, 2004 gyaru-magazine energy. Generous empty centre for a headline to be added later. Do NOT render the product as a catalog shot. Do NOT render any text, watermarks, or logos. 1:1 square.`,
+        extra,
+      ),
+  },
+  {
+    key: "macro_charm",
+    label: "Macro Charm",
+    description:
+      "Jewelry-ad close-up of the bow, charm, or holographic edge. Instagram mix: Detail days.",
+    platform: "instagram",
+    size: "1024x1024",
+    emoji: "💎",
+    usesProductReference: true,
+    buildPrompt: (p, extra) =>
+      fashionPrompt(
+        p,
+        extra,
+        "Jewelry-advertising macro of the most fashion-coded part of the exact product in the attached catalog photo — glitter bow grip, beaded charm, holographic edge, or star strap, copied exactly. Extreme close-up, shallow depth of field. Crop so it could run in a fashion magazine.",
+        { square: true },
+      ),
+  },
+  {
+    key: "character_world",
+    label: "Character World",
+    description:
+      "The universe she lives in — product present like a watch in a fashion story. World days.",
+    platform: "instagram",
+    size: "1024x1536",
+    emoji: "🌙",
+    usesProductReference: true,
+    buildPrompt: (p, extra) =>
+      fashionPrompt(
+        p,
+        extra,
+        "The world this girl lives in — a cluttered cute-but-dark desk, city night with chrome, a bag charm in motion, jirai bedroom. The exact product in the attached catalog photo is in the scene the way a watch is in a fashion story: present, sharp, not the only subject. Photoreal editorial. Do NOT invent a licensed mascot standing in the room.",
+        { people: true, productHero: false },
       ),
   },
 ];

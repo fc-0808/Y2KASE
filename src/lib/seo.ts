@@ -542,6 +542,35 @@ export function productJsonLd(
 }
 
 /**
+ * Dataset entity for a first-party catalog snapshot. Paired with a visible
+ * methods section on the Insights page so the numbers are not orphaned
+ * machine-readable claims.
+ */
+export function datasetJsonLd(args: {
+  name: string;
+  description: string;
+  url: string;
+  dateModified: string;
+  variables: string[];
+}): JsonLdObject {
+  const canonical = absoluteUrl(args.url);
+  return {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "@id": `${canonical}#dataset`,
+    name: args.name,
+    description: args.description,
+    url: canonical,
+    creator: { "@id": `${SITE_URL}/#organization` },
+    publisher: { "@id": `${SITE_URL}/#organization` },
+    dateModified: args.dateModified,
+    isAccessibleForFree: true,
+    variableMeasured: args.variables,
+    inLanguage: "en",
+  };
+}
+
+/**
  * CollectionPage entity describing a curated browse page and the products it
  * lists (as an ItemList of URLs).
  */

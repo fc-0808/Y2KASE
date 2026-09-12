@@ -3,6 +3,7 @@ import Image from "next/image";
 import { getCollectionTree, type CollectionNode } from "@/lib/collections";
 import { getMagsafeFacetCounts } from "@/lib/products";
 import { MAGSAFE_FACETS, magsafeFacetHref } from "@/lib/catalog/magsafe";
+import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 import {
   COLLECTION_CARD_ART_SLUGS,
   collectionCardArtSrc,
@@ -72,6 +73,7 @@ export default async function CollectionsIndexPage() {
   const brands = tree.filter(
     (c) => c.kind === "brand" && (c.totalCount > 0 || c.featured),
   );
+  const originals = tree.find((c) => c.slug === ORIGINALS_SLUG);
 
   // Split the shelf: brands with real depth get cards, the long tail gets pills.
   // If nothing clears the bar (a brand-new store, or a catalogue mid-import)
@@ -118,8 +120,12 @@ export default async function CollectionsIndexPage() {
           {PAGE_COPY.collections.heading}
         </h1>
         <p className="mt-1.5 max-w-2xl text-sm text-[var(--foreground)]/65 sm:text-base">
-          Start with the fit — MagSafe or not — then browse your favourite
-          characters and brands.
+          Start with the fit — MagSafe or not — then browse characters, original
+          designs, and brands. Live SKU counts (not a survey) are on{" "}
+          <Link href="/insights" className="font-semibold text-[var(--primary)]">
+            What&apos;s in the catalog
+          </Link>
+          .
         </p>
         {/* Labelled landmark in place of the heading these pills used to sit
             under: the group is still announced and jumpable, without a heading
@@ -157,6 +163,21 @@ export default async function CollectionsIndexPage() {
               </Link>
             );
           })}
+          {originals && originals.totalCount > 0 && (
+            <Link
+              href={`/collections/${ORIGINALS_SLUG}`}
+              aria-label={`${originals.name} — ${originals.totalCount} products`}
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+            >
+              <span aria-hidden className="text-sm">
+                {originals.icon ?? "✨"}
+              </span>
+              {originals.name}
+              <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/45">
+                {originals.totalCount}
+              </span>
+            </Link>
+          )}
         </nav>
       </header>
 

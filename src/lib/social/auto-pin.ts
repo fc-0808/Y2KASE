@@ -1,26 +1,28 @@
 /**
- * Social Studio — autonomous Pinterest auto-pin drip (per-listing).
+ * Social Studio — autonomous Pinterest auto-pin drip (curated pins).
  *
- * The "set-and-forget" catalog distribution engine. Every run it takes the next
- * un-pinned *listing* and publishes ALL of its media in one go — every product
- * photo as an image pin, plus the product video as a video pin — then records
- * each asset as pinned. So each listing becomes a complete set of Pins over
- * time, one listing per day, with zero manual work and no duplicates.
+ * A quality-first distribution engine. Each run publishes a small number of
+ * *fresh, visually distinct pins* — never a whole listing's gallery in one
+ * burst. That 2022 "dump every photo" pattern is exactly what TransAct V2
+ * demotes: near-duplicate stills, zero save rate, and a feed that looks like
+ * a catalog scrape.
  *
- * Why per-listing (vs. per-photo)
- * ───────────────────────────────
- * A shopper who discovers one strong photo of a product should be able to swipe
- * through the whole story — every angle plus the video. Posting a listing's full
- * media set together mirrors how the product appears on-site and how top DTC
- * brands merchandise on Pinterest, while the daily cadence keeps the account's
- * fresh-pin signal high (which the algorithm rewards).
+ * Why per-pin (vs. per-listing dump)
+ * ──────────────────────────────────
+ * Pinterest ranks accounts by engagement quality, not upload volume. Five
+ * close-ups of the same case in a row train the model to skip this shop.
+ * One pin per SKU, a multi-day cooldown, video-first, and 2:3 fresh-pin
+ * graphics (see {@link renderFreshPinImage}) is how CASETiFY-tier brands
+ * actually merchandise: remaining angles become later fresh pins, not same-day
+ * duplicates. Editorial rules live in {@link pinterest-strategy}.
  *
  * What counts as postable media
  * ─────────────────────────────
  * Only *authentic* product photos, plus the product video. The AI hero thumbnail
  * that the thumbnail-review queue promotes to gallery position 0 is excluded —
  * see {@link isPinnablePhoto} for why that exclusion is load-bearing, not just
- * cosmetic.
+ * cosmetic. Image pins are wrapped in a 1000×1500 card so Pinterest sees new
+ * bytes (fresh-pin signal) while the product stays the hero (Visit Site match).
  *
  * How "pinned" is tracked
  * ───────────────────────
@@ -48,14 +50,28 @@ import { publishCreative } from "@/lib/social/publish";
 import {
   generateCaption,
   generateCaptionVariations,
+  isCaptionGenConfigured,
   type CaptionVariation,
 } from "@/lib/social/caption-gen";
-import { isImageGenConfigured } from "@/lib/social/image-gen";
 import {
   listBoards,
   isPinterestConfigured,
   type PinterestBoard,
 } from "@/lib/social/pinterest";
+import { renderFreshPinImage } from "@/lib/social/pin-card";
+import {
+  isPinCardEnabled,
+  pickDiverseImageIndex,
+  pinterestPinsPerDay,
+  pinterestPinsPerRun,
+  pinterestProductCooldownDays,
+  planPinSlot,
+  promptWithAltText,
+  sanitizePinterestCaption,
+  sanitizePinterestHashtags,
+  sanitizePinterestTitle,
+  stripUnmentionedDevices,
+} from "@/lib/social/pinterest-strategy";
 import {
   ensurePinterestAccessToken,
   isPinterestAuthError,
@@ -70,26 +86,20 @@ export const AUTO_PIN_MODEL = "auto-pin";
 export const PRODUCT_VIDEO_PRESET = "product_video";
 
 /**
- * How many *listings* a single cron invocation posts. Kept at 1 so the daily
- * volume is spread across multiple runs (see AUTO_PIN_CRON_HOURS_UTC) rather
- * than dumped in one burst — Pinterest rewards steady activity over spikes.
+ * How many *pins* a single cron invocation posts. Default 2, hard-capped at 4
+ * (see {@link pinterestPinsPerRun}) so one slot cannot dump a listing gallery.
  */
-export const AUTO_PIN_PER_RUN = Math.max(
-  1,
-  Number(process.env.PINTEREST_AUTOPIN_PER_RUN ?? 1),
-);
+export const AUTO_PIN_PER_RUN = pinterestPinsPerRun();
 
 /**
- * Hard cap on *listings posted per UTC day*, enforced across every run. This is
- * the single knob that controls daily volume: raise it (and add matching cron
- * slots) to post more listings/day, e.g. 2 to accelerate catalog coverage. A
- * listing is ~8–14 pins, so 2/day ≈ 20–28 fresh pins/day. Defaults to the
- * per-run count for backward compatibility.
+ * Hard cap on *pins posted per UTC day*, enforced across every run. Default 4
+ * (two cron slots × 2 pins). This is the single knob for daily volume — raise
+ * it only after save rate recovers, and never above the strategy hard cap of 8.
  */
-export const AUTO_PIN_PER_DAY = Math.max(
-  AUTO_PIN_PER_RUN,
-  Number(process.env.PINTEREST_AUTOPIN_PER_DAY ?? AUTO_PIN_PER_RUN),
-);
+export const AUTO_PIN_PER_DAY = pinterestPinsPerDay();
+
+/** Days a SKU rests after a pin before another pin of it may go out. */
+export const AUTO_PIN_PRODUCT_COOLDOWN_DAYS = pinterestProductCooldownDays();
 
 /** Pause between individual media posts (stays under Pinterest write limits). */
 const MEDIA_GAP_MS = Math.max(
@@ -100,8 +110,8 @@ const MEDIA_GAP_MS = Math.max(
 /**
  * Hours (UTC) the cron fires — kept in sync with vercel.json
  * (`/api/cron/pinterest-autopin`). Two spread peak windows (≈ US evening and
- * US morning) so the day's listings don't post in one burst. Used to show
- * operators when the next listing will go out.
+ * US morning) so the day's pins don't post in one burst. Used to show
+ * operators when the next pin will go out.
  */
 export const AUTO_PIN_CRON_HOURS_UTC = [1, 15];
 
@@ -234,7 +244,12 @@ function productNeedsPinning() {
 // Selection — the next un-pinned listing
 // ─────────────────────────────────────────────────────────────────────────────
 
-type PinImage = { imageId: number; url: string; altText: string | null };
+type PinImage = {
+  imageId: number;
+  url: string;
+  altText: string | null;
+  position: number;
+};
 
 export type NextListing = {
   productId: number;
@@ -251,22 +266,44 @@ export type NextListing = {
   coverUrl: string | null;
   /** Photos that still need an image pin. */
   images: PinImage[];
+  /** Gallery positions already pinned, used to pick a visually distant still. */
+  pinnedPositions: number[];
   /** The video URL when the listing has an un-pinned video (else null). */
   videoUrl: string | null;
 };
 
 /**
- * The id of the next active listing that still has un-pinned media, oldest
- * first. A listing qualifies when it has an un-pinned photo, or an un-pinned
- * video *and* at least one photo to use as the required cover.
+ * Next active listing that still has un-pinned media, is not in product
+ * cooldown, and is not in `excludeIds` (already used this run). Video-ready
+ * listings sort first so the higher-engagement format gets the slot.
  */
-async function getNextUnpinnedProductId(): Promise<number | null> {
+async function getNextEligibleProductId(
+  excludeIds: readonly number[] = [],
+): Promise<number | null> {
+  const cooldownDays = AUTO_PIN_PRODUCT_COOLDOWN_DAYS;
+  const excludeClause =
+    excludeIds.length > 0
+      ? sql`AND p.id NOT IN (${sql.raw(
+          excludeIds.map((id) => String(Number(id))).join(","),
+        )})`
+      : sql``;
   const res = await db.execute<{ id: number }>(sql`
     SELECT p.id
     FROM products p
     WHERE p.status = 'active'
       AND ${productNeedsPinning()}
-    ORDER BY p.created_at ASC, p.id ASC
+      ${excludeClause}
+      AND NOT EXISTS (
+        SELECT 1 FROM social_creatives sc
+        WHERE sc.product_id = p.id
+          AND sc.platform = 'pinterest'
+          AND sc.status = 'published'
+          AND sc.published_at >= now() - (${cooldownDays} * interval '1 day')
+      )
+    ORDER BY
+      (p.video_url LIKE 'http%' AND ${videoNeedsPin("p.id")}) DESC,
+      p.created_at ASC,
+      p.id ASC
     LIMIT 1
   `);
   return rows<{ id: number }>(res)[0]?.id ?? null;
@@ -306,10 +343,11 @@ async function loadListing(productId: number): Promise<NextListing | null> {
     id: number;
     url: string;
     alt_text: string | null;
+    position: number;
     needs_pin: boolean;
   }>(sql`
     SELECT
-      pi.id, pi.url, pi.alt_text,
+      pi.id, pi.url, pi.alt_text, pi.position,
       ${imageNeedsPin("pi")} AS needs_pin
     FROM product_images pi
     WHERE pi.product_id = ${productId} AND ${isPinnablePhoto("pi")}
@@ -319,13 +357,22 @@ async function loadListing(productId: number): Promise<NextListing | null> {
     id: number;
     url: string;
     alt_text: string | null;
+    position: number;
     needs_pin: boolean;
   }>(imgRes);
 
   const coverUrl = allImages[0]?.url ?? null;
   const images: PinImage[] = allImages
     .filter((r) => r.needs_pin)
-    .map((r) => ({ imageId: r.id, url: r.url, altText: r.alt_text }));
+    .map((r) => ({
+      imageId: r.id,
+      url: r.url,
+      altText: r.alt_text,
+      position: r.position,
+    }));
+  const pinnedPositions = allImages
+    .filter((r) => !r.needs_pin)
+    .map((r) => r.position);
 
   const videoUrl =
     product.video_needed && product.video_url && coverUrl
@@ -341,6 +388,7 @@ async function loadListing(productId: number): Promise<NextListing | null> {
     tags: product.tags ?? [],
     coverUrl,
     images,
+    pinnedPositions,
     videoUrl,
   };
 }
@@ -359,10 +407,12 @@ export type AutoPinCoverage = {
   /** Assets the drip gave up on after exhausting retries (need attention). */
   stuckCount: number;
   enabled: boolean;
-  /** Listings posted per cron run. */
+  /** Pins posted per cron run. */
   perRun: number;
-  /** Listings posted per day (the daily cap across all runs). */
+  /** Pins posted per day (the daily cap across all runs). */
   perDay: number;
+  /** Days a SKU rests before another pin of it. */
+  cooldownDays: number;
 };
 
 function startOfUtcDay(): Date {
@@ -373,8 +423,8 @@ function startOfUtcDay(): Date {
 
 /**
  * Number of distinct listings that have had at least one pin published so far
- * today (UTC). Drives the per-day cap so volume stays controlled across every
- * cron run and any manual triggers combined.
+ * today (UTC). Display metric — the volume cap is pin-level, see
+ * {@link getPinsPostedToday}.
  */
 export async function getListingsPostedToday(): Promise<number> {
   if (!isDbConfigured()) return 0;
@@ -383,6 +433,22 @@ export async function getListingsPostedToday(): Promise<number> {
     FROM social_creatives
     WHERE platform = 'pinterest' AND status = 'published'
       AND product_id IS NOT NULL
+      AND published_at >= ${startOfUtcDay().toISOString()}
+  `);
+  return rows<{ n: number }>(res)[0]?.n ?? 0;
+}
+
+/**
+ * Pins published today (UTC) across auto-pin and manual publishes. Drives the
+ * per-day cap so volume stays controlled across every cron run and any manual
+ * triggers combined.
+ */
+export async function getPinsPostedToday(): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const res = await db.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n
+    FROM social_creatives
+    WHERE platform = 'pinterest' AND status = 'published'
       AND published_at >= ${startOfUtcDay().toISOString()}
   `);
   return rows<{ n: number }>(res)[0]?.n ?? 0;
@@ -400,6 +466,7 @@ export async function getAutoPinCoverage(): Promise<AutoPinCoverage> {
     enabled: isAutoPinEnabled(),
     perRun: AUTO_PIN_PER_RUN,
     perDay: AUTO_PIN_PER_DAY,
+    cooldownDays: AUTO_PIN_PRODUCT_COOLDOWN_DAYS,
   };
   if (!isDbConfigured()) return base;
 
@@ -485,8 +552,12 @@ export type NextListingPreview = {
   photoCount: number;
   /** Whether the listing has a video still awaiting a video pin. */
   hasVideo: boolean;
-  /** Total pins that will be created for this listing (photos + video). */
+  /** Pins this product will contribute on the next run (always 0 or 1). */
   totalPins: number;
+  /** `video` or `image` — the slot the drip will actually publish. */
+  mediaType: "video" | "image";
+  /** Human-readable reason for the slot (admin). */
+  slotLabel: string;
   /** Name of the board this listing will post to (topical routing). */
   boardName: string | null;
   /** ISO time of the next scheduled cron run. */
@@ -494,19 +565,37 @@ export type NextListingPreview = {
 };
 
 /**
- * A preview of the exact listing the next run will post — the same one
- * {@link runAutoPin} would pick — with its media breakdown, so operators can see
- * what is going out and when. Returns null when the whole catalog is posted.
+ * A preview of the exact pin the next run will post — the same one
+ * {@link runAutoPin} would pick — so operators can see what is going out and
+ * when. Returns null when the catalog is posted or every remaining SKU is in
+ * cooldown.
  */
 export async function getNextListingPreview(): Promise<NextListingPreview | null> {
   if (!isDbConfigured()) return null;
-  const productId = await getNextUnpinnedProductId();
+  const productId = await getNextEligibleProductId();
   if (!productId) return null;
   const listing = await loadListing(productId);
   if (!listing) return null;
 
   const photoCount = listing.images.length;
   const hasVideo = Boolean(listing.videoUrl);
+  const plan = planPinSlot({
+    hasUnpinnedPhotos: photoCount > 0,
+    hasUnpinnedVideo: hasVideo,
+    pinsPostedToday: await getPinsPostedToday(),
+    dailyCap: AUTO_PIN_PER_DAY,
+    productPinnedWithinCooldown: false,
+  });
+  const mediaType =
+    plan.action === "post" ? plan.mediaType : hasVideo ? "video" : "image";
+  const slotLabel =
+    plan.action === "skip" && plan.reason === "daily-cap"
+      ? "Today's pin budget is used — this is first in tomorrow's queue."
+      : plan.action === "post"
+        ? plan.mediaType === "video"
+          ? "Next pin: product video"
+          : "Next pin: one distinct still"
+        : "Queued";
 
   // Best-effort: resolve the topical board this listing would route to (for
   // display). Never let a Pinterest hiccup break the admin page.
@@ -536,7 +625,9 @@ export async function getNextListingPreview(): Promise<NextListingPreview | null
     coverUrl: listing.coverUrl,
     photoCount,
     hasVideo,
-    totalPins: photoCount + (hasVideo ? 1 : 0),
+    totalPins: plan.action === "post" ? 1 : 0,
+    mediaType,
+    slotLabel,
     boardName,
     nextRunAtIso: nextRunAtIso(),
   };
@@ -682,7 +773,7 @@ async function claimImageForPin(
     SELECT
       ${listing.productId}, ${listing.productTitle}, ${listing.productSlug},
       ${image.imageId}, ${PRODUCT_PHOTO_PRESET}, 'pinterest', 'image', ${image.url},
-      '(auto-pinned real product photo — no generation)', '{}', 'draft',
+      ${promptWithAltText(image.altText)}, '{}', 'draft',
       ${AUTO_PIN_MODEL}, 0, ${boardId}
     WHERE NOT EXISTS (
       SELECT 1 FROM social_creatives sc
@@ -827,6 +918,107 @@ async function resolveBoardId(explicit?: string): Promise<string> {
   return boards[0].id;
 }
 
+type PinJob = { kind: "image"; image: PinImage } | { kind: "video" };
+
+function pickSlotJob(listing: NextListing): PinJob | null {
+  const plan = planPinSlot({
+    hasUnpinnedPhotos: listing.images.length > 0,
+    hasUnpinnedVideo: Boolean(listing.videoUrl),
+    pinsPostedToday: 0,
+    dailyCap: AUTO_PIN_PER_DAY,
+    productPinnedWithinCooldown: false,
+  });
+  if (plan.action !== "post") return null;
+  if (plan.mediaType === "video") return { kind: "video" };
+  const idx = pickDiverseImageIndex(
+    listing.images.map((img) => img.position),
+    listing.pinnedPositions,
+  );
+  const image = listing.images[idx];
+  return image ? { kind: "image", image } : null;
+}
+
+function sanitizeVariation(
+  raw: CaptionVariation,
+  productTitle: string,
+): CaptionVariation {
+  const title = sanitizePinterestTitle(
+    stripUnmentionedDevices(raw.title, productTitle),
+    productTitle,
+  );
+  return {
+    title,
+    caption: sanitizePinterestCaption(raw.caption),
+    hashtags: sanitizePinterestHashtags(raw.hashtags),
+  };
+}
+
+async function generatePinCopy(
+  listing: NextListing,
+  job: PinJob,
+): Promise<CaptionVariation | null> {
+  if (!isCaptionGenConfigured()) return null;
+  const extra =
+    job.kind === "video"
+      ? "This pin is a product video. Title is a real search phrase for the clip (unboxing, 360, in-hand). Do not invent device models that are not in the product title."
+      : "This pin is a single still. Title is a real Pinterest search phrase a shopper would type. Do not invent device models that are not in the product title.";
+  try {
+    const variations = await generateCaptionVariations({
+      productTitle: listing.productTitle,
+      productType: listing.productType,
+      description: listing.description,
+      tags: listing.tags,
+      count: 1,
+      extra,
+    });
+    if (variations[0]) {
+      return sanitizeVariation(variations[0], listing.productTitle);
+    }
+  } catch (err) {
+    console.error("[auto-pin] caption variations failed:", err);
+  }
+  try {
+    const c = await generateCaption({
+      productTitle: listing.productTitle,
+      productType: listing.productType,
+      description: listing.description,
+      tags: listing.tags,
+      platform: "pinterest",
+      preset: PRODUCT_PHOTO_PRESET,
+      extra,
+    });
+    return sanitizeVariation(
+      { title: listing.productTitle, caption: c.caption, hashtags: c.hashtags },
+      listing.productTitle,
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function renderPinCardUrl(
+  listing: NextListing,
+  image: PinImage,
+  overlayTitle: string,
+): Promise<string | undefined> {
+  if (!isPinCardEnabled()) return undefined;
+  try {
+    const url = await renderFreshPinImage({
+      sourceImageUrl: image.url,
+      overlayTitle: overlayTitle || listing.productTitle,
+      productId: listing.productId,
+      sourceImageId: image.imageId,
+    });
+    return url ?? undefined;
+  } catch (err) {
+    console.error(
+      "[auto-pin] pin card failed — publishing the catalog photo instead:",
+      err,
+    );
+    return undefined;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Run — the orchestration entrypoint
 // ─────────────────────────────────────────────────────────────────────────────
@@ -853,15 +1045,14 @@ export type AutoPinResult = {
 };
 
 /**
- * Post the next `max` un-pinned listings to Pinterest — every photo as an image
- * pin plus the video as a video pin — recording each asset as pinned. One AI
- * caption is generated per listing and reused across its assets. A short pause
+ * Post the next `max` curated pins to Pinterest. Each pin is one asset from a
+ * different listing (video preferred), never a gallery dump. A short pause
  * between posts keeps us under Pinterest's write rate limit.
  */
 export async function runAutoPin(
   opts: { max?: number; boardId?: string; dailyCap?: number } = {},
 ): Promise<AutoPinResult> {
-  let maxListings = Math.max(1, opts.max ?? AUTO_PIN_PER_RUN);
+  let maxPins = Math.max(1, opts.max ?? AUTO_PIN_PER_RUN);
   const result: AutoPinResult = {
     ok: true,
     listingsProcessed: 0,
@@ -924,16 +1115,13 @@ export async function runAutoPin(
     console.error("[auto-pin] stale claim reclaim failed:", err);
   }
 
-  // Enforce the per-day cap across all runs (cron slots + manual triggers): if
-  // today's quota is already met, stop; otherwise only post the remainder.
-  if (opts.dailyCap != null) {
-    const postedToday = await getListingsPostedToday();
-    const allowed = Math.max(0, opts.dailyCap - postedToday);
-    if (allowed <= 0) {
-      return { ...result, reason: "daily-cap-reached" };
-    }
-    maxListings = Math.min(maxListings, allowed);
+  let postedToday = await getPinsPostedToday();
+  const dailyCap = opts.dailyCap ?? AUTO_PIN_PER_DAY;
+  const allowed = Math.max(0, dailyCap - postedToday);
+  if (allowed <= 0) {
+    return { ...result, reason: "daily-cap-reached" };
   }
+  maxPins = Math.min(maxPins, allowed);
 
   let defaultBoardId: string;
   try {
@@ -960,21 +1148,33 @@ export async function runAutoPin(
     }
   }
 
-  for (let n = 0; n < maxListings; n++) {
-    const productId = await getNextUnpinnedProductId();
+  const usedProductIds: number[] = [];
+
+  for (let n = 0; n < maxPins; n++) {
+    if (postedToday >= dailyCap) {
+      if (n === 0) result.reason = "daily-cap-reached";
+      break;
+    }
+
+    const productId = await getNextEligibleProductId(usedProductIds);
     if (!productId) {
       if (n === 0) result.reason = "all-pinned";
       break;
     }
+    usedProductIds.push(productId);
+
     const listing = await loadListing(productId);
     if (!listing || (listing.images.length === 0 && !listing.videoUrl)) {
-      // Nothing postable (shouldn't happen given the selection) — skip on.
       result.skipped++;
       continue;
     }
 
-    // Route this listing to its most relevant board (character/brand), falling
-    // back to the default board.
+    const job = pickSlotJob(listing);
+    if (!job) {
+      result.skipped++;
+      continue;
+    }
+
     const boardId = opts.boardId
       ? defaultBoardId
       : (await resolveBoardForProduct(listing.productId, boards, defaultBoardId))
@@ -988,121 +1188,80 @@ export async function runAutoPin(
       failed: 0,
     };
 
-    // Build the ordered work list: every photo, then the video.
-    type Job =
-      | { kind: "image"; image: PinImage }
-      | { kind: "video" };
-    const jobs: Job[] = [
-      ...listing.images.map((image) => ({ kind: "image" as const, image })),
-      ...(listing.videoUrl ? [{ kind: "video" as const }] : []),
-    ];
+    const copy = await generatePinCopy(listing, job);
+    const creativeId =
+      job.kind === "image"
+        ? await claimImageForPin(listing, job.image, boardId)
+        : await claimVideoForPin(listing, boardId);
 
-    // Distinct SEO copy per pin, so the listing ranks for MANY searches instead
-    // of posting a set of duplicate-looking pins. One AI call returns a
-    // variation per pin (title + caption + hashtags); if it fails we fall back
-    // to a single reused caption. Best-effort — pins still post without copy.
-    let variations: CaptionVariation[] = [];
-    if (isImageGenConfigured()) {
+    if (!creativeId) {
+      result.skipped++;
+      continue;
+    }
+
+    if (copy) {
       try {
-        variations = await generateCaptionVariations({
-          productTitle: listing.productTitle,
-          productType: listing.productType,
-          description: listing.description,
-          tags: listing.tags,
-          count: jobs.length,
+        await updateCreativeContent(creativeId, {
+          title: copy.title,
+          caption: copy.caption,
+          hashtags: copy.hashtags,
         });
       } catch (err) {
-        console.error("[auto-pin] caption variations failed:", err);
-      }
-      if (variations.length === 0) {
-        try {
-          const c = await generateCaption({
-            productTitle: listing.productTitle,
-            productType: listing.productType,
-            description: listing.description,
-            tags: listing.tags,
-            platform: "pinterest",
-            preset: PRODUCT_PHOTO_PRESET,
-          });
-          variations = [{ title: "", caption: c.caption, hashtags: c.hashtags }];
-        } catch {
-          /* no copy available — pins still post with the product title */
-        }
+        console.error("[auto-pin] failed to attach copy:", err);
       }
     }
 
-    for (let j = 0; j < jobs.length; j++) {
-      const job = jobs[j];
-      const creativeId =
-        job.kind === "image"
-          ? await claimImageForPin(listing, job.image, boardId)
-          : await claimVideoForPin(listing, boardId);
+    let imageUrlOverride: string | undefined;
+    if (job.kind === "image") {
+      imageUrlOverride = await renderPinCardUrl(
+        listing,
+        job.image,
+        copy?.title || listing.productTitle,
+      );
+    }
 
-      if (!creativeId) {
-        result.skipped++;
-        continue;
+    const creative = await getCreativeById(creativeId);
+    if (!creative) {
+      result.failed++;
+      summary.failed++;
+      result.errors.push(`#${creativeId}: creative vanished after claim.`);
+      result.listings.push(summary);
+      continue;
+    }
+
+    const outcome = await publishCreative(creative, {
+      boardId,
+      revertToScheduledOnError: false,
+      imageUrlOverride,
+    });
+
+    if (outcome.ok) {
+      result.mediaPinned++;
+      postedToday++;
+      if (job.kind === "image") summary.images++;
+      else summary.videos++;
+    } else {
+      result.failed++;
+      summary.failed++;
+      const label =
+        job.kind === "image" ? `image ${job.image.imageId}` : "video";
+      result.errors.push(`${listing.productTitle} — ${label}: ${outcome.error}`);
+      const authFail = isPinterestAuthError(outcome.error);
+      try {
+        await parkFailedCreative(creativeId, { countAttempt: !authFail });
+      } catch {
+        /* publish error already recorded on the row */
       }
-
-      // Assign a distinct variation to this pin (cycles if a listing has more
-      // pins than variations — neighbours still differ).
-      if (variations.length > 0) {
-        const v = variations[j % variations.length];
-        try {
-          await updateCreativeContent(creativeId, {
-            title: v.title,
-            caption: v.caption,
-            hashtags: v.hashtags,
-          });
-        } catch (err) {
-          console.error("[auto-pin] failed to attach copy:", err);
-        }
+      if (authFail) {
+        result.listings.push(summary);
+        result.ok = false;
+        result.reason = "auth-failed";
+        return result;
       }
-
-      const creative = await getCreativeById(creativeId);
-      if (!creative) {
-        result.failed++;
-        summary.failed++;
-        result.errors.push(`#${creativeId}: creative vanished after claim.`);
-        continue;
-      }
-
-      const outcome = await publishCreative(creative, {
-        boardId,
-        revertToScheduledOnError: false,
-      });
-
-      if (outcome.ok) {
-        result.mediaPinned++;
-        if (job.kind === "image") summary.images++;
-        else summary.videos++;
-      } else {
-        result.failed++;
-        summary.failed++;
-        const label =
-          job.kind === "image" ? `image ${job.image.imageId}` : "video";
-        result.errors.push(`${listing.productTitle} — ${label}: ${outcome.error}`);
-        const authFail = isPinterestAuthError(outcome.error);
-        // Park as rejected. Auth failures do not bump attempts (systemic).
-        // Asset-specific failures increment toward the poison-pill cap.
-        try {
-          await parkFailedCreative(creativeId, { countAttempt: !authFail });
-        } catch {
-          /* publish error already recorded on the row */
-        }
-        if (authFail) {
-          // Abort the rest of the run — every subsequent pin would 401 too,
-          // and claiming them would only create more rejected rows.
-          result.listings.push(summary);
-          result.ok = false;
-          result.reason = "auth-failed";
-          return result;
-        }
-      }
-
-      if (j < jobs.length - 1 && MEDIA_GAP_MS > 0) await sleep(MEDIA_GAP_MS);
     }
 
     result.listings.push(summary);
+    if (n < maxPins - 1 && MEDIA_GAP_MS > 0) await sleep(MEDIA_GAP_MS);
   }
 
   result.ok = result.failed === 0;

@@ -26,7 +26,7 @@ function norm(s: string): string {
 
 /** Two keys "match" when one contains the other (with a min-length guard). */
 function keysMatch(a: string, b: string): boolean {
-  if (a.length < 4 || b.length < 4) return a === b;
+  if (a.length < 3 || b.length < 3) return a === b;
   return a.includes(b) || b.includes(a);
 }
 

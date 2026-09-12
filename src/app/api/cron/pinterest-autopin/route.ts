@@ -1,12 +1,10 @@
 /**
- * GET /api/cron/pinterest-autopin — autonomous daily Pinterest drip (Vercel Cron).
+ * GET /api/cron/pinterest-autopin — curated Pinterest drip (Vercel Cron).
  *
- * Each run posts the next un-pinned listing(s) to Pinterest — every product
- * photo as an image pin plus the product video as a video pin — and records each
- * asset as pinned, so the whole catalog is distributed one listing at a time on a
- * steady cadence (the consistency-first approach Pinterest's algorithm rewards).
- * Idempotent and safe to overlap: every asset is claimed atomically, so a given
- * photo/video becomes exactly one Pin (see lib/social/auto-pin).
+ * Each run publishes a small number of fresh pins (default 2), never a whole
+ * listing gallery. Video-first, one pin per SKU, multi-day cooldown, 2:3 pin
+ * cards. Daily cap is pin-level (default 4). See lib/social/pinterest-strategy
+ * and lib/social/auto-pin.
  *
  * Auth: runAutoPin ensures a live OAuth token (refreshing when due) before any
  * claims, so an expired access token cannot burn the retry budget on 401s.
@@ -50,8 +48,8 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Each run posts up to AUTO_PIN_PER_RUN listings, but never more than the
-  // per-day cap across all runs combined (spread over the scheduled cron slots).
+  // Each run posts up to AUTO_PIN_PER_RUN pins, but never more than the
+  // per-day pin cap across all runs combined.
   const result = await runAutoPin({ dailyCap: AUTO_PIN_PER_DAY });
   return NextResponse.json(result);
 }

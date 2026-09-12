@@ -11,8 +11,10 @@ import {
   isImageGenConfigured,
   type ImageQuality,
 } from "@/lib/social/image-gen";
+import { catalogReferenceUrls } from "@/lib/social/image-gen-policy";
 import { generateCaption } from "@/lib/social/caption-gen";
 import { getPreset, type SocialPlatform } from "@/lib/social/presets";
+import { pillarFromPreset } from "@/lib/social/instagram-fashion";
 import { insertCreative, countCreativesSince } from "@/lib/social/creatives";
 
 /** Max AI creatives generated per rolling 24h (spend guardrail). */
@@ -62,7 +64,8 @@ export async function runGeneration(
   if (!product) return { ok: false, error: "Product not found." };
 
   const platform = (input.platform ?? preset.platform) as SocialPlatform;
-  const quality = (input.quality ?? "medium") as ImageQuality;
+  const quality = (input.quality ??
+    (preset.usesProductReference ? "high" : "medium")) as ImageQuality;
 
   const prompt = preset.buildPrompt(
     {
@@ -70,16 +73,32 @@ export async function runGeneration(
       productType: product.productType,
       description: product.description,
       materials: product.materials,
+      characterName: product.characterName,
+      brandName: product.brandName,
       tags: product.tags ?? [],
     },
     input.extra,
   );
+
+  const referenceImageUrls = preset.usesProductReference
+    ? catalogReferenceUrls((product.images ?? []).map((img) => img.url))
+    : [];
+
+  if (preset.usesProductReference && referenceImageUrls.length === 0) {
+    return {
+      ok: false,
+      error:
+        "This listing has no catalog photos. Fashion stills must copy a real product photo — add photos first, or the model will invent a SKU.",
+    };
+  }
 
   try {
     const image = await generateMarketingImage(prompt, {
       size: preset.size,
       quality,
       keyPrefix: `p${product.id}`,
+      referenceImageUrls,
+      requireReferences: Boolean(preset.usesProductReference),
     });
 
     // Caption is best-effort — the image is the hero and copy is editable.
@@ -94,6 +113,9 @@ export async function runGeneration(
         platform,
         preset: preset.key,
         extra: input.extra,
+        pillar: pillarFromPreset(preset.key) ?? undefined,
+        characterName: product.characterName,
+        brandName: product.brandName,
       });
       caption = copy.caption;
       hashtags = copy.hashtags;

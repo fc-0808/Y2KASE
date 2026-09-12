@@ -10,14 +10,28 @@
 import Link from "next/link";
 import { X } from "lucide-react";
 import { deviceLabel } from "@/lib/catalog/devices";
+import type { ColorFamily } from "@/lib/catalog/colors";
+import {
+  colorFamily,
+  colorFamilyLabel,
+  isColorFamilySlug,
+} from "@/lib/catalog/colors";
+import {
+  isMotifFamilySlug,
+  motifFamily,
+  motifFamilyLabel,
+} from "@/lib/catalog/motifs";
 import { buildCatalogHref, type CatalogParams } from "@/lib/catalog/params";
 import type { BrandOption } from "./brand-options";
 import { brandOptionName } from "./brand-options";
+import { ColorSwatch } from "./ColorSwatch";
 
 export type CatalogChip = {
   key: string;
   label: string;
   clearHref: string;
+  /** Visual marker for color chips — omitted for every other facet. */
+  swatch?: ColorFamily;
 };
 
 /** Prettify a slug we have no display name for ("my-melody" → "my melody"). */
@@ -65,6 +79,27 @@ export function buildCatalogChips(
         brands: params.brands.filter((s) => s !== slug),
       }),
     });
+  for (const slug of params.colors) {
+    const family = isColorFamilySlug(slug) ? colorFamily(slug) : null;
+    chips.push({
+      key: `color:${slug}`,
+      label: family ? family.label : colorFamilyLabel(slug),
+      clearHref: buildCatalogHref(params, {
+        colors: params.colors.filter((s) => s !== slug),
+      }),
+      swatch: family ?? undefined,
+    });
+  }
+  for (const slug of params.motifs) {
+    const family = isMotifFamilySlug(slug) ? motifFamily(slug) : null;
+    chips.push({
+      key: `motif:${slug}`,
+      label: family ? family.label : motifFamilyLabel(slug),
+      clearHref: buildCatalogHref(params, {
+        motifs: params.motifs.filter((s) => s !== slug),
+      }),
+    });
+  }
   if (params.magsafe !== undefined)
     chips.push({
       key: "magsafe",
@@ -130,6 +165,13 @@ export function CatalogSummary({
           aria-label={`Remove filter: ${chip.label}`}
           className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1 text-sm font-semibold capitalize text-white shadow-[0_2px_0_#d62f88] transition hover:brightness-105"
         >
+          {chip.swatch && (
+            <ColorSwatch
+              family={chip.swatch}
+              size="sm"
+              className="ring-white/40"
+            />
+          )}
           {chip.label}
           <X aria-hidden className="h-3.5 w-3.5 text-white/80" />
         </Link>

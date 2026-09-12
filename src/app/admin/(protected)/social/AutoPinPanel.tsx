@@ -3,11 +3,9 @@
 /**
  * Auto-Pin control panel for the Social Studio.
  *
- * Surfaces the autonomous Pinterest drip at a glance: how much of the catalog
- * has been posted (by listing), today's activity, and the on/off state. The
- * "Post next listing now" button fires the exact routine the daily cron runs —
- * posting a whole listing's photos + video — for instant feedback and to seed
- * the pipeline before the first scheduled run.
+ * Surfaces the curated Pinterest drip: catalog coverage, today's pin budget,
+ * and the next slot (one pin, not a gallery dump). "Post next pins now" fires
+ * the same routine the cron runs.
  */
 
 import { useState, useTransition } from "react";
@@ -30,14 +28,24 @@ import type {
 } from "@/lib/social/auto-pin";
 import { runAutoPinNow } from "./actions";
 
+const nextRunTimeFmt = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+const nextRunDayFmt = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+});
+
 /** Human-friendly "next run" label from an ISO timestamp (daily cron). */
 function formatNextRun(iso: string): string {
   const then = new Date(iso);
   const hours = Math.max(0, Math.round((then.getTime() - Date.now()) / 3_600_000));
-  const time = then.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = nextRunTimeFmt.format(then);
   if (hours <= 0) return `today · ${time}`;
   if (hours < 24) return `${time} · in ${hours}h`;
-  return `${then.toLocaleDateString([], { month: "short", day: "numeric" })} · ${time}`;
+  return `${nextRunDayFmt.format(then)} · ${time}`;
 }
 
 export function AutoPinPanel({
@@ -62,6 +70,8 @@ export function AutoPinPanel({
     stuckCount,
     enabled,
     perDay,
+    perRun,
+    cooldownDays,
   } = coverage;
 
   const pct =
@@ -105,7 +115,7 @@ export function AutoPinPanel({
             </h3>
             <p className="mt-0.5 text-xs text-[var(--foreground)]/55">
               {enabled
-                ? `Posts ${perDay} full listing${perDay === 1 ? "" : "s"} per day — every photo + the video.`
+                ? `Posts ${perRun} pin${perRun === 1 ? "" : "s"} per run, cap ${perDay}/day. One pin per product, then ${cooldownDays}-day rest.`
                 : 'Set PINTEREST_AUTOPIN_ENABLED="true" to run the daily drip automatically.'}
             </p>
           </div>
@@ -114,18 +124,27 @@ export function AutoPinPanel({
         <button
           type="button"
           onClick={handleRun}
-          disabled={pending || !pinterestReady || remainingProducts === 0}
+          disabled={
+            pending ||
+            !pinterestReady ||
+            !nextListing ||
+            nextListing.totalPins === 0
+          }
           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#E60023] px-4 text-xs font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           title={
             !pinterestReady
               ? "Connect Pinterest first"
-              : remainingProducts === 0
-                ? "Every listing is already posted"
-                : "Post the next listing now"
+              : !nextListing
+                ? remainingProducts === 0
+                  ? "Every listing is already posted"
+                  : "Eligible listings are in cooldown"
+                : nextListing.totalPins === 0
+                  ? "Today's pin budget is already used"
+                  : "Post the next curated pins now"
           }
         >
           <Zap className={"h-3.5 w-3.5" + (pending ? " animate-pulse" : "")} />
-          {pending ? "Posting…" : "Post next listing now"}
+          {pending ? "Posting…" : "Post next pins now"}
         </button>
       </div>
 
@@ -168,13 +187,11 @@ export function AutoPinPanel({
             </p>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-[var(--foreground)]/55">
               <span>
-                {nextListing.photoCount} photo
-                {nextListing.photoCount === 1 ? "" : "s"}
-                {nextListing.hasVideo ? " + 1 video" : ""} ·{" "}
-                <span className="font-semibold text-[var(--foreground)]/70">
-                  {nextListing.totalPins} pin
-                  {nextListing.totalPins === 1 ? "" : "s"}
-                </span>
+                {nextListing.slotLabel}
+                {nextListing.photoCount > 0
+                  ? ` · ${nextListing.photoCount} still${nextListing.photoCount === 1 ? "" : "s"} left`
+                  : ""}
+                {nextListing.hasVideo ? " · video queued" : ""}
               </span>
               {nextListing.boardName && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-[#E60023]/10 px-2 py-0.5 font-semibold text-[#E60023]">
@@ -196,10 +213,18 @@ export function AutoPinPanel({
         </div>
       ) : (
         totalProducts > 0 && (
-          <div className="flex items-center gap-2 border-b border-[var(--border)] bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-700">
-            <CheckCircle2 className="h-4 w-4" />
-            All {totalProducts.toLocaleString()} listings posted — nothing queued.
-          </div>
+          remainingProducts > 0 ? (
+            <div className="flex items-center gap-2 border-b border-[var(--border)] bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Remaining listings are in the {cooldownDays}-day cooldown so the
+              feed does not repeat the same SKU. Next pin after that rest.
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 border-b border-[var(--border)] bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" />
+              All {totalProducts.toLocaleString()} listings posted — nothing queued.
+            </div>
+          )
         )
       )}
 
@@ -225,8 +250,9 @@ export function AutoPinPanel({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat
             icon={<CalendarCheck className="h-4 w-4" />}
-            label="Pinned today"
+            label="Pins today"
             value={mediaPinnedToday}
+            sub={`of ${perDay}/day`}
             accent
           />
           <Stat

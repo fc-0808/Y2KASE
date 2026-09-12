@@ -11,12 +11,12 @@
  *   • The IP. The registry knows a product is Rilakkuma; the model looked at the
  *     photo and wrote "Mint Green Kawaii Bear". Shoppers search the character
  *     name, so the listing is unfindable by the one term that would sell it.
- *   • Device fit. The copy prompt hard-codes `include "iPhone 17 16 15 14 13 Pro
- *     Max"` for every phone case regardless of the moulds it actually fits, and
- *     the model embellishes from there — a listing shipped reading "iPhone 13-18
- *     Pro Max" for a product sold only for 15/16/17. There is no iPhone 18. That
- *     is a false compatibility claim on a live storefront, and it is systematic
- *     rather than a one-off.
+ *   • Device fit. The copy prompt hard-coded a model list every phone case was
+ *     told to repeat, and the model embellished from there — a listing shipped
+ *     reading "iPhone 13-19 Pro Max" for a product sold only for 15/16/17.
+ *     Inventing a generation the product is not sold for is a false
+ *     compatibility claim on a live storefront, and it is systematic rather
+ *     than a one-off.
  *
  * So the composed segments come from data — the brand registry supplies the IP,
  * the product-type registry the noun, the product's own `iPhone Model` option
@@ -101,7 +101,7 @@ export function claimableGenerations(models: readonly string[]): string[] {
 
 /**
  * The device-fit phrase for a set of offered models — e.g.
- * `"iPhone 17 16 15 Pro Max"`. Null when the product is sold for no model.
+ * `"iPhone 18 17 16 15 Pro Max"`. Null when the product is sold for no model.
  *
  * Newest generation first: demand for a generation peaks at launch and decays,
  * so the newest numeral is both the most valuable token in the segment and the
@@ -522,7 +522,7 @@ export function sanitizeDescriptor(
 
 /**
  * One device claim, wherever it sits: "for iPhone 15/16/17 Series", "Compatible
- * with iPhone 13-18 Pro Max", or a bare "iPhone 17 16 15 Pro Max" wedged into
+ * with iPhone 13-19 Pro Max", or a bare "iPhone 18 17 16 15 Pro Max" wedged into
  * the middle of a sentence — which the old copy prompt produced routinely.
  *
  * Bounded rather than "everything from here to the end" on purpose. Cutting to

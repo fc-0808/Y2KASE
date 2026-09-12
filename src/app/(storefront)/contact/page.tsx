@@ -4,35 +4,47 @@ import { SUPPORT_EMAIL } from "@/lib/legal";
 import { SUPPORT_RESPONSE_TIME } from "@/lib/support/constants";
 import { SupportTrigger } from "@/components/support/SupportTrigger";
 import { JsonLd } from "@/components/JsonLd";
+import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 import {
   absoluteUrl,
+  breadcrumbJsonLd,
   publicPageMetadata,
   webPageJsonLd,
 } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
 
+const PATH = "/contact";
+const CRUMBS = [
+  { name: "Home", url: "/" },
+  { name: "Contact", url: PATH },
+];
+
 export const metadata = publicPageMetadata({
   title: PAGE_COPY.contact.title,
   description: PAGE_COPY.contact.description,
-  path: "/contact",
+  path: PATH,
 });
 
 export default function ContactPage() {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-12 sm:px-6">
       <JsonLd
-        data={webPageJsonLd({
-          type: "ContactPage",
-          name: "Contact Y2KASE",
-          description: PAGE_COPY.contact.description,
-          url: "/contact",
-          mainEntity: absoluteUrl("/#organization"),
-        })}
+        data={[
+          webPageJsonLd({
+            type: "ContactPage",
+            name: PAGE_COPY.contact.heading,
+            description: PAGE_COPY.contact.description,
+            url: PATH,
+            mainEntity: absoluteUrl("/#organization"),
+          }),
+          breadcrumbJsonLd(CRUMBS),
+        ]}
       />
+      <PageBreadcrumbs crumbs={CRUMBS} />
       <header className="mb-8 text-center">
         <div className="mx-auto h-1 w-16 rounded-full bg-holo-vivid" />
         <h1 className="mt-4 font-display text-3xl font-black sm:text-4xl">
-          Get in touch 💌
+          {PAGE_COPY.contact.heading}
         </h1>
         <p className="mt-2 text-[var(--foreground)]/65">
           Questions about an order, a product, or just want to say hi? We&apos;d

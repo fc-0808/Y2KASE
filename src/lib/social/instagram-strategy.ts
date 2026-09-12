@@ -3,36 +3,43 @@
  *
  * Why this file exists
  * ────────────────────
- * The Pinterest drip is a catalog distribution engine: dump every photo of a
- * listing, because Pinterest is a search index and more Pins = more surfaces.
- * Instagram is the opposite. A new shop with one post does not grow by blasting
- * AI product shots twice a day. It grows by looking like a real brand: authentic
- * media, one considered post per day, Reels for discovery, a grid that shows
- * assortment rather than the same SKU twice before lunch.
+ * Pinterest and Instagram are opposite distribution problems. Pinterest is a
+ * visual search index: a curated drip of fresh, distinct pins (see
+ * pinterest-strategy). Instagram is a brand grid. A new shop with one post
+ * does not grow by blasting AI product shots twice a day. It grows by looking
+ * like a real brand: authentic media, one considered post per day, Reels for
+ * discovery, a grid that shows assortment rather than the same SKU twice
+ * before lunch.
  *
- * Hard rules (the ones that match how Glossier / Rhode / CASETiFY actually post)
- * ─────────────────────────────────────────────────────────────────────────────
- *   1. Never publish AI-generated product imagery as the Instagram post. The
- *      photo/video must be the catalog asset the shopper will receive. AI is
- *      for captions only. Fake product shots destroy trust on tap-through and
- *      can trip Meta's misrepresentation policies.
+ * Hard rules (Glossier / Rhode / CASETiFY cadence + BURGA / plantica mix)
+ * ──────────────────────────────────────────────────────────────────────
+ *   1. Never auto-publish AI as "this is the SKU you will receive". Reels stay
+ *      the real product clip. Fashion stills are generated as operator assets
+ *      (download → post in the app → mark recorded). See instagram-fashion.ts.
  *   2. At most one Instagram post per UTC day by default. Same-day carousel +
  *      Reel of the same listing reads as spam on a 1-follower account.
  *   3. Prefer a Reel when the listing has a video that hasn't gone out. Reels
- *      are the discovery surface; feed carousels fill the grid on the second
- *      pass, after every product has been shown once.
- *   4. Captions: hook on line one (the 125-char fold), 3–5 niche hashtags, CTA
- *      is "link in bio". Instagram does not linkify URLs. A UTM dump in the
- *      caption is amateur and unclickable.
- *   5. Hashtag stuffing (#fyp #viral #love) is dead weight and looks like a
- *      bot. Niche tags (character, aesthetic, product type) only.
+ *      are the discovery surface. Feed tiles follow the fashion mix so the
+ *      grid does not become a row of case close-ups.
+ *   4. Captions: fashion voice, hook on line one (the 125-char fold), 3–5
+ *      niche hashtags, CTA is "link in bio". Instagram does not linkify URLs.
+ *   5. Hashtag stuffing (#fyp #viral #love #fashion) is dead weight. Niche
+ *      tags (character, jiraikei, y2kfashion) only.
  *
  * What a human still has to do (this module cannot)
  * ──────────────────────────────────────────────────
- * Stories and highlights, UGC/reposts, comments, and weekly brand posts that
- * aren't a SKU. The drip fills the shop grid; it is not a substitute for a
- * person talking to the audience.
+ * Profile category (Fashion Accessories, not 手機店), highlights, Stories,
+ * comments, and a real look when you can shoot one. The desk plans the mix;
+ * it is not a substitute for a person talking to the audience.
  */
+
+import {
+  fallbackFashionCaption,
+  inferLookCues,
+  isCatalogDumpCaption,
+  stripCatalogSlogans,
+  type FashionPillar,
+} from "@/lib/social/instagram-fashion";
 
 export const INSTAGRAM_HANDLE = "y2kase.co";
 export const INSTAGRAM_PROFILE_URL = "https://instagram.com/y2kase.co";
@@ -50,7 +57,9 @@ export const INSTAGRAM_CAPTION_MAX = 2200;
  */
 export const INSTAGRAM_MAX_HASHTAGS = 5;
 
-export const INSTAGRAM_LINK_IN_BIO_CTA = "Shop from the link in bio ✨";
+export const INSTAGRAM_LINK_IN_BIO_CTA = "Shop the look from the link in bio ✨";
+
+export const INSTAGRAM_MANIFESTO_CTA = "CUTE BUT TOUGH · link in bio";
 
 export type InstagramAccountPhase = "bootstrap" | "sustain";
 export type InstagramMediaType = "carousel" | "video";
@@ -159,7 +168,7 @@ export function describeSlot(plan: InstagramSlotPlan): string {
       ? "Reel first — Reels are how new accounts get discovered. The photo carousel waits so the grid shows more products before repeating a SKU."
       : "Reel from the product video.";
   }
-  return "Carousel of real catalog photos — the same images shoppers see on the site.";
+  return "Feed tile — fashion still when the mix says look/still/graphic/world; a tight catalog crop on detail days. Not a white-background SKU dump.";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,17 +248,51 @@ export type CaptionInput = {
   hashtags?: readonly string[];
   productTitle?: string | null;
   productUrl?: string | null;
+  pillar?: FashionPillar;
+  characterName?: string | null;
+  brandName?: string | null;
+  tags?: readonly string[];
 };
 
-export function fallbackInstagramCaption(productTitle: string): string {
-  const title = productTitle.trim();
-  return title ? `${title}` : "New drop in the shop.";
+export function fallbackInstagramCaption(
+  productTitle: string,
+  pillar: FashionPillar = "look",
+  extra?: {
+    characterName?: string | null;
+    brandName?: string | null;
+    tags?: readonly string[];
+  },
+): string {
+  const cues = inferLookCues({
+    title: productTitle,
+    tags: extra?.tags,
+    characterName: extra?.characterName,
+    brandName: extra?.brandName,
+  });
+  return fallbackFashionCaption(pillar, cues);
 }
 
 function captionBody(input: CaptionInput): string {
-  const cleaned = sanitizeInstagramCaption(input.caption ?? "");
-  if (cleaned) return cleaned;
-  return fallbackInstagramCaption(input.productTitle ?? "");
+  const pillar = input.pillar ?? "look";
+  const extra = {
+    characterName: input.characterName,
+    brandName: input.brandName,
+    tags: input.tags,
+  };
+  const cleaned = stripCatalogSlogans(
+    sanitizeInstagramCaption(input.caption ?? ""),
+  );
+  const title = input.productTitle ?? "";
+  if (cleaned && !isCatalogDumpCaption(cleaned, title)) return cleaned;
+  return fallbackInstagramCaption(title, pillar, extra);
+}
+
+function captionCta(input: CaptionInput, body: string): string {
+  if (/link in bio/i.test(body)) return "";
+  if (input.pillar === "graphic" || input.pillar === "world") {
+    return INSTAGRAM_MANIFESTO_CTA;
+  }
+  return INSTAGRAM_LINK_IN_BIO_CTA;
 }
 
 /** Feed caption: hook/body, link-in-bio CTA, niche hashtags. No URLs. */
@@ -257,7 +300,7 @@ export function buildInstagramCaption(input: CaptionInput): string {
   const body = captionBody(input);
   const tags = sanitizeInstagramHashtags(input.hashtags ?? []);
   const tagLine = tags.map((t) => `#${t}`).join(" ");
-  const cta = /link in bio/i.test(body) ? "" : INSTAGRAM_LINK_IN_BIO_CTA;
+  const cta = captionCta(input, body);
   return [body, cta, tagLine]
     .filter(Boolean)
     .join("\n\n")

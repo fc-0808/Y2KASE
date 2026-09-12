@@ -19,6 +19,22 @@ assert.equal(catalog.tag, undefined);
 assert.equal(catalog.device, "iphone");
 assert.equal(catalog.brands.length, 24);
 
+const colorParams = parseCatalogParams(
+  {
+    color: ["pink", "navy", "chartreuse", ...Array.from({ length: 20 }, (_, i) => `c${i}`)],
+  },
+  "/products",
+);
+assert.deepEqual(colorParams.colors, ["pink"]);
+
+const motifParams = parseCatalogParams(
+  {
+    motif: ["clouds", "puppy", "not-a-theme", ...Array.from({ length: 20 }, (_, i) => `m${i}`)],
+  },
+  "/products",
+);
+assert.deepEqual(motifParams.motifs, ["puppy", "clouds"]);
+
 const persistOptions = useCart.persist.getOptions();
 assert.ok(persistOptions.partialize, "cart persistence must be explicitly filtered");
 assert.deepEqual(Object.keys(persistOptions.partialize(useCart.getState())), [

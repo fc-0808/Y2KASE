@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
 import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
 import { MAGSAFE_FACETS, magsafeFacetHref } from "@/lib/catalog/magsafe";
+import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 import { Wordmark } from "@/components/brand/Decor";
 
 // Skip SSR — useSession from better-auth is browser-only.
@@ -168,7 +169,12 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
       )}
 
       {/* Mobile drawer */}
-      {mobileOpen && <MobileMenu brands={brands} />}
+      {mobileOpen && (
+        <MobileMenu
+          brands={brands}
+          originals={genres.find((genre) => genre.slug === ORIGINALS_SLUG)}
+        />
+      )}
     </header>
   );
 }
@@ -318,10 +324,24 @@ function CollectionsPanel({
             </div>
           </div>
 
+          {genres.some((genre) => genre.slug === ORIGINALS_SLUG && genre.count > 0) && (
+            <Link
+              href={`/collections/${ORIGINALS_SLUG}`}
+              onClick={onNavigate}
+              className="mt-6 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              <span aria-hidden>✨</span>
+              Original designs
+              <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/35">
+                {genres.find((genre) => genre.slug === ORIGINALS_SLUG)?.count}
+              </span>
+            </Link>
+          )}
+
           <Link
             href="/collections"
             onClick={onNavigate}
-            className="mt-8 inline-flex items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
+            className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
           >
             Browse all collections →
           </Link>
@@ -333,7 +353,13 @@ function CollectionsPanel({
 
 type MobileSectionId = "devices" | "brands" | "compat";
 
-function MobileMenu({ brands }: { brands: MenuCollection[] }) {
+function MobileMenu({
+  brands,
+  originals,
+}: {
+  brands: MenuCollection[];
+  originals?: MenuCollection;
+}) {
   // Sections are collapsed by default and expand one at a time — dumping every
   // device, brand and character into one continuous scroll (the old drawer)
   // reads as a wall of identical pills. An accordion gives each browse axis
@@ -371,6 +397,19 @@ function MobileMenu({ brands }: { brands: MenuCollection[] }) {
             ))}
           </div>
         </MobileAccordion>
+
+        {originals && originals.count > 0 && (
+          <Link
+            href={`/collections/${ORIGINALS_SLUG}`}
+            className="flex items-center gap-2.5 py-3 text-[15px] font-bold"
+          >
+            <span aria-hidden>✨</span>
+            Original designs
+            <span className="text-xs font-semibold text-[var(--foreground)]/35">
+              {originals.count}
+            </span>
+          </Link>
+        )}
 
         {brands.length > 0 && (
           <MobileAccordion

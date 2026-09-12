@@ -12,6 +12,10 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { isTrackablePath } from "../src/lib/analytics/paths";
+import {
+  ANALYTICS_VISITOR_COOKIE,
+  ANALYTICS_VISITOR_PROOF_COOKIE,
+} from "../src/lib/analytics/protocol";
 import { UTM_COOKIE } from "../src/lib/analytics/utm";
 import {
   CART_RECOVERY_POLICY,
@@ -298,7 +302,12 @@ for (const foreign of ["theme", "ph_session", "__stripe_mid", "Y2K_POPUP"]) {
 
 // Cookie names are declared in the features that write them; drift here means
 // the reset silently stops clearing one of them.
-for (const cookie of [SCRATCH_COOKIE, UTM_COOKIE, "y2k_vid"]) {
+for (const cookie of [
+  SCRATCH_COOKIE,
+  UTM_COOKIE,
+  ANALYTICS_VISITOR_COOKIE,
+  ANALYTICS_VISITOR_PROOF_COOKIE,
+]) {
   assert.ok(
     SERVER_VISITOR_COOKIES.includes(cookie as (typeof SERVER_VISITOR_COOKIES)[number]),
     `${cookie} must be expired by the fresh-visit entry route`,

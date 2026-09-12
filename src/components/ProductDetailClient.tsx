@@ -5,7 +5,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ShoppingBag, Check, Play } from "lucide-react";
 import { useCart } from "@/lib/store/cart";
 import { formatPrice } from "@/lib/utils";
-import { STYLE_OPTION_NAME, getStylePrice, defaultStyleFor } from "@/lib/pricing";
+import {
+  MODEL_OPTION_NAME,
+  STYLE_OPTION_NAME,
+  getStylePrice,
+  defaultStyleFor,
+  defaultModelFor,
+} from "@/lib/pricing";
 import {
   trackCartAdd,
   trackProductView,
@@ -64,7 +70,11 @@ export function ProductDetailClient({
         .map((o) => [
           o.name,
           // Style axis opens on the cheapest entry style ("Case Only" when offered).
-          o.name === STYLE_OPTION_NAME ? defaultStyleFor(o.values) : o.values[0] ?? "",
+          o.name === STYLE_OPTION_NAME
+            ? defaultStyleFor(o.values)
+            : o.name === MODEL_OPTION_NAME
+              ? defaultModelFor(o.values)
+              : o.values[0] ?? "",
         ])
         .filter(([, v]) => v),
     ),

@@ -21,6 +21,11 @@ import { marketingMailReadiness } from "@/lib/marketing/compliance";
 import { isMarketingSendable } from "@/lib/marketing/audience";
 import { unsubscribeUrl } from "@/lib/unsubscribe";
 import { absoluteUrl } from "@/lib/seo";
+import {
+  CLUB_SMART_SENDING_HOURS,
+  subscriberInSmartSendingHoldout,
+} from "@/lib/marketing/cadence";
+import { latestMarketingSendByEmail } from "@/lib/marketing/send-log";
 
 export const runtime = "nodejs";
 
@@ -91,6 +96,21 @@ export async function GET(req: NextRequest) {
     if (!isMarketingSendable(subscriber)) {
       await claim(order.id);
       suppressed++;
+      continue;
+    }
+
+    const quietSince = new Date(now - CLUB_SMART_SENDING_HOURS * 3_600_000);
+    const latest = await latestMarketingSendByEmail(
+      [normalizedEmail],
+      quietSince,
+    );
+    if (
+      subscriberInSmartSendingHoldout(
+        latest.get(normalizedEmail) ?? null,
+        new Date(now),
+      )
+    ) {
+      skipped++;
       continue;
     }
 

@@ -36,17 +36,19 @@ async function main() {
       ? {
           title: preview.productTitle,
           pins: preview.totalPins,
+          mediaType: preview.mediaType,
+          slot: preview.slotLabel,
           board: preview.boardName,
         }
       : null,
   });
 
   if (!doPost) {
-    console.log("\nDry run only. Pass --post to publish the next listing.");
+    console.log("\nDry run only. Pass --post to publish the next curated pin(s).");
     return;
   }
 
-  console.log("\n=== Publishing next listing ===");
+  console.log("\n=== Publishing next curated pin(s) ===");
   const result = await runAutoPin({ max: 1 });
   console.log({
     ok: result.ok,

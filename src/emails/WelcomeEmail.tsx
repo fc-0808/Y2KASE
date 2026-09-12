@@ -91,9 +91,9 @@ export function WelcomeEmail({
             <Hr style={hrStyle} />
 
             <Text style={smallStyle}>
-              💌 You&apos;ll only hear from us when there&apos;s something good —
-              new drops, exclusive deals, and kawaii goodness. No spam, we
-              promise.
+              You&apos;ll hear from the Club a couple of times a week — Tuesday
+              drops, Thursday notes, plus this welcome series. No daily spam.
+              Leave anytime.
             </Text>
             <Text style={smallStyle}>
               Questions? Email us at{" "}

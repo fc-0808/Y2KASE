@@ -36,6 +36,7 @@ import {
   marketingPostalAddress,
 } from "@/lib/marketing/compliance";
 import { marketingConsentEvidence } from "@/lib/marketing/consent";
+import { recordMarketingSend } from "@/lib/marketing/send-log";
 
 export const runtime = "nodejs";
 
@@ -316,6 +317,15 @@ export async function POST(request: NextRequest) {
           console.error("[subscribe] Resend rejected the send:", error);
         } else {
           emailed = true;
+          try {
+            await recordMarketingSend({
+              email,
+              kind: "welcome",
+              stepKey: "1",
+            });
+          } catch (logError) {
+            console.error("[subscribe] welcome send log failed:", logError);
+          }
         }
       } catch (emailErr) {
         console.error("[subscribe] email send failed:", emailErr);

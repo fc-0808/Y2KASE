@@ -25,6 +25,7 @@ import { isDbConfigured } from "@/lib/db";
 import { absoluteUrl, BRAND } from "@/lib/seo";
 import { SITE_URL } from "@/lib/site";
 import { googleProductCategoryId } from "@/lib/catalog/merchant";
+import { merchantColorValue } from "@/lib/catalog/colors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,25 +46,18 @@ function toAmount(value: string | null | undefined): number {
 }
 
 /**
- * Build a keyword-rich, search-optimised catalog description (Pinterest is a
- * visual search engine — the first ~80 chars matter most). Falls back to a
- * branded template when the product has no description.
+ * Natural catalog description. Pinterest indexes this for Shopping pins —
+ * a real paragraph beats a comma-separated keyword tail.
  */
 function feedDescription(item: {
   title: string;
   description: string | null;
   productTypeLabel: string;
-  tags: string[];
 }): string {
   const base =
     item.description?.trim() ||
-    `${item.title} — a cute, trend-forward ${item.productTypeLabel.toLowerCase()} from Y2KASE.`;
-  const styleCues = item.tags.slice(0, 5).join(", ");
-  const tail = styleCues
-    ? ` Kawaii & Y2K aesthetic: ${styleCues}. Shop Y2KASE ✨`
-    : " Kawaii & Y2K phone accessories by Y2KASE ✨";
-  // Keep the description well under feed limits (~5000 chars) but rich.
-  return `${base}${tail}`.slice(0, 900);
+    `${item.title} — a ${item.productTypeLabel.toLowerCase()} from Y2KASE.`;
+  return base.slice(0, 900);
 }
 
 export async function GET() {
@@ -105,6 +99,7 @@ export async function GET() {
 
       // Up to 9 additional images (Pinterest/Google allow 10 image links total).
       const additionalImages = p.images.slice(1, 10);
+      const color = merchantColorValue(p.colors);
 
       const lines = [
         `    <item>`,
@@ -130,6 +125,9 @@ export async function GET() {
             ]
           : []),
         `      <g:product_type>${xmlEscape(p.productTypeLabel)}</g:product_type>`,
+        ...(color
+          ? [`      <g:color>${xmlEscape(color)}</g:color>`]
+          : []),
         // We don't carry manufacturer GTIN/MPN for these products — declare so
         // the catalog isn't penalised for missing unique identifiers.
         `      <g:identifier_exists>no</g:identifier_exists>`,

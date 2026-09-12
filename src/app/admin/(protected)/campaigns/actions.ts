@@ -13,7 +13,6 @@ import {
 import {
   claimCampaignLaunch,
   deleteMarketingCampaignDraft,
-  getLocallyEligibleSubscriberEmails,
   getMarketingCampaign,
   isCampaignId,
   markCampaignAudiencePrepared,
@@ -68,6 +67,13 @@ import {
   type MarketingDraft,
   type MarketingProductOption,
 } from "@/lib/marketing/types";
+import {
+  cadenceBlockMessage,
+  evaluateLiveBroadcastCadence,
+  getCampaignAudienceHoldouts,
+  intersectCampaignAudience,
+} from "@/lib/marketing/cadence-audience";
+import { recordMarketingSends } from "@/lib/marketing/send-log";
 
 type BasicResult =
   | { ok: true; message: string }
@@ -568,25 +574,47 @@ export async function prepareCampaignAudience(
       };
     }
 
+    const cadence = await evaluateLiveBroadcastCadence({
+      campaignType: validated.value.campaignType,
+      campaignId: id,
+    });
+    const cadenceError = cadenceBlockMessage(cadence);
+    if (cadenceError) {
+      return { ok: false, message: cadenceError };
+    }
+
     const audience = await syncMarketingAudience();
     revalidatePath("/admin/subscribers");
     revalidatePath("/admin/campaigns");
-    if (audience.recipientCount === 0) {
-      return { ok: false, message: "There are no eligible active subscribers." };
-    }
-    const maxRecipients = marketingMaxRecipients();
-    if (audience.recipientCount > maxRecipients) {
+    const holdouts = await getCampaignAudienceHoldouts();
+    const eligibleEmails = intersectCampaignAudience(
+      audience.eligibleEmails,
+      holdouts,
+    );
+    if (eligibleEmails.length === 0) {
+      if (audience.recipientCount === 0) {
+        return { ok: false, message: "There are no eligible active subscribers." };
+      }
       return {
         ok: false,
-        message: `Audience has ${audience.recipientCount} recipients; the configured safety ceiling is ${maxRecipients}.`,
+        message: `All ${audience.recipientCount} sendable subscriber${
+          audience.recipientCount === 1 ? "" : "s"
+        } are in a Club quiet window (first 48 hours after joining, or mail in the last 20 hours). Wait, then review the audience again.`,
       };
     }
-    const fingerprint = audienceFingerprint(audience.eligibleEmails);
+    const maxRecipients = marketingMaxRecipients();
+    if (eligibleEmails.length > maxRecipients) {
+      return {
+        ok: false,
+        message: `Audience has ${eligibleEmails.length} Club-eligible recipients; the configured safety ceiling is ${maxRecipients}.`,
+      };
+    }
+    const fingerprint = audienceFingerprint(eligibleEmails);
     const prepared = await markCampaignAudiencePrepared({
       id,
       contentHash: saved.campaign.contentHash,
       audienceHash: fingerprint,
-      recipientCount: audience.recipientCount,
+      recipientCount: eligibleEmails.length,
       reviewedBy: session.user.id,
     });
     if (!prepared) {
@@ -596,12 +624,16 @@ export async function prepareCampaignAudience(
           "The campaign changed during audience review. Save, test, and review it again.",
       };
     }
+    const holdoutNote =
+      eligibleEmails.length === audience.recipientCount
+        ? ""
+        : ` ${audience.recipientCount - eligibleEmails.length} held out for the welcome series or the 20-hour quiet window.`;
     return {
       ok: true,
-      message: `${audience.recipientCount} eligible subscriber${
-        audience.recipientCount === 1 ? "" : "s"
-      } reconciled with Resend.`,
-      recipientCount: audience.recipientCount,
+      message: `${eligibleEmails.length} Club-eligible subscriber${
+        eligibleEmails.length === 1 ? "" : "s"
+      } reconciled with Resend.${holdoutNote}`,
+      recipientCount: eligibleEmails.length,
       synchronizedCount: audience.synchronizedCount,
       audienceFingerprint: fingerprint,
     };
@@ -683,6 +715,15 @@ export async function launchCampaign(input: {
     return { ok: false, message: `Type ${command} exactly to confirm.` };
   }
 
+  const cadence = await evaluateLiveBroadcastCadence({
+    campaignType: validated.value.campaignType,
+    campaignId: input.id,
+  });
+  const cadenceError = cadenceBlockMessage(cadence);
+  if (cadenceError) {
+    return { ok: false, message: cadenceError };
+  }
+
   let activeLaunchAttemptId: string | null = null;
   try {
     const saved = await saveMarketingCampaignRecord({
@@ -707,20 +748,25 @@ export async function launchCampaign(input: {
     }
 
     const audience = await syncMarketingAudience();
-    const currentFingerprint = audienceFingerprint(audience.eligibleEmails);
+    const holdouts = await getCampaignAudienceHoldouts();
+    const eligibleEmails = intersectCampaignAudience(
+      audience.eligibleEmails,
+      holdouts,
+    );
+    const currentFingerprint = audienceFingerprint(eligibleEmails);
     if (
-      audience.recipientCount !== input.expectedRecipientCount ||
+      eligibleEmails.length !== input.expectedRecipientCount ||
       currentFingerprint !== input.expectedAudienceFingerprint
     ) {
       const message =
-        audience.recipientCount !== input.expectedRecipientCount
-          ? `Audience changed from ${input.expectedRecipientCount} to ${audience.recipientCount}. Review and confirm the new count.`
-          : `Audience membership changed while the count remained ${audience.recipientCount}. Review and confirm it again.`;
+        eligibleEmails.length !== input.expectedRecipientCount
+          ? `Club audience changed from ${input.expectedRecipientCount} to ${eligibleEmails.length}. Review and confirm the new count.`
+          : `Club audience membership changed while the count remained ${eligibleEmails.length}. Review and confirm it again.`;
       await markCampaignAudiencePrepared({
         id: input.id,
         contentHash,
         audienceHash: currentFingerprint,
-        recipientCount: audience.recipientCount,
+        recipientCount: eligibleEmails.length,
         reviewedBy: session.user.id,
       });
       await recordCampaignFailure(input.id, message, activeLaunchAttemptId);
@@ -730,17 +776,17 @@ export async function launchCampaign(input: {
         ok: false,
         message,
         audienceChanged: true,
-        recipientCount: audience.recipientCount,
+        recipientCount: eligibleEmails.length,
         audienceFingerprint: currentFingerprint,
       };
     }
-    if (audience.recipientCount === 0) {
+    if (eligibleEmails.length === 0) {
       await recordCampaignFailure(
         input.id,
-        "No eligible active subscribers.",
+        "No Club-eligible active subscribers.",
         activeLaunchAttemptId,
       );
-      return { ok: false, message: "There are no eligible active subscribers." };
+      return { ok: false, message: "There are no Club-eligible active subscribers." };
     }
 
     const rendered = renderMarketingEmail(validated.value, {
@@ -764,7 +810,7 @@ export async function launchCampaign(input: {
         return {
           ok: true,
           message: "This campaign had already been sent; no duplicate was created.",
-          recipientCount: audience.recipientCount,
+          recipientCount: eligibleEmails.length,
           broadcastId,
           scheduled: false,
         };
@@ -772,7 +818,7 @@ export async function launchCampaign(input: {
       if (providerStatus === "queued" || providerStatus === "scheduled") {
         await recordCampaignLaunched({
           id: input.id,
-          recipientCount: audience.recipientCount,
+          recipientCount: eligibleEmails.length,
           scheduledAt: provider?.scheduled_at
             ? new Date(provider.scheduled_at)
             : null,
@@ -782,7 +828,7 @@ export async function launchCampaign(input: {
           ok: true,
           message:
             "This campaign was already queued with Resend; no duplicate was created.",
-          recipientCount: audience.recipientCount,
+          recipientCount: eligibleEmails.length,
           broadcastId,
           scheduled: Boolean(provider?.scheduled_at),
         };
@@ -804,7 +850,7 @@ export async function launchCampaign(input: {
       deliverySegmentId = await createMarketingAudienceSnapshot({
         campaignId: input.id,
         campaignName: validated.value.name,
-        eligibleEmails: audience.eligibleEmails,
+        eligibleEmails,
       });
       snapshotCreated = true;
     }
@@ -833,7 +879,7 @@ export async function launchCampaign(input: {
         broadcastId,
         segmentId: deliverySegmentId,
         topicId: audience.topicId,
-        recipientCount: audience.recipientCount,
+        recipientCount: eligibleEmails.length,
         launchAttemptId: activeLaunchAttemptId,
       });
     } catch (error) {
@@ -854,16 +900,21 @@ export async function launchCampaign(input: {
       await removeMarketingSegment(previousSnapshotId);
     }
 
-    const finalLocalAudience = await getLocallyEligibleSubscriberEmails();
-    if (audienceFingerprint(finalLocalAudience) !== currentFingerprint) {
+    const finalHoldouts = await getCampaignAudienceHoldouts();
+    const finalEmails = intersectCampaignAudience(
+      audience.eligibleEmails,
+      finalHoldouts,
+    );
+    if (audienceFingerprint(finalEmails) !== currentFingerprint) {
       const message =
-        "Local consent changed during launch preparation. Review the audience again; nothing was sent.";
+        "Club audience changed during launch preparation. Review the audience again; nothing was sent.";
       await recordCampaignFailure(input.id, message, activeLaunchAttemptId);
       return {
         ok: false,
         message,
         audienceChanged: true,
-        recipientCount: finalLocalAudience.length,
+        recipientCount: finalEmails.length,
+        audienceFingerprint: audienceFingerprint(finalEmails),
       };
     }
 
@@ -873,11 +924,24 @@ export async function launchCampaign(input: {
     );
     await recordCampaignLaunched({
       id: input.id,
-      recipientCount: audience.recipientCount,
+      recipientCount: eligibleEmails.length,
       scheduledAt,
       launchAttemptId: activeLaunchAttemptId,
     });
+    try {
+      await recordMarketingSends(
+        eligibleEmails.map((email) => ({
+          email,
+          kind: "campaign" as const,
+          stepKey: input.id,
+          campaignId: input.id,
+        })),
+      );
+    } catch (logError) {
+      console.error("[campaigns] send log failed after launch:", logError);
+    }
     revalidatePath("/admin/campaigns");
+    revalidatePath("/admin/subscribers");
     return {
       ok: true,
       message: scheduledAt
@@ -886,10 +950,10 @@ export async function launchCampaign(input: {
             dateStyle: "medium",
             timeStyle: "short",
           })} UTC.`
-        : `Campaign queued for ${audience.recipientCount} subscriber${
-            audience.recipientCount === 1 ? "" : "s"
+        : `Campaign queued for ${eligibleEmails.length} subscriber${
+            eligibleEmails.length === 1 ? "" : "s"
           }.`,
-      recipientCount: audience.recipientCount,
+      recipientCount: eligibleEmails.length,
       broadcastId,
       scheduled: Boolean(scheduledAt),
     };

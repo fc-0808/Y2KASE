@@ -28,6 +28,10 @@
  */
 
 import { PREVIEW_ROUTE_PREFIX } from "@/lib/preview/routes";
+import {
+  ANALYTICS_VISITOR_COOKIE,
+  ANALYTICS_VISITOR_PROOF_COOKIE,
+} from "@/lib/analytics/protocol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Storage namespaces
@@ -53,11 +57,11 @@ export function isStorefrontStateKey(key: string): boolean {
  * Cookies the browser cannot clear for itself, so the reset endpoint expires
  * them on the redirect that starts a fresh visit.
  *
- * `y2k_vid` and `y2k_scratch` are httpOnly by design; `y2k_utm` and the legacy
- * `y2k_consent` are script-writable and would also be caught by the client
- * sweep, but expiring them server-side means the very first storefront request
- * of the new visit is already clean — including for a visitor with JavaScript
- * disabled, who never runs the sweep at all.
+ * The analytics identity/proof pair and `y2k_scratch` are httpOnly by design;
+ * `y2k_utm` and the legacy `y2k_consent` are script-writable and would also be
+ * caught by the client sweep, but expiring them server-side means the very
+ * first storefront request of the new visit is already clean — including for a
+ * visitor with JavaScript disabled, who never runs the sweep at all.
  *
  * Deliberately absent: the Better Auth session cookies. Signing the browser out
  * would take the admin's own console session with it, since both live under the
@@ -65,7 +69,9 @@ export function isStorefrontStateKey(key: string): boolean {
  */
 export const SERVER_VISITOR_COOKIES = [
   /** Anonymous first-party analytics id minted by POST /api/track. */
-  "y2k_vid",
+  ANALYTICS_VISITOR_COOKIE,
+  /** HMAC proving the analytics id was minted by our server. */
+  ANALYTICS_VISITOR_PROOF_COOKIE,
   /** Signed scratch-card prize draw (legacy; read by /api/subscribe). */
   "y2k_scratch",
   /** 30-day UTM attribution snapshot. */

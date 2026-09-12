@@ -274,6 +274,25 @@ export async function claimForPublish(id: number): Promise<boolean> {
   return rows.length > 0;
 }
 
+/**
+ * Record that we deleted a published pin on Pinterest. Keep status=published
+ * so auto-pin's imageNeedsPin predicate does not re-dump that photo.
+ */
+export async function notePinDeletedByHygiene(externalId: string): Promise<void> {
+  await db
+    .update(socialCreatives)
+    .set({
+      lastError: "hygiene: 0-save duplicate removed (row kept so we do not re-pin)",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(socialCreatives.platform, "pinterest"),
+        eq(socialCreatives.externalId, externalId),
+      ),
+    );
+}
+
 /** Record a successful publish (external id + url). */
 export async function markPublished(
   id: number,

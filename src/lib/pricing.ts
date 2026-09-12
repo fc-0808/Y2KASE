@@ -26,6 +26,9 @@ export const IPHONE_MODELS = [
   "iPhone 17",
   "iPhone 17 Pro",
   "iPhone 17 Pro Max",
+  // 18 ships as Pro / Pro Max only — no base "iPhone 18" SKU in this catalogue.
+  "iPhone 18 Pro",
+  "iPhone 18 Pro Max",
 ] as const;
 
 /** Selectable styles — drives the price. Ordered most → least complete. */
@@ -362,7 +365,52 @@ export const IPHONE_GENERATIONS: IphoneGeneration[] = [
     label: "iPhone 17",
     models: ["iPhone 17", "iPhone 17 Pro", "iPhone 17 Pro Max"],
   },
+  {
+    id: "18",
+    label: "iPhone 18",
+    models: ["iPhone 18 Pro", "iPhone 18 Pro Max"],
+  },
 ];
+
+/**
+ * Inclusive generation span the catalogue currently cuts cases for.
+ *
+ * Derived from {@link IPHONE_GENERATIONS} so about/FAQ/device copy cannot
+ * drift a year behind the picker. The 13/14 mould contributes both numerals;
+ * a Pro-only generation (18) still contributes its year.
+ */
+function deriveIphoneFit() {
+  const series = [
+    ...new Set(
+      IPHONE_GENERATIONS.flatMap((g) =>
+        g.models.flatMap((m) => m.match(/\d+/g) ?? []),
+      ),
+    ),
+  ].sort((a, b) => Number(a) - Number(b));
+  const oldest = series[0] ?? "";
+  const newest = series[series.length - 1] ?? "";
+  const listed =
+    series.length <= 1
+      ? `iPhone ${series[0] ?? ""}`.trim()
+      : series.length === 2
+        ? `iPhone ${series[0]} and ${series[1]}`
+        : `iPhone ${series.slice(0, -1).join(", ")}, and ${series[series.length - 1]}`;
+  return {
+    oldest,
+    newest,
+    series,
+    /** "iPhone 13 through iPhone 18" */
+    through: `iPhone ${oldest} through iPhone ${newest}`,
+    /** "iPhone 13 through 18" */
+    throughShort: `iPhone ${oldest} through ${newest}`,
+    /** "iPhone 13–18" */
+    dash: `iPhone ${oldest}–${newest}`,
+    /** "iPhone 13, 14, 15, 16, 17, and 18" */
+    listed,
+  };
+}
+
+export const IPHONE_FIT = deriveIphoneFit();
 
 /** Sort an arbitrary list of model strings into canonical master order. */
 export function orderModels(models: readonly string[]): string[] {
@@ -437,7 +485,7 @@ export function defaultModels(): string[] {
 
 /**
  * Compact, human-readable summary of an offered model set for table/badge
- * display — e.g. "iPhone 15–17", "iPhone 16", "All models", "8 of 12 models".
+ * display — e.g. "iPhone 15–17", "iPhone 16", "All models", "8 of 14 models".
  */
 export function summarizeModels(models: readonly string[]): string {
   const ordered = orderModels(models);
@@ -458,6 +506,49 @@ export function summarizeModels(models: readonly string[]): string {
       : `iPhone ${nums[0]}–${nums[nums.length - 1]}`;
   }
   return `${ordered.length} of ${IPHONE_MODELS.length} models`;
+}
+
+/**
+ * The model a product page opens on: the newest offered generation, first
+ * SKU in that generation (base → Pro → Pro Max). Launch traffic is for the
+ * phone that just shipped, not the mould from three years ago.
+ */
+export function defaultModelFor(models: readonly string[]): string {
+  const ordered = orderModels(models);
+  const pool = ordered.length > 0 ? ordered : [...models];
+  if (pool.length === 0) return IPHONE_MODELS[IPHONE_MODELS.length - 1] ?? "";
+
+  const newest = [...IPHONE_GENERATIONS]
+    .reverse()
+    .find((g) => g.models.some((m) => pool.includes(m)));
+  if (newest) {
+    const pick = newest.models.find((m) => pool.includes(m));
+    if (pick) return pick;
+  }
+  return pool[pool.length - 1] ?? "";
+}
+
+/**
+ * Add every SKU of a generation to an offered set, keeping canonical order
+ * and preserving any unrecognized hand-edited values. Used when a new iPhone
+ * ships and every existing listing should gain it without widening older
+ * generations the operator had already narrowed.
+ */
+export function extendModelsWithGeneration(
+  models: readonly string[],
+  generationId: string,
+): string[] {
+  const gen = IPHONE_GENERATIONS.find((g) => g.id === generationId);
+  const merged = [...models, ...(gen?.models ?? [])];
+  const ordered = orderModels(merged);
+  const seen = new Set(ordered);
+  for (const model of merged) {
+    if (!seen.has(model)) {
+      ordered.push(model);
+      seen.add(model);
+    }
+  }
+  return ordered;
 }
 
 // Fail fast at module load if the generation map drifts from the master list.

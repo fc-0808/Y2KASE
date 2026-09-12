@@ -12,7 +12,7 @@ const CHANNELS = [
     href: "/admin/social/instagram",
     id: "instagram" as const,
     label: "Instagram",
-    hint: "Daily slot",
+    hint: "Fashion mix",
   },
 ];
 

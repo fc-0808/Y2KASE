@@ -42,6 +42,16 @@ import {
   type NearestDuplicate,
 } from "@/lib/catalog/duplicates";
 import { classifyBrandContext } from "@/lib/catalog/brands";
+import {
+  classifyProductColors,
+  mergeColorClassifications,
+} from "@/lib/catalog/colors";
+import {
+  classifyProductMotifs,
+  mergeMotifClassifications,
+} from "@/lib/catalog/motifs";
+import { extractColorsFromImage } from "@/lib/catalog/color-extract";
+import { syncOriginalsMembership } from "@/lib/catalog/brand-assignment";
 import { mapWithConcurrency } from "@/lib/catalog/concurrency";
 import { uploadWebpToR2, uploadVideoToR2 } from "@/lib/catalog/r2";
 import {
@@ -436,6 +446,39 @@ export async function ingestProductFolder(
       : String(type.getBasePrice(currency));
   const status = overrides.status ?? "draft";
 
+  let pixelColors: Awaited<ReturnType<typeof extractColorsFromImage>> = [];
+  const heroBuffer = webp[0]?.buffer;
+  if (heroBuffer) {
+    try {
+      pixelColors = await extractColorsFromImage(heroBuffer);
+    } catch (e) {
+      log(`color extract skipped: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  const colors = mergeColorClassifications(
+    copy?.colors ?? [],
+    classifyProductColors({
+      title,
+      description,
+      tags,
+      sourceFolder: folder.folderPath,
+      materials,
+    }),
+    pixelColors,
+  );
+  if (colors.length > 0) log(`colors → ${colors.join(", ")}`);
+
+  const motifs = mergeMotifClassifications(
+    copy?.motifs ?? [],
+    classifyProductMotifs({
+      title,
+      description,
+      tags,
+      sourceFolder: folder.folderPath,
+    }),
+  );
+  if (motifs.length > 0) log(`motifs → ${motifs.join(", ")}`);
+
   const [product] = await db
     .insert(products)
     .values({
@@ -446,6 +489,8 @@ export async function ingestProductFolder(
       currency,
       materials,
       tags,
+      colors,
+      motifs,
       status,
       sourceShops: "local",
       productType: type.id,
@@ -498,6 +543,11 @@ export async function ingestProductFolder(
     explicitSlugs: overrides.collections,
     log,
   });
+  await syncOriginalsMembership(
+    product.id,
+    brandClassification.brand,
+    brandClassification.character,
+  );
 
   return {
     productId: product.id,

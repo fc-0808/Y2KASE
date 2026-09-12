@@ -280,6 +280,43 @@ export function isNonIpBrandValue(value: string | null | undefined): boolean {
   return !resolveBrandAssignment(value, null).ok;
 }
 
+/**
+ * True when this product has no licensed character to browse by — the
+ * condition for the Originals shelf. A stored value that does not resolve
+ * (an unknown IP the registry has not caught up with) is *not* original:
+ * filing it there would hide a licensed case under "no character".
+ */
+export function isUnlicensedProduct(
+  brandName: string | null | undefined,
+  characterName?: string | null | undefined,
+): boolean {
+  if (isNonIpBrandValue(brandName)) return true;
+  const brand = brandName?.trim() ?? "";
+  const character = characterName?.trim() ?? "";
+  return brand === "" && character === "";
+}
+
+/**
+ * Names and aliases the motif classifier must strip before matching, so
+ * "Hello Kitty" never becomes Cat and "Minnie Mouse" never becomes Animals.
+ * Canon only — guards and ingest have to agree without a database.
+ */
+export function ipRecognitionPhrases(): string[] {
+  const phrases = new Set<string>();
+  for (const brand of BRAND_KNOWLEDGE) {
+    phrases.add(brand.brand);
+    for (const alias of brand.aliases ?? []) phrases.add(alias);
+    for (const character of brand.characters ?? []) {
+      phrases.add(character.name);
+      for (const alias of character.aliases ?? []) phrases.add(alias);
+    }
+  }
+  return [...phrases]
+    .map((phrase) => phrase.trim())
+    .filter((phrase) => phrase.length >= 3)
+    .sort((a, b) => b.length - a.length);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Text normalisation
 //

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { isDbConfigured } from "@/lib/db";
 import { isMetaConfigured } from "@/lib/social/meta";
 import { isCaptionGenConfigured } from "@/lib/social/caption-gen";
+import { isImageGenConfigured } from "@/lib/social/image-gen";
 import {
   getMetaCoverage,
   getMetaNextPreview,
@@ -45,8 +46,8 @@ export default async function AdminInstagramPage({
       <div className="mb-6">
         <h1 className="text-3xl font-black">Instagram</h1>
         <p className="mt-1 text-sm text-[var(--foreground)]/60">
-          @{INSTAGRAM_HANDLE} — one real catalog post per day from this pack.
-          You do not need a Meta app. Post in Instagram, then mark it here.
+          @{INSTAGRAM_HANDLE} — a fashion grid, not a catalog. Today&apos;s
+          pack is a look. Post in Instagram, then mark it here.
         </p>
       </div>
 
@@ -68,6 +69,7 @@ export default async function AdminInstagramPage({
       <ManualInstagramPack
         desk={desk}
         captionReady={isCaptionGenConfigured()}
+        imageReady={isImageGenConfigured()}
       />
 
       {metaReady && metaCoverage && (
@@ -78,7 +80,7 @@ export default async function AdminInstagramPage({
         />
       )}
 
-      <InstagramPlaybook />
+      <InstagramPlaybook mix={desk.mix} />
 
       <PostingHistory
         history={history}

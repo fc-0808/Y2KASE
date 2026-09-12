@@ -27,6 +27,7 @@ import { SUPPORT_EMAIL } from "@/lib/support/constants";
 import { SITE_URL } from "@/lib/site";
 import { listUnsubscribeHeaders } from "@/lib/unsubscribe";
 import { marketingMailReadiness } from "@/lib/marketing/compliance";
+import { recordMarketingSend } from "@/lib/marketing/send-log";
 
 let _resend: Resend | null = null;
 
@@ -373,6 +374,15 @@ export async function sendAbandonedCartEmail(params: {
       console.error("[email] Resend rejected abandoned-cart send:", error);
       return false;
     }
+    try {
+      await recordMarketingSend({
+        email: params.to,
+        kind: "abandoned-cart",
+        stepKey: params.idempotencyKey,
+      });
+    } catch (logError) {
+      console.error("[email] abandoned-cart send log failed:", logError);
+    }
     return true;
   } catch (err) {
     console.error("[email] abandoned-cart send failed:", err);
@@ -436,6 +446,15 @@ export async function sendReviewRequestEmail(params: {
     if (error) {
       console.error("[email] Resend rejected review-request send:", error);
       return false;
+    }
+    try {
+      await recordMarketingSend({
+        email: params.to,
+        kind: "review-request",
+        stepKey: params.idempotencyKey,
+      });
+    } catch (logError) {
+      console.error("[email] review-request send log failed:", logError);
     }
     return true;
   } catch (err) {

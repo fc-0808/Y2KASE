@@ -53,6 +53,7 @@ export function Footer() {
           links={[
             { href: "/products", label: "All Products" },
             { href: "/devices/iphone", label: "iPhone Cases" },
+            { href: "/collections/magsafe", label: "MagSafe" },
             { href: "/collections", label: "Collections" },
             { href: "/products?tag=phone_charm", label: "Charms" },
           ]}
@@ -80,6 +81,7 @@ export function Footer() {
           links={[
             { href: "/about", label: "About" },
             { href: "/blog", label: "Blog" },
+            { href: "/insights", label: "What's in the catalog" },
             { href: "/policies/privacy-policy", label: "Privacy Policy" },
             { href: "/policies/terms-of-service", label: "Terms of Service" },
             {

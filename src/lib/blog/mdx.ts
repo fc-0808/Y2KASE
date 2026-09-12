@@ -14,6 +14,7 @@ import type { ComponentType } from "react";
 
 import * as bestY2k from "@/content/blog/best-y2k-phone-cases-2026.mdx";
 import * as styleCharms from "@/content/blog/how-to-style-phone-charms.mdx";
+import * as magsafeVerify from "@/content/blog/how-we-verify-magsafe.mdx";
 import * as sanrioGuide from "@/content/blog/sanrio-phone-case-guide.mdx";
 
 import type { PostMeta, PostSummary, RenderablePost } from "./types";
@@ -30,6 +31,10 @@ const REGISTRY: { slug: string; mod: PostModule }[] = [
   {
     slug: "how-to-style-phone-charms",
     mod: styleCharms as unknown as PostModule,
+  },
+  {
+    slug: "how-we-verify-magsafe",
+    mod: magsafeVerify as unknown as PostModule,
   },
   {
     slug: "sanrio-phone-case-guide",

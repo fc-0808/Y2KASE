@@ -40,11 +40,13 @@ export default async function HomePage() {
   const col = (slug: string) =>
     getCollectionRail(slug).catch(() => [] as ProductListItem[]);
 
-  const [featured, tree, sanrioItems, helloKittyItems] = await Promise.all([
+  const [featured, tree, sanrioItems, helloKittyItems, originalsItems] =
+    await Promise.all([
     getFeaturedProducts(8),
     getCollectionTree().catch(() => []),
     col("sanrio"),
     col("hello-kitty"),
+    col("originals"),
   ]);
 
   // ── Global product de-duplication ────────────────────────────────────────
@@ -63,6 +65,7 @@ export default async function HomePage() {
     return out;
   };
   const helloKittyPicks = pickDistinct(helloKittyItems, 12);
+  const originalsPicks = pickDistinct(originalsItems, 12);
   const sanrioPicks = pickDistinct(sanrioItems, 12);
 
   // Flatten the taxonomy (roots + character children), stocked collections
@@ -132,6 +135,15 @@ export default async function HomePage() {
           <EmptyState />
         )}
       </section>
+
+      {/* ── Originals (no licensed character) ─────────────────────────────── */}
+      <CollectionShowcase
+        eyebrow="No character needed"
+        title="Original designs"
+        href="/collections/originals"
+        accent="#7ec8ff"
+        products={originalsPicks}
+      />
 
       {/* ── Sanrio collection ─────────────────────────────────────────────── */}
       <CollectionShowcase

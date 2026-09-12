@@ -28,6 +28,8 @@ import {
   type MagSafeConfidence,
   type MagSafeEvidence,
 } from "./magsafe";
+import { parseColorFamilies, type ColorFamilySlug } from "./colors";
+import { parseMotifFamilies, type MotifFamilySlug } from "./motifs";
 
 export type GeneratedProductCopy = {
   title: string;
@@ -45,6 +47,16 @@ export type GeneratedProductCopy = {
   magsafeConfidence: MagSafeConfidence;
   /** What the model claims it saw. Gated against an allow-list. */
   magsafeEvidence: MagSafeEvidence;
+  /**
+   * Canonical color families the model saw on the product. Coerced against
+   * `@/lib/catalog/colors` — unknown names are dropped, never persisted raw.
+   */
+  colors: ColorFamilySlug[];
+  /**
+   * Canonical motif families the model saw depicted on the product. Coerced
+   * against `@/lib/catalog/motifs` — unknown names are dropped.
+   */
+  motifs: MotifFamilySlug[];
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -374,6 +386,11 @@ export function coerceProductCopy(raw: Record<string, unknown>): CoercedCopy {
       ? "high"
       : "low";
 
+  // Color is a closed vocabulary. Anything the model invents ("chartreuse",
+  // "pastel") is dropped rather than persisted as a new facet value.
+  const colors = parseColorFamilies(raw.colors, 4);
+  const motifs = parseMotifFamilies(raw.motifs, 4);
+
   const rawPrice =
     typeof raw.suggestedPriceUsd === "number" &&
     Number.isFinite(raw.suggestedPriceUsd)
@@ -396,6 +413,8 @@ export function coerceProductCopy(raw: Record<string, unknown>): CoercedCopy {
       magsafe,
       magsafeConfidence,
       magsafeEvidence,
+      colors,
+      motifs,
     },
     blocking,
     repaired,

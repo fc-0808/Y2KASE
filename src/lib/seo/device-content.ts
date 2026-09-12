@@ -8,7 +8,7 @@
  * and gives search/answer engines explicit, visible Q&A context. Google limits
  * FAQ rich-result display to authoritative government and health sites.
  */
-import { FREE_SHIPPING_OFFER, IPHONE_MODELS } from "@/lib/pricing";
+import { FREE_SHIPPING_OFFER, IPHONE_FIT, IPHONE_MODELS } from "@/lib/pricing";
 
 export type DeviceSeo = {
   /** <title> + H1 base, e.g. "iPhone Cases". */
@@ -37,15 +37,13 @@ export type DeviceSeo = {
 const DEVICE_SEO: Record<string, DeviceSeo> = {
   iphone: {
     heading: "iPhone Cases",
-    tagline:
-      "Kawaii and Y2K designs for iPhone 13 through iPhone 17 — MagSafe-ready and drop-protective.",
-    intro: `Shop kawaii and Y2K iPhone cases at Y2KASE — holographic, glittery and character-themed designs for iPhone 13 through iPhone 17, including Pro and Pro Max. MagSafe-compatible, drop-protective, and made to express your vibe. ${FREE_SHIPPING_OFFER}.`,
+    tagline: `Kawaii and Y2K designs for ${IPHONE_FIT.through} — MagSafe-ready and drop-protective.`,
+    intro: `Shop kawaii and Y2K iPhone cases at Y2KASE — holographic, glittery and character-themed designs for ${IPHONE_FIT.through}, including Pro and Pro Max. MagSafe-compatible, drop-protective, and made to express your vibe. ${FREE_SHIPPING_OFFER}.`,
     models: IPHONE_MODELS,
     faqs: [
       {
         question: "Which iPhone models do your cases fit?",
-        answer:
-          "Our iPhone cases are available for iPhone 13, 14, 15, 16 and 17 series, including the Pro and Pro Max models. Pick your exact model on each product page.",
+        answer: `Our iPhone cases are available for ${IPHONE_FIT.listed} series, including the Pro and Pro Max models. Pick your exact model on each product page.`,
       },
       {
         question: "Are your iPhone cases MagSafe compatible?",

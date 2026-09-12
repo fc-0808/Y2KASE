@@ -88,6 +88,34 @@ export type MarketingCapabilities = {
   postalAddress: string;
 };
 
+/**
+ * One Email workspace — compose, weekly cadence, and send history.
+ * Deep links use `?view=`; compose is the default and stays query-free.
+ */
+export const EMAIL_STUDIO_VIEWS = ["compose", "cadence", "history"] as const;
+export type EmailStudioView = (typeof EMAIL_STUDIO_VIEWS)[number];
+export const EMAIL_STUDIO_PATH = "/admin/campaigns";
+export const EMAIL_STUDIO_DEFAULT_VIEW: EmailStudioView = "compose";
+
+export function isEmailStudioView(value: unknown): value is EmailStudioView {
+  return (
+    typeof value === "string" &&
+    (EMAIL_STUDIO_VIEWS as readonly string[]).includes(value)
+  );
+}
+
+export function parseEmailStudioView(value: unknown): EmailStudioView {
+  return isEmailStudioView(value) ? value : EMAIL_STUDIO_DEFAULT_VIEW;
+}
+
+export function emailStudioHref(
+  view: EmailStudioView = EMAIL_STUDIO_DEFAULT_VIEW,
+): string {
+  return view === EMAIL_STUDIO_DEFAULT_VIEW
+    ? EMAIL_STUDIO_PATH
+    : `${EMAIL_STUDIO_PATH}?view=${view}`;
+}
+
 export const MARKETING_LIMITS = {
   name: 100,
   subject: 120,

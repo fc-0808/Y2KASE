@@ -167,6 +167,18 @@ async function main() {
     console.warn("⚠ PINTEREST_ACCESS_TOKEN not set — skipping social_tokens seed.");
   }
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS "pinterest_hygiene_events" (
+      "id" serial PRIMARY KEY,
+      "kind" text NOT NULL,
+      "subject" text NOT NULL,
+      "detail" text,
+      "created_at" timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS "pinterest_hygiene_events_kind_created_idx" ON "pinterest_hygiene_events" ("kind", "created_at")`;
+  await sql`CREATE INDEX IF NOT EXISTS "pinterest_hygiene_events_subject_idx" ON "pinterest_hygiene_events" ("subject")`;
+
   console.log("✓ Social Studio schema applied.");
   process.exit(0);
 }

@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -60,15 +61,24 @@ import {
 } from "@/lib/marketing/campaign-status";
 import {
   CAMPAIGN_TYPES,
+  EMAIL_STUDIO_VIEWS,
   MARKETING_LIMITS,
   MARKETING_SCHEDULING_ENABLED,
+  emailStudioHref,
   type CampaignType,
+  type EmailStudioView,
   type MarketingCampaignStatus,
   type MarketingCampaignView,
   type MarketingCapabilities,
   type MarketingDraft,
   type MarketingProductOption,
 } from "@/lib/marketing/types";
+import {
+  evaluateBroadcastCadence,
+  type CadenceSnapshot,
+} from "@/lib/marketing/cadence";
+import { CadenceStatusCard } from "./CadenceStatusCard";
+import { ClubCadencePanel } from "./ClubCadencePanel";
 import {
   deleteCampaignDraft,
   generateCampaignDraft,
@@ -149,16 +159,20 @@ export function CampaignStudio({
   activeSubscriberCount,
   products,
   capabilities,
+  cadence,
+  initialView,
 }: {
   initialCampaignId: string;
   initialCampaigns: MarketingCampaignView[];
   activeSubscriberCount: number;
   products: MarketingProductOption[];
   capabilities: MarketingCapabilities;
+  cadence: CadenceSnapshot;
+  initialView: EmailStudioView;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [tab, setTab] = useState<"compose" | "history">("compose");
+  const [tab, setTab] = useState<EmailStudioView>(initialView);
   const [campaignId, setCampaignId] = useState(initialCampaignId);
   const [draft, setDraft] = useState<MarketingDraft>(() =>
     createStarterDraft("announcement"),
@@ -211,6 +225,18 @@ export function CampaignStudio({
   const dismissDelete = useCallback(() => {
     if (busy !== "delete") setDeleteTarget(null);
   }, [busy]);
+
+  const selectTab = useCallback((next: EmailStudioView) => {
+    setTab(next);
+    // Native replaceState, not router.replace: query changes must not re-run
+    // the server page (new campaign UUID, refetch, possible remount) and wipe
+    // an unsaved draft.
+    window.history.replaceState(
+      window.history.state,
+      "",
+      emailStudioHref(next),
+    );
+  }, []);
 
   useBodyScrollLock(confirmOpen || Boolean(deleteTarget));
   useModalFocusTrap(confirmDialogRef, confirmOpen, dismissConfirmation);
@@ -281,6 +307,17 @@ export function CampaignStudio({
   const preflightWarnings = useMemo(() => marketingPreflight(draft), [draft]);
   const sendBlockers = useMemo(() => marketingSendBlockers(draft), [draft]);
   const draftValidation = useMemo(() => validateMarketingDraft(draft), [draft]);
+  const cadenceVerdict = useMemo(
+    () =>
+      evaluateBroadcastCadence({
+        now: new Date(),
+        campaignType: draft.campaignType,
+        broadcasts: cadence.broadcastsThisWeek,
+        ignoreCampaignId: campaignId,
+      }),
+    [cadence.broadcastsThisWeek, campaignId, draft.campaignType],
+  );
+  const cadenceBlocked = !cadenceVerdict.allowed;
 
   const testDeliveryBlocked = !(
     capabilities.emailConfigured &&
@@ -679,7 +716,7 @@ export function CampaignStudio({
     setDirty(false);
     setSaved(false);
     clearMessages();
-    setTab("compose");
+    selectTab("compose");
   }
 
   function editCampaign(campaign: MarketingCampaignView) {
@@ -706,7 +743,7 @@ export function CampaignStudio({
     setDirty(false);
     setSaved(true);
     clearMessages();
-    setTab("compose");
+    selectTab("compose");
   }
 
   function duplicateCampaign(campaign: MarketingCampaignView) {
@@ -731,7 +768,7 @@ export function CampaignStudio({
     setDirty(true);
     setSaved(false);
     clearMessages();
-    setTab("compose");
+    selectTab("compose");
   }
 
   function requestCampaignDelete(campaign: MarketingCampaignView) {
@@ -795,11 +832,11 @@ export function CampaignStudio({
             Human-reviewed lifecycle marketing
           </div>
           <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-            Email Campaigns
+            Email
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-foreground/60">
-            Draft with AI, review the exact email, test it in your inbox, then
-            reconcile consent before a guarded send through Resend.
+            Draft Club broadcasts, see this week&apos;s send slots, and review
+            what already went out — one workspace, one frequency policy.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -819,6 +856,7 @@ export function CampaignStudio({
         </div>
       </header>
 
+      {tab !== "cadence" && (
       <div className="mb-6 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         <Capability
           ok={capabilities.emailConfigured}
@@ -877,8 +915,18 @@ export function CampaignStudio({
           blocking
         />
       </div>
+      )}
 
-      {blockingConfiguration && (
+      {tab === "compose" && (
+        <CadenceStatusCard
+          cadence={cadence}
+          campaignType={draft.campaignType}
+          campaignId={campaignId}
+          onOpenCalendar={() => selectTab("cadence")}
+        />
+      )}
+
+      {tab !== "cadence" && blockingConfiguration && (
         <div className="mb-6 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
           <p>
@@ -891,14 +939,31 @@ export function CampaignStudio({
 
       <div
         role="tablist"
-        aria-label="Campaign workspace"
+        aria-label="Email workspace"
         className="mb-6 flex gap-1 rounded-xl border border-border bg-card p-1"
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+          event.preventDefault();
+          const index = EMAIL_STUDIO_VIEWS.indexOf(tab);
+          const next =
+            event.key === "ArrowRight"
+              ? EMAIL_STUDIO_VIEWS[(index + 1) % EMAIL_STUDIO_VIEWS.length]
+              : EMAIL_STUDIO_VIEWS[
+                  (index - 1 + EMAIL_STUDIO_VIEWS.length) %
+                    EMAIL_STUDIO_VIEWS.length
+                ];
+          selectTab(next);
+          document.getElementById(`email-tab-${next}`)?.focus();
+        }}
       >
         <button
           type="button"
           role="tab"
+          id="email-tab-compose"
+          aria-controls="email-studio-panel"
           aria-selected={tab === "compose"}
-          onClick={() => setTab("compose")}
+          tabIndex={tab === "compose" ? 0 : -1}
+          onClick={() => selectTab("compose")}
           disabled={pending}
           className={cn(
             "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition disabled:opacity-50",
@@ -912,8 +977,30 @@ export function CampaignStudio({
         <button
           type="button"
           role="tab"
+          id="email-tab-cadence"
+          aria-controls="email-studio-panel"
+          aria-selected={tab === "cadence"}
+          tabIndex={tab === "cadence" ? 0 : -1}
+          onClick={() => selectTab("cadence")}
+          disabled={pending}
+          className={cn(
+            "inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition disabled:opacity-50",
+            tab === "cadence"
+              ? "bg-primary text-foreground"
+              : "text-foreground/60 hover:bg-muted",
+          )}
+        >
+          <CalendarDays className="h-4 w-4" />
+          Cadence
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="email-tab-history"
+          aria-controls="email-studio-panel"
           aria-selected={tab === "history"}
-          onClick={() => setTab("history")}
+          tabIndex={tab === "history" ? 0 : -1}
+          onClick={() => selectTab("history")}
           disabled={pending}
           className={cn(
             "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition disabled:opacity-50",
@@ -922,7 +1009,7 @@ export function CampaignStudio({
               : "text-foreground/60 hover:bg-muted",
           )}
         >
-          Campaign history ({initialCampaigns.length})
+          History ({initialCampaigns.length})
         </button>
       </div>
 
@@ -953,7 +1040,17 @@ export function CampaignStudio({
         </div>
       )}
 
-      {tab === "compose" ? (
+      <div
+        role="tabpanel"
+        id="email-studio-panel"
+        aria-labelledby={`email-tab-${tab}`}
+      >
+      {tab === "cadence" ? (
+        <ClubCadencePanel
+          snapshot={cadence}
+          onCompose={() => selectTab("compose")}
+        />
+      ) : tab === "compose" ? (
         <div className="space-y-6">
           {locked && (
             <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -1843,7 +1940,13 @@ export function CampaignStudio({
                     blockingConfiguration ||
                     sendBlockers.length > 0 ||
                     !tested ||
-                    !reviewed
+                    !reviewed ||
+                    cadenceBlocked
+                  }
+                  title={
+                    cadenceBlocked
+                      ? cadenceVerdict.blockers[0]?.message
+                      : undefined
                   }
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-bold text-foreground hover:brightness-95 disabled:opacity-50"
                 >
@@ -2007,6 +2110,7 @@ export function CampaignStudio({
           )}
         </section>
       )}
+      </div>
 
       {deleteTarget && (
         <div
@@ -2155,6 +2259,11 @@ export function CampaignStudio({
                 <span className="text-foreground/55">Subject</span>
                 <strong className="max-w-[260px] truncate">{draft.subject}</strong>
               </div>
+              {cadenceVerdict.warnings[0] && (
+                <p className="mt-3 text-xs leading-5 text-amber-800">
+                  {cadenceVerdict.warnings[0].message}
+                </p>
+              )}
             </div>
             {error && (
               <div

@@ -22,6 +22,20 @@ import { applyBrandAssignment } from "@/lib/catalog/brand-assignment";
 import { refileProduct, type RefileResult } from "@/lib/catalog/collection-filing";
 import { findForbiddenScript } from "@/lib/catalog/copy-schema";
 import {
+  COLOR_FAMILIES,
+  classifyProductColors,
+  mergeColorClassifications,
+  parseColorFamilies,
+  type ColorFamilySlug,
+} from "@/lib/catalog/colors";
+import {
+  MOTIF_FAMILIES,
+  classifyProductMotifs,
+  parseMotifFamilies,
+  type MotifFamilySlug,
+} from "@/lib/catalog/motifs";
+import { extractColorsFromImageUrl } from "@/lib/catalog/color-extract";
+import {
   LISTING_TITLE_MAX,
   LISTING_TITLE_MIN,
 } from "@/lib/catalog/listing-title";
@@ -141,7 +155,14 @@ export async function updateProductTitle(
 
   const product = await db.query.products.findFirst({
     where: eq(products.id, productId),
-    columns: { id: true, title: true, brandName: true, characterName: true },
+    columns: {
+      id: true,
+      title: true,
+      brandName: true,
+      characterName: true,
+      sourceFolder: true,
+      motifsLocked: true,
+    },
   });
   if (!product) {
     return { ok: false, message: "Product not found.", title: null, brandHint: null };
@@ -150,9 +171,23 @@ export async function updateProductTitle(
     return { ok: true, message: "No change.", title, brandHint: null };
   }
 
+  // Title is the honest motif signal. An unlocked row follows the new copy so
+  // a retitle from "Rainy Cloud" to "Pastel Bow" cannot leave Clouds on the
+  // Theme facet. Locked rows stay as the operator last saved them.
   await db
     .update(products)
-    .set({ title, updatedAt: new Date() })
+    .set({
+      title,
+      updatedAt: new Date(),
+      ...(product.motifsLocked
+        ? {}
+        : {
+            motifs: classifyProductMotifs({
+              title,
+              sourceFolder: product.sourceFolder,
+            }),
+          }),
+    })
     .where(eq(products.id, productId));
 
   const filing = await refileProduct(productId);
@@ -568,4 +603,197 @@ function revalidateBrandSurfaces(productId: number) {
   revalidateProduct(productId);
   revalidatePath("/collections");
   revalidatePath("/collections/[slug]", "page");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Color facet
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ColorSaveResult = {
+  ok: boolean;
+  message: string;
+  colors: ColorFamilySlug[];
+};
+
+export type ColorDetectResult = {
+  ok: boolean;
+  message: string;
+  colors: ColorFamilySlug[];
+};
+
+/**
+ * Persist the operator's color families and lock them so a later backfill
+ * cannot undo a human decision.
+ */
+export async function saveProductColors(
+  productId: number,
+  rawColors: string[],
+): Promise<ColorSaveResult> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return { ok: false, message: "Not authorized.", colors: [] };
+  }
+
+  const colors = parseColorFamilies(rawColors);
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { id: true },
+  });
+  if (!product) return { ok: false, message: "Product not found.", colors: [] };
+
+  await db
+    .update(products)
+    .set({
+      colors,
+      colorsLocked: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId));
+
+  revalidateProduct(productId);
+  return {
+    ok: true,
+    message:
+      colors.length > 0
+        ? `Saved ${colors.length} color${colors.length === 1 ? "" : "s"}.`
+        : "Cleared colors.",
+    colors,
+  };
+}
+
+/**
+ * Re-read the listing (title, folder, hero photo) and propose families.
+ * Does not write — the operator confirms through {@link saveProductColors}.
+ */
+export async function detectProductColors(
+  productId: number,
+): Promise<ColorDetectResult> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return { ok: false, message: "Not authorized.", colors: [] };
+  }
+
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: {
+      title: true,
+      description: true,
+      tags: true,
+      materials: true,
+      sourceFolder: true,
+    },
+    with: {
+      images: {
+        columns: { url: true, position: true },
+        orderBy: (img, { asc }) => asc(img.position),
+        limit: 1,
+      },
+    },
+  });
+  if (!product) return { ok: false, message: "Product not found.", colors: [] };
+
+  const text = classifyProductColors({
+    title: product.title,
+    description: product.description,
+    tags: product.tags,
+    materials: product.materials,
+    sourceFolder: product.sourceFolder,
+  });
+  const pixels = product.images[0]?.url
+    ? await extractColorsFromImageUrl(product.images[0].url)
+    : [];
+  const colors = mergeColorClassifications(text, pixels);
+
+  return {
+    ok: true,
+    message:
+      colors.length > 0
+        ? `Detected ${colors.map((slug) => COLOR_FAMILIES.find((f) => f.slug === slug)?.label ?? slug).join(", ")}.`
+        : "No color signal in the title, folder or hero photo.",
+    colors,
+  };
+}
+
+export type MotifSaveResult = {
+  ok: boolean;
+  message: string;
+  motifs: MotifFamilySlug[];
+};
+
+export type MotifDetectResult = {
+  ok: boolean;
+  message: string;
+  motifs: MotifFamilySlug[];
+};
+
+export async function saveProductMotifs(
+  productId: number,
+  rawMotifs: string[],
+): Promise<MotifSaveResult> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return { ok: false, message: "Not authorized.", motifs: [] };
+  }
+
+  const motifs = parseMotifFamilies(rawMotifs);
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { id: true },
+  });
+  if (!product) return { ok: false, message: "Product not found.", motifs: [] };
+
+  await db
+    .update(products)
+    .set({
+      motifs,
+      motifsLocked: true,
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId));
+
+  revalidateProduct(productId);
+  return {
+    ok: true,
+    message:
+      motifs.length > 0
+        ? `Saved ${motifs.length} theme${motifs.length === 1 ? "" : "s"}.`
+        : "Cleared themes.",
+    motifs,
+  };
+}
+
+export async function detectProductMotifs(
+  productId: number,
+): Promise<MotifDetectResult> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return { ok: false, message: "Not authorized.", motifs: [] };
+  }
+
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: {
+      title: true,
+      description: true,
+      tags: true,
+      sourceFolder: true,
+    },
+  });
+  if (!product) return { ok: false, message: "Product not found.", motifs: [] };
+
+  const motifs = classifyProductMotifs({
+    title: product.title,
+    description: product.description,
+    tags: product.tags,
+    sourceFolder: product.sourceFolder,
+  });
+
+  return {
+    ok: true,
+    message:
+      motifs.length > 0
+        ? `Detected ${motifs.map((slug) => MOTIF_FAMILIES.find((f) => f.slug === slug)?.label ?? slug).join(", ")}.`
+        : "No theme signal in the title or folder.",
+    motifs,
+  };
 }

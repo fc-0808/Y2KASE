@@ -24,13 +24,14 @@ import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
 import { refreshAllPinMetrics } from "@/lib/social/analytics";
 import { getToken } from "@/lib/social/token-store";
-import { runAutoPin, AUTO_PIN_PER_RUN } from "@/lib/social/auto-pin";
+import { runAutoPin, AUTO_PIN_PER_RUN, AUTO_PIN_PER_DAY } from "@/lib/social/auto-pin";
 import { isMetaConfigured, getMetaConnection } from "@/lib/social/meta";
 import {
   runMetaAutopost,
   META_AUTOPOST_PER_RUN,
   prepareInstagramCaption,
   recordManualInstagramPost,
+  countPublishedInstagramPosts,
 } from "@/lib/social/meta-autopost";
 import {
   getProductGallery,
@@ -50,6 +51,15 @@ import {
   getTikTokAccount,
 } from "@/lib/social/tiktok";
 import { createSocialOAuthState } from "@/lib/social/oauth-state";
+import { PINTEREST_OAUTH_SCOPE_PARAM } from "@/lib/social/pinterest-auth";
+import { buildFashionLookBrief } from "@/lib/social/instagram-fashion";
+import {
+  applyBoardPlan,
+  applyDuplicateDeletes,
+  previewDuplicateDeletes,
+  PINTEREST_HYGIENE_ADMIN_DELETE_CAP,
+} from "@/lib/social/pinterest-hygiene";
+import { runFollowDrip } from "@/lib/social/pinterest-follow";
 
 function revalidateSocialStudio() {
   for (const path of ["/admin/social", "/admin/social/instagram"] as const) {
@@ -396,7 +406,7 @@ export async function getPinterestConnectUrl(): Promise<{
   const redirectUri = encodeURIComponent(
     `${siteUrl}/api/auth/pinterest/callback`,
   );
-  const scopes = encodeURIComponent("boards:read,boards:write,pins:read,pins:write,user_accounts:read");
+  const scopes = encodeURIComponent(PINTEREST_OAUTH_SCOPE_PARAM);
   const state = encodeURIComponent(
     createSocialOAuthState("pinterest", session.user.id),
   );
@@ -521,9 +531,9 @@ export async function schedulePublish(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Manually trigger the auto-pin drip — posts the next un-pinned listing(s) right
- * now (every photo + the video), mirroring exactly what the daily cron does, for
- * instant feedback and to seed the pipeline without waiting for the schedule.
+ * Manually trigger the auto-pin drip — posts the next curated pin(s) right
+ * now, mirroring exactly what the cron does. Volume is pin-level (not a
+ * gallery dump) and shares the daily cap with scheduled runs.
  * `boardId` is optional; when omitted, PINTEREST_AUTOPIN_BOARD_ID (or the first
  * board) is used.
  */
@@ -534,7 +544,11 @@ export async function runAutoPinNow(input?: {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
 
   const max = Math.min(5, Math.max(1, input?.max ?? AUTO_PIN_PER_RUN));
-  const res = await runAutoPin({ max, boardId: input?.boardId });
+  const res = await runAutoPin({
+    max,
+    boardId: input?.boardId,
+    dailyCap: AUTO_PIN_PER_DAY,
+  });
   revalidateSocialStudio();
 
   if (res.reason === "no-pinterest-token") {
@@ -556,6 +570,12 @@ export async function runAutoPinNow(input?: {
   }
   if (res.reason === "all-pinned") {
     return { ok: true, message: "Every listing is already pinned 🎉" };
+  }
+  if (res.reason === "daily-cap-reached") {
+    return {
+      ok: true,
+      message: "Today's Pinterest pin budget is already used. Next run tomorrow.",
+    };
   }
   if (res.mediaPinned === 0 && res.failed === 0) {
     return { ok: true, message: "Nothing new to post right now." };
@@ -689,7 +709,12 @@ export async function runMetaAutopostNow(input?: {
 }
 
 export async function writeInstagramCaption(productId: number): Promise<
-  SocialActionResult & { caption?: string; hashtags?: string[] }
+  SocialActionResult & {
+    caption?: string;
+    hashtags?: string[];
+    overlay?: string;
+    pillar?: string;
+  }
 > {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
   if (!Number.isFinite(productId)) return { ok: false, message: "Pick a product." };
@@ -697,9 +722,13 @@ export async function writeInstagramCaption(productId: number): Promise<
     const copy = await prepareInstagramCaption(productId);
     return {
       ok: true,
-      message: "Caption ready to paste.",
+      message: copy.pillar
+        ? `Caption ready — ${copy.pillar} voice.`
+        : "Caption ready to paste.",
       caption: copy.caption,
       hashtags: copy.hashtags,
+      overlay: copy.overlay,
+      pillar: copy.pillar,
     };
   } catch (err) {
     return {
@@ -709,11 +738,66 @@ export async function writeInstagramCaption(productId: number): Promise<
   }
 }
 
+export async function generateFashionStill(productId: number): Promise<
+  SocialActionResult & {
+    imageUrl?: string;
+    overlay?: string;
+    pillar?: string;
+  }
+> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  if (!Number.isFinite(productId)) return { ok: false, message: "Pick a product." };
+  if (!isImageGenConfigured()) {
+    return {
+      ok: false,
+      message: "Set KIE_API_KEY (preferred) or OPENAI_API_KEY — fashion stills cannot be generated.",
+    };
+  }
+
+  const gallery = await getProductGallery(productId);
+  if (!gallery) return { ok: false, message: "Product not found." };
+
+  const igPosts = await countPublishedInstagramPosts();
+  const brief = buildFashionLookBrief({
+    publishedCount: igPosts,
+    mediaType: "carousel",
+    productTitle: gallery.title,
+    tags: gallery.tags,
+    characterName: gallery.characterName,
+    brandName: gallery.brandName,
+  });
+  if (!getPreset(brief.preset)) {
+    return { ok: false, message: "Fashion preset is missing." };
+  }
+
+  const result = await runGeneration({
+    productId,
+    preset: brief.preset,
+    platform: "instagram",
+    quality: "high",
+    extra: brief.promptExtra,
+  });
+  revalidateSocialStudio();
+  if (!result.ok) return { ok: false, message: result.error };
+
+  const creative = await getCreativeById(result.creativeId);
+  return {
+    ok: true,
+    message: `Fashion still ready — ${brief.label}. The case should fill at least half the frame and match the listing photos. If it is a tiny prop, the print is wrong, or the face looks CGI, regenerate.`,
+    creativeId: result.creativeId,
+    imageUrl: creative?.imageUrl,
+    overlay: brief.overlay,
+    pillar: brief.pillar,
+  };
+}
+
 export async function markInstagramPostedInApp(input: {
   productId: number;
   mediaType: "carousel" | "video";
   caption: string;
   hashtags: string[];
+  imageUrl?: string | null;
+  preset?: string | null;
 }): Promise<SocialActionResult> {
   if (!(await guard())) return { ok: false, message: "Not authorized." };
   const res = await recordManualInstagramPost({
@@ -721,10 +805,12 @@ export async function markInstagramPostedInApp(input: {
     mediaType: input.mediaType,
     caption: input.caption,
     hashtags: input.hashtags ?? [],
+    imageUrl: input.imageUrl,
+    preset: input.preset,
   });
   revalidateSocialStudio();
   if (!res.ok) return { ok: false, message: res.error };
-  return { ok: true, message: "Recorded. Tomorrow's pack will be the next listing." };
+  return { ok: true, message: "Recorded. Tomorrow's pack advances the fashion mix." };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -973,4 +1059,113 @@ export async function removeCreative(id: number): Promise<SocialActionResult> {
   }
   revalidateSocialStudio();
   return { ok: true, message: "Creative deleted." };
+}
+
+export type DuplicateScanResult = {
+  ok: boolean;
+  message: string;
+  pinCount?: number;
+  deleteCount?: number;
+  eligibleGroups?: number;
+  preview?: { id: string; title: string | null; reason: string; productKey: string }[];
+};
+
+/** Scan Created-tab pins and preview 0-save same-SKU duplicates. Does not delete. */
+export async function scanPinterestDuplicates(): Promise<DuplicateScanResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  try {
+    const { pinCount, plan } = await previewDuplicateDeletes({
+      maxDeletes: PINTEREST_HYGIENE_ADMIN_DELETE_CAP,
+    });
+    return {
+      ok: true,
+      message:
+        plan.deletes.length === 0
+          ? `Scanned ${pinCount} pins. No 0-save duplicate rows to remove.`
+          : `Scanned ${pinCount} pins. ${plan.deletes.length} 0-save duplicate still${plan.deletes.length === 1 ? "" : "s"} can go (videos and the best still of each SKU stay).`,
+      pinCount,
+      deleteCount: plan.deletes.length,
+      eligibleGroups: plan.eligibleGroups,
+      preview: plan.deletes.slice(0, 25).map((d) => ({
+        id: d.id,
+        title: d.title,
+        reason: d.reason,
+        productKey: d.productKey,
+      })),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Scan failed.",
+    };
+  }
+}
+
+/** Rename/create the 3–8 topical boards. Never deletes a board. */
+export async function applyPinterestBoardHygiene(): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  try {
+    const result = await applyBoardPlan();
+    revalidateSocialStudio();
+    if (result.errors.length && result.updated + result.created === 0) {
+      return { ok: false, message: result.errors[0] ?? "Board update failed." };
+    }
+    const tail = result.errors.length ? ` · ${result.errors.length} error(s)` : "";
+    return {
+      ok: result.errors.length === 0,
+      message: `Boards: ${result.updated} updated, ${result.created} created, ${result.skipped} already topical${tail}.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Board update failed.",
+    };
+  }
+}
+
+/** Delete previewed 0-save duplicates. Re-scans and only removes pins still in the plan. */
+export async function applyPinterestDuplicateDeletes(): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  try {
+    const { plan } = await previewDuplicateDeletes({
+      maxDeletes: PINTEREST_HYGIENE_ADMIN_DELETE_CAP,
+    });
+    if (plan.deletes.length === 0) {
+      return { ok: true, message: "Nothing to delete — no 0-save duplicate rows matched." };
+    }
+    const result = await applyDuplicateDeletes(plan.deletes);
+    revalidateSocialStudio();
+    const tail = result.remaining
+      ? ` · ${result.remaining} more in a later pass`
+      : "";
+    return {
+      ok: result.failed === 0,
+      message: `Deleted ${result.deleted} duplicate pin${result.deleted === 1 ? "" : "s"}${tail}. Videos and the best still of each SKU were kept.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Delete failed.",
+    };
+  }
+}
+
+/** Follow the next handful of niche accounts (capped per UTC day). */
+export async function runPinterestFollowNow(): Promise<SocialActionResult> {
+  if (!(await guard())) return { ok: false, message: "Not authorized." };
+  try {
+    const result = await runFollowDrip();
+    revalidateSocialStudio();
+    const ok =
+      result.reason === "ok" ||
+      result.reason === "daily-cap" ||
+      result.reason === "caught-up" ||
+      result.reason === "disabled";
+    return { ok, message: result.message };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Follow drip failed.",
+    };
+  }
 }

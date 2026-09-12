@@ -16,6 +16,8 @@ import {
 import { CatalogPagination } from "@/components/catalog/CatalogPagination";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import { brandOptionName } from "@/components/catalog/brand-options";
+import { colorFamilyLabel, isColorFamilySlug } from "@/lib/catalog/colors";
+import { isMotifFamilySlug, motifFamilyLabel } from "@/lib/catalog/motifs";
 import { JsonLd } from "@/components/JsonLd";
 import {
   breadcrumbJsonLd,
@@ -82,6 +84,8 @@ export default async function ProductsPage({
     device: params.device,
     collection: params.collection,
     brands: params.brands,
+    colors: params.colors.filter(isColorFamilySlug),
+    motifs: params.motifs.filter(isMotifFamilySlug),
     magsafe: params.magsafe,
     page: params.page,
     sort: params.sort,
@@ -147,7 +151,11 @@ export default async function ProductsPage({
         ? `${brandName(params.brands[0])} cases`
         : magsafeLabel
           ? `${magsafeLabel} cases`
-          : params.tag
+          : params.colors.length === 1
+            ? `${colorFamilyLabel(params.colors[0]!)} cases`
+            : params.motifs.length === 1
+              ? `${motifFamilyLabel(params.motifs[0]!)} cases`
+            : params.tag
             ? humanize(params.tag)
               : params.q
               ? `Results for “${params.q}”`

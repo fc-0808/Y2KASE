@@ -5,15 +5,13 @@
  * Admin, a sibling of the device bar.
  *
  * Collections are the *marketing* taxonomy (Sanrio, Miffy, Hello Kitty, …),
- * modelled as a tree in the DB. Only brand collections are rendered here;
- * non-brand tag collections (Kawaii, Anime, …) aren't a useful browse axis
- * for the admin. Zero-result options are omitted until selected, and every
- * row wraps instead of scrolling. This keeps the control useful at any
- * viewport width without clipping labels or exposing a decorative
- * horizontal scrollbar.
+ * modelled as a tree in the DB. Brand collections are the primary browse axis;
+ * Originals is the one genre surfaced here so unlicensed products are as
+ * filterable as Sanrio. Other genre tags (Kawaii, Anime) stay off this bar.
  */
 import Link from "next/link";
 import type { AdminCollectionOption } from "@/lib/collections";
+import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 
 export type CollectionSelection = number | "all";
 
@@ -50,6 +48,9 @@ export function CollectionNavBar({
   const brands = topLevel.filter(
     (option) => option.kind === "brand" && isVisible(option),
   );
+  const originals = topLevel.find(
+    (option) => option.slug === ORIGINALS_SLUG && isVisible(option),
+  );
   const children = activeTop
     ? options.filter(
         (option) => option.parentId === activeTop.id && isVisible(option),
@@ -77,6 +78,14 @@ export function CollectionNavBar({
           active={active === "all"}
           onClick={() => onSelect("all")}
         />
+        {originals && (
+          <FilterButton
+            label={originals.name}
+            count={countOf(originals)}
+            active={active === originals.id}
+            onClick={() => onSelect(originals.id)}
+          />
+        )}
         {brands.map((option) => (
           <FilterButton
             key={option.id}

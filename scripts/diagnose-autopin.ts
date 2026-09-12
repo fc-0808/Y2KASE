@@ -29,7 +29,7 @@ async function main() {
   console.log("\n=== Drip configuration ===");
   console.log({
     enabled: isAutoPinEnabled(),
-    listingsPerDay: AUTO_PIN_PER_DAY,
+    pinsPerDay: AUTO_PIN_PER_DAY,
     cronHoursUtc: AUTO_PIN_CRON_HOURS_UTC,
     listingsPostedToday: await getListingsPostedToday(),
   });
@@ -43,15 +43,16 @@ async function main() {
     console.log("Nothing queued — every listing is fully pinned.");
   } else {
     console.table([preview]);
-    if (preview.totalPins <= 1) {
+    if (preview.totalPins !== 1 && preview.slotLabel.indexOf("budget") === -1) {
       console.warn(
-        `\n!! REGRESSION: only ${preview.totalPins} pin queued for this listing.` +
-          " A full listing should queue every photo plus the video.",
+        `\n!! Unexpected slot size: ${preview.totalPins} pin(s) queued.` +
+          " The curated drip should queue exactly one pin per product.",
       );
     } else {
       console.log(
-        `\nOK: ${preview.totalPins} pins queued (${preview.photoCount} photos` +
-          `${preview.hasVideo ? " + 1 video" : ", no video"}).`,
+        `\nOK: next slot is ${preview.mediaType} (${preview.slotLabel}).` +
+          ` ${preview.photoCount} still(s) remain on this listing` +
+          `${preview.hasVideo ? " + video" : ""}.`,
       );
     }
   }

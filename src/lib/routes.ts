@@ -27,6 +27,8 @@
 export const ROUTES = {
   /** The welcome-offer landing page (email capture → discount code). */
   welcomeGift: "/welcome-gift",
+  /** Live first-party catalog snapshot (original data, not a blog post). */
+  insights: "/insights",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,9 +72,15 @@ export const REDIRECTS: readonly RouteRedirect[] = [
   // it showed up in the dev server logs as a 404 from someone looking for this
   // page, and "/welcome" is the short form worth having on print and socials.
   { source: "/welcome", destination: ROUTES.welcomeGift, permanent: false },
+  { source: "/welcome-page", destination: ROUTES.welcomeGift, permanent: false },
+
+  // Former standalone Club calendar. Cadence now lives as a tab inside Email
+  // (`/admin/campaigns?view=cadence`). 307 so a browser never caches the alias
+  // if the studio URL moves again. Query string is a literal — this file cannot
+  // import `@/lib/marketing/types`.
   {
-    source: "/welcome-page",
-    destination: ROUTES.welcomeGift,
+    source: "/admin/cadence",
+    destination: "/admin/campaigns?view=cadence",
     permanent: false,
   },
 

@@ -55,11 +55,7 @@ npm install
 
 ### 2. Configure environment
 
-```bash
-cp .env.example .env.local
-```
-
-Fill in the services you use:
+Create `.env.local` and fill in the services you use:
 
 - **`DATABASE_URL`** — a pooled Postgres connection from [Neon](https://neon.tech).
 - **`R2_*`** — Cloudflare R2 credentials, bucket, and public media URL.

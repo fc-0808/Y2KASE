@@ -4,7 +4,7 @@
  *   npm run apply:variations
  *
  * Adds the standard phone-case variation axes to EVERY product:
- *   • iPhone Model — 12 choices (free, does not affect price)
+ *   • iPhone Model — every model in IPHONE_MODELS (free, does not affect price)
  *   • Style        — 6 choices (drives price via the pricing master)
  *
  * Also resets each product's base `price` to the Excel "True Customer Price"
