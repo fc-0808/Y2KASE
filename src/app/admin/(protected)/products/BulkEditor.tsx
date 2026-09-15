@@ -19,9 +19,11 @@ import {
   Users,
   SquarePen,
   TriangleAlert,
+  Sparkles,
 } from "lucide-react";
 import {
   STYLES,
+  AIRPODS_STYLES,
   IPHONE_GENERATIONS,
   IPHONE_MODELS,
   stylesForAddons,
@@ -32,8 +34,16 @@ import {
   summarizeModels,
   normalizeImageStyleTags,
 } from "@/lib/pricing";
-import { compareFilenamesNatural } from "@/lib/utils";
+import { compareFilenamesNatural, formatPrice } from "@/lib/utils";
+import { compatibilityAxisFor } from "@/lib/catalog/product-types";
+import {
+  hasCompatibilityAxis,
+  hasPriceAxis,
+  priceForOfferedStyle,
+  summarizeCompatibility,
+} from "@/lib/catalog/offered-options";
 import { StyleTagPicker, StyleCoverageHint } from "./StyleTagPicker";
+import { DeviceFitPicker } from "./DeviceFitPicker";
 import {
   bulkUpdateProducts,
   getBulkEditProducts,
@@ -41,6 +51,7 @@ import {
   type BulkEditProduct,
   type PerProductSave,
 } from "./actions";
+import { detectProductImageStyles } from "./[id]/actions";
 
 type Mode = "all" | "each";
 
@@ -85,7 +96,8 @@ export function BulkEditor({
             <h2 className="text-lg font-black">Bulk edit variations</h2>
             <p className="text-xs text-[var(--foreground)]/60">
               {count} selected · {caseCount} iPhone case
-              {caseCount === 1 ? "" : "s"}
+              {caseCount === 1 ? "" : "s"} — style bundles apply to iPhone
+              cases; device fit can be edited per product.
             </p>
           </div>
 
@@ -197,8 +209,10 @@ function SameForAllPanel({
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
         {caseCount === 0 && (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">
-            None of the selected products are iPhone cases — style and model
-            changes only apply to iPhone cases.
+            None of the selected products are iPhone cases — style and iPhone
+            model changes only apply to iPhone cases. Use{" "}
+            <span className="font-semibold">Edit individually</span> to change
+            AirPods (or other) device fit.
           </p>
         )}
 
@@ -379,7 +393,9 @@ function IndividualWorkspace({
                       <p className="text-[11px] text-[var(--foreground)]/55">
                         {p.productType === "iphone_case"
                           ? summarizeModels(d.models)
-                          : p.productTypeLabel}
+                          : hasCompatibilityAxis(p.productType)
+                            ? summarizeCompatibility(p.productType, d.models)
+                            : p.productTypeLabel}
                       </p>
                     </div>
                     {isDirty && (
@@ -436,6 +452,8 @@ function IndividualWorkspace({
                       </p>
                       <StyleVariationPicker
                         styles={active.styles}
+                        productType={activeMeta.productType}
+                        currency={activeMeta.currency}
                         onChange={(styles) => {
                           // Re-normalize rather than filter: an image assigned
                           // to a style that's no longer offered falls back to
@@ -469,16 +487,71 @@ function IndividualWorkspace({
                   </div>
                 </>
               ) : (
-                <p className="rounded-xl bg-[var(--muted)] px-3 py-2 text-xs text-[var(--foreground)]/60">
-                  This isn&apos;t an iPhone case — only media order can be edited
-                  here. Style and model variations don&apos;t apply.
-                </p>
+                <>
+                  {hasPriceAxis(activeMeta.productType) && (
+                    <div className="rounded-2xl border border-[var(--border)] p-3.5">
+                      <p className="mb-2 flex items-center gap-1.5 text-sm font-bold">
+                        <Layers className="h-4 w-4" /> Style variations
+                      </p>
+                      <StyleVariationPicker
+                        styles={active.styles}
+                        allowGrip={false}
+                        productType={activeMeta.productType}
+                        currency={activeMeta.currency}
+                        onChange={(styles) => {
+                          updateActive({
+                            styles,
+                            media: active.media.map((m) =>
+                              m.kind === "image"
+                                ? {
+                                    ...m,
+                                    styleTags: normalizeImageStyleTags(
+                                      m.styleTags,
+                                      styles,
+                                    ),
+                                  }
+                                : m,
+                            ),
+                          });
+                        }}
+                      />
+                    </div>
+                  )}
+                  {hasCompatibilityAxis(activeMeta.productType) ? (
+                    <div className="rounded-2xl border border-[var(--border)] p-3.5">
+                      <p className="mb-2 flex items-center gap-1.5 text-sm font-bold">
+                        <Smartphone className="h-4 w-4" />{" "}
+                        {compatibilityAxisFor(activeMeta.productType)?.name ??
+                          "Device fit"}
+                      </p>
+                      <p className="mb-2.5 text-xs text-[var(--foreground)]/60">
+                        Which devices this listing ships for. Shoppers pick one;
+                        the price stays the same.
+                      </p>
+                      <DeviceFitPicker
+                        productType={activeMeta.productType}
+                        selected={active.models}
+                        onChange={(models) => updateActive({ models })}
+                      />
+                    </div>
+                  ) : (
+                    !hasPriceAxis(activeMeta.productType) && (
+                      <p className="rounded-xl bg-[var(--muted)] px-3 py-2 text-xs text-[var(--foreground)]/60">
+                        This product has no style or device-fit axes — only media
+                        order can be edited here.
+                      </p>
+                    )
+                  )}
+                </>
               )}
 
               <div className="rounded-2xl border border-[var(--border)] p-3.5">
                 <MediaOrderEditor
+                  productId={activeId!}
                   media={active.media}
-                  styles={active.isIphoneCase ? active.styles : []}
+                  styles={
+                    hasPriceAxis(activeMeta.productType) ? active.styles : []
+                  }
                   onChange={(media) => updateActive({ media })}
                 />
               </div>
@@ -513,14 +586,26 @@ function IndividualWorkspace({
 function StyleVariationPicker({
   styles,
   onChange,
+  allowGrip = true,
+  productType,
+  currency,
 }: {
   styles: string[];
   onChange: (styles: string[]) => void;
+  allowGrip?: boolean;
+  productType?: string;
+  currency?: string;
 }) {
   const addons = useMemo(() => addonsFromStyles(styles), [styles]);
+  const manualStyles = allowGrip ? STYLES : AIRPODS_STYLES;
 
   function setAddons(next: { hasGrip: boolean; hasCharm: boolean }) {
-    onChange(stylesForAddons(next));
+    onChange(
+      stylesForAddons({
+        hasGrip: allowGrip ? next.hasGrip : false,
+        hasCharm: next.hasCharm,
+      }),
+    );
   }
   function toggleManual(style: string) {
     const next = styles.includes(style)
@@ -537,15 +622,24 @@ function StyleVariationPicker({
         automatically.
       </p>
       <div className="mt-2.5 grid grid-cols-2 gap-2">
-        <Toggle
-          label="Includes grip"
-          checked={addons.hasGrip}
-          onChange={(v) => setAddons({ hasGrip: v, hasCharm: addons.hasCharm })}
-        />
+        {allowGrip && (
+          <Toggle
+            label="Includes grip"
+            checked={addons.hasGrip}
+            onChange={(v) =>
+              setAddons({ hasGrip: v, hasCharm: addons.hasCharm })
+            }
+          />
+        )}
         <Toggle
           label="Includes charm"
           checked={addons.hasCharm}
-          onChange={(v) => setAddons({ hasGrip: addons.hasGrip, hasCharm: v })}
+          onChange={(v) =>
+            setAddons({
+              hasGrip: allowGrip ? addons.hasGrip : false,
+              hasCharm: v,
+            })
+          }
         />
       </div>
 
@@ -554,14 +648,25 @@ function StyleVariationPicker({
           Offered styles
         </p>
         <div className="flex flex-wrap gap-1.5">
-          {styles.map((s) => (
-            <span
-              key={s}
-              className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[11px] font-semibold"
-            >
-              {s}
-            </span>
-          ))}
+          {styles.map((s) => {
+            const price =
+              productType && currency
+                ? priceForOfferedStyle(productType, s, currency)
+                : null;
+            return (
+              <span
+                key={s}
+                className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[11px] font-semibold"
+              >
+                {s}
+                {price != null && (
+                  <span className="ml-1 tabular-nums text-[var(--foreground)]/55">
+                    {formatPrice(price, currency)}
+                  </span>
+                )}
+              </span>
+            );
+          })}
         </div>
       </div>
 
@@ -570,7 +675,7 @@ function StyleVariationPicker({
           Customize manually
         </summary>
         <div className="mt-2 grid grid-cols-2 gap-1">
-          {STYLES.map((s) => (
+          {manualStyles.map((s) => (
             <label key={s} className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -714,15 +819,22 @@ function ModelAvailabilityPicker({
 // Shared: Media order + per-image style tagging
 // ─────────────────────────────────────────────────────────────────────────────
 function MediaOrderEditor({
+  productId,
   media,
   styles,
   onChange,
 }: {
+  productId: number;
   media: MediaItem[];
   styles: string[];
   onChange: (media: MediaItem[]) => void;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectMessage, setDetectMessage] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
 
   function move(from: number, to: number) {
     if (to < 0 || to >= media.length || from === to) return;
@@ -750,6 +862,34 @@ function MediaOrderEditor({
     );
   }
 
+  async function detectStyles() {
+    setDetecting(true);
+    setDetectMessage(null);
+    try {
+      const res = await detectProductImageStyles(productId);
+      setDetectMessage({ ok: res.ok, message: res.message });
+      if (!res.ok) return;
+      onChange(
+        media.map((m) => {
+          if (m.kind !== "image") return m;
+          const tags = res.tags[m.id];
+          if (!tags) return m;
+          return {
+            ...m,
+            styleTags: normalizeImageStyleTags(tags, styles),
+          };
+        }),
+      );
+    } catch (err) {
+      setDetectMessage({
+        ok: false,
+        message: err instanceof Error ? err.message : "Detection failed.",
+      });
+    } finally {
+      setDetecting(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -768,14 +908,40 @@ function MediaOrderEditor({
                 .map((m) => m.styleTags)}
             />
           )}
+          {detectMessage && (
+            <p
+              className={`mt-1 text-[11px] font-semibold ${
+                detectMessage.ok ? "text-green-600" : "text-red-500"
+              }`}
+            >
+              {detectMessage.message}
+            </p>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={sortByFilename}
-          className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:border-[var(--primary)]"
-        >
-          <ArrowDownAZ className="h-3.5 w-3.5" /> Sort
-        </button>
+        <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+          {styles.length > 0 && (
+            <button
+              type="button"
+              onClick={detectStyles}
+              disabled={detecting}
+              className="flex items-center justify-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:border-[var(--primary)] disabled:opacity-50"
+            >
+              {detecting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {detecting ? "Detecting…" : "Detect"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={sortByFilename}
+            className="flex items-center justify-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:border-[var(--primary)]"
+          >
+            <ArrowDownAZ className="h-3.5 w-3.5" /> Sort
+          </button>
+        </div>
       </div>
 
       <ul className="space-y-2">
@@ -1008,9 +1174,17 @@ function Toggle({
 // Draft helpers
 // ─────────────────────────────────────────────────────────────────────────────
 function draftFromProduct(p: BulkEditProduct): Draft {
-  const styles = orderStyles(
-    p.availableStyles.length ? p.availableStyles : ["Case Only"],
-  );
+  const isIphoneCase = p.productType === "iphone_case";
+  const priced = hasPriceAxis(p.productType);
+  const styles = priced
+    ? orderStyles(
+        p.availableStyles.length
+          ? p.availableStyles
+          : isIphoneCase
+            ? ["Case Only"]
+            : stylesForAddons({ hasGrip: false, hasCharm: true }),
+      )
+    : [];
   // Legacy rows can carry several tags per image (the classifier used to tag
   // inclusively). Collapse on the way in so the control never renders two
   // active pills; the baseline is taken from the normalized draft below, so
@@ -1032,7 +1206,7 @@ function draftFromProduct(p: BulkEditProduct): Draft {
     ];
   }
   return {
-    isIphoneCase: p.productType === "iphone_case",
+    isIphoneCase,
     videoUrl: p.videoUrl,
     media,
     styles,

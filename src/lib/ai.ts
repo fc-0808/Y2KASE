@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { normalizeImageStyleTags, type Style } from "@/lib/pricing";
+import { type Style } from "@/lib/pricing";
 import {
   coerceProductCopy,
   describeViolations,
@@ -28,6 +28,14 @@ import {
   type IncomingFolderVerdict,
 } from "@/lib/catalog/folder-sort";
 import {
+  buildStyleClassifyPrompt,
+  classifiedRawFor,
+  coerceClassifiedStyle,
+  resolvedOfferedStyles,
+  styleClassifyLabel,
+  type StyleClassifyContext,
+} from "@/lib/catalog/style-classify";
+import {
   disabledThinkingParams,
   isThinkingParamRejected,
 } from "@/lib/llm-thinking";
@@ -36,6 +44,7 @@ export type { GeneratedProductCopy } from "@/lib/catalog/copy-schema";
 export type { MagSafeVerdict } from "@/lib/catalog/magsafe";
 export type { BrandClassification } from "@/lib/catalog/brands";
 export type { IncomingFolderVerdict } from "@/lib/catalog/folder-sort";
+export type { StyleClassifyContext } from "@/lib/catalog/style-classify";
 
 /**
  * Two model roles, deliberately kept on different providers.
@@ -45,8 +54,8 @@ export type { IncomingFolderVerdict } from "@/lib/catalog/folder-sort";
  * verification, per-image Style tags, thumbnail suitability. Nothing here
  * becomes customer-visible prose, so it runs on a cheap open-weight vision
  * model through an OpenAI-compatible gateway (OpenRouter). Default in
- * Default vision model is Qwen 3.8 Flash — the production successor to 3.7 Plus
- * for high-volume visual classification.
+ * Default vision model is Qwen 3.8 Flash (`qwen/qwen3.8-flash`) — the
+ * production successor to 3.7 Plus for high-volume visual classification.
  *
  * ── Product copy (`copyClient`) ────────────────────────────────────────────
  * Titles, descriptions, tags, alt text — everything a shopper reads. This runs
@@ -94,7 +103,7 @@ function copyClient(): { client: OpenAI; model: string } {
 
 /** The image-analysis model id in use. */
 export function visionModelName(): string {
-  return process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini";
+  return process.env.OPENAI_VISION_MODEL ?? "qwen/qwen3.8-flash";
 }
 
 /** The copy model id in use, for stamping onto ingested rows. */
@@ -435,8 +444,8 @@ Return STRICT JSON matching this TypeScript type:
   "magsafe": boolean,     // see the MagSafe steps above — default false
   "magsafeConfidence": string, // "high" | "low" | "none"
   "magsafeEvidence": string,   // "magnet_ring_visible" | "magsafe_text_visible" | "magsafe_accessory_attached" | "none"
-  "colors": string[],     // 1-3 of: pink, purple, blue, red, black, white, clear, yellow, green, orange, brown, beige, grey, gold, silver, multicolor. Dominant colours you can SEE on the case, not the character's typical colours. "navy" → "blue". Clear/transparent cases include "clear".
-  "motifs": string[],     // 1-3 of: puppy, bunny, cat, bear, animals, clouds, stars, florals, bows, hearts, fruit, food, dolls, patterns. What is DEPICTED on the case. A licensed character is NOT a motif — Hello Kitty is not "cat", Cinnamoroll is not "clouds", Miffy is not "bunny". Empty is honest.
+  "colors": string[],     // 1-2 of: pink, purple, blue, red, black, white, clear, yellow, green, orange, brown, beige, grey, gold, silver, multicolor. Dominant colour of the CASE PRINT you can SEE, not the charm strap, not the phone, not the white photo backdrop, not the character's typical colours. "navy" → "blue". Do NOT list clear/white/grey unless that is the print itself (a white bow, a grey frame). Empty is honest.
+  "motifs": string[],     // 1-3 of: puppy, bunny, cat, bear, animals, clouds, stars, florals, bows, hearts, fruit, food, dolls, patterns. What is DEPICTED on the case. A licensed character is NOT a motif — Hello Kitty is not "cat", Cinnamoroll is not "clouds", Miffy is not "bunny", Rilakkuma is not "bear". Ignore strap charms. Empty is honest.
   "suggestedPriceUsd": number, // realistic USD retail price for this item
   "altText": string,      // <= 120 chars, plain accessibility description of the main image
   "materials": string     // e.g. "soft TPU", "hard polycarbonate", "silicone" — infer from photo if possible
@@ -490,8 +499,8 @@ const REPAIR_TEMPERATURE = 0.2;
  *
  * `detail` matters more than it looks: "low" downsamples to 512px, which is
  * plenty for "what character is this / is a hand holding it", but destroys a
- * magnet ring seen through a clear case. Fine-grained evidence must be asked
- * for at "high".
+ * magnet ring seen through a clear case, and a 8mm AirPods charm ring. Fine-
+ * grained evidence must be asked for at "high".
  */
 function imagePart(url: string, detail: "low" | "high" = "low") {
   return { type: "image_url" as const, image_url: { url, detail } };
@@ -1292,26 +1301,6 @@ export async function verifyMagSafe(
 // Per-image classifiers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STYLE_CLASSIFY_PROMPT = `You classify product photos for a phone-case store. Respond in English only.
-For EACH image (identified by filename key), name the ONE configuration it shows.
-
-Valid style values (use EXACT strings):
-- "Case + Grip + Charm"
-- "Case + Grip"
-- "Case + Charm"
-- "Case Only"
-- "Grip Only"
-- "Charm Only"
-
-Rules:
-- Exactly one value per image: the configuration physically present in the photo, counting every accessory visible. A case shown with BOTH a grip and a charm is "Case + Grip + Charm", never "Case + Grip".
-- Phone case with no grip or charm → "Case Only".
-- A pop grip / stand on its own → "Grip Only". Charms or straps on their own → "Charm Only".
-- If no configuration is identifiable — packaging, a texture close-up, a lifestyle shot with the product obscured — return null. Do not guess.
-
-Return STRICT JSON: { "filename_without_ext": "Style" | null, ... }
-Keys must match the filename labels provided. No markdown.`;
-
 /**
  * filename → the single style the photo depicts, as the array shape stored in
  * `product_images.style_tags`. Empty means universal / unidentifiable.
@@ -1319,66 +1308,127 @@ Keys must match the filename labels provided. No markdown.`;
 export type ImageStyleClassification = Record<string, Style[]>;
 
 /**
+ * One vision request for a style-tag batch.
+ *
+ * Each image is immediately preceded by its `img_N` label. Dumping six
+ * unlabeled photos then a filename list is how models mix up which charm
+ * belongs to which frame — and why AirPods galleries came back universal.
+ */
+function styleClassifyUserContent(batch: { label: string; imageUrl: string }[]) {
+  const labels = batch.map((item) => item.label).join(", ");
+  const content: Array<
+    | { type: "text"; text: string }
+    | ReturnType<typeof imagePart>
+  > = [
+    {
+      type: "text",
+      text:
+        `Classify ${batch.length} image${batch.length === 1 ? "" : "s"}. ` +
+        `Return JSON keyed by these labels exactly: ${labels}.`,
+    },
+  ];
+  for (const item of batch) {
+    content.push({ type: "text", text: `${item.label}:` });
+    // High detail: charm rings, bead straps and pop grips are small relative
+    // to the case. Low (512px) is what left AirPods photos untagged — the
+    // accessory disappeared into the downsample.
+    content.push(imagePart(item.imageUrl, "high"));
+  }
+  return content;
+}
+
+async function parseStyleClassifyBatch(
+  client: OpenAI,
+  model: string,
+  prompt: string,
+  batch: { label: string; imageUrl: string }[],
+): Promise<Record<string, unknown>> {
+  try {
+    const raw = await visionJsonCompletion(
+      client,
+      model,
+      [
+        { role: "system", content: prompt },
+        { role: "user", content: styleClassifyUserContent(batch) },
+      ],
+      0.2,
+    );
+    return parseJsonObject(raw) ?? {};
+  } catch {
+    // Style tags are a nice-to-have — a failed batch leaves those images
+    // untagged rather than failing the whole product.
+    return {};
+  }
+}
+
+function missingStyleKeys<T extends { label: string; callerKey: string }>(
+  parsed: Record<string, unknown>,
+  batch: T[],
+): T[] {
+  return batch.filter(
+    (item) => classifiedRawFor(parsed, item.label, item.callerKey) === undefined,
+  );
+}
+
+/**
  * Classify which Style option each product photo depicts.
  *
  * A photo shows one physical configuration, so the result carries at most one
- * style per image — see "Per-image style tagging" in `@/lib/pricing`.
+ * style per image — see "Per-image style tagging" in `@/lib/pricing`. Pass
+ * {@link StyleClassifyContext} so AirPods listings are scored against the
+ * charm trio (never grip) with an AirPods visual rubric.
+ *
+ * Internally each photo is labelled `img_1`…`img_n` so the JSON keys cannot
+ * collide with UUID filenames. The returned map is still keyed by the caller
+ * filename.
  *
  * @param items  filename (no ext) + image as base64 data URL or https URL
  */
 export async function classifyImageStyles(
   items: { filename: string; imageUrl: string }[],
+  context: StyleClassifyContext = {},
 ): Promise<ImageStyleClassification> {
   if (items.length === 0) return {};
 
+  const offered = resolvedOfferedStyles(context.productType, context.offeredStyles);
+  const prompt = buildStyleClassifyPrompt({
+    productType: context.productType,
+    offeredStyles: offered,
+  });
   const { client, model } = visionClient();
   const result: ImageStyleClassification = {};
 
-  // Batch to stay within vision limits and cost.
-  const BATCH = 6;
+  // Four high-detail images keeps the charm ring readable without mixing
+  // a whole gallery into one completion.
+  const BATCH = 4;
   for (let i = 0; i < items.length; i += BATCH) {
-    const batch = items.slice(i, i + BATCH);
-    const fileList = batch.map((b) => b.filename).join(", ");
+    const slice = items.slice(i, i + BATCH);
+    const batch = slice.map((item, index) => ({
+      callerKey: item.filename,
+      label: styleClassifyLabel(index),
+      imageUrl: item.imageUrl,
+    }));
+    let parsed = await parseStyleClassifyBatch(client, model, prompt, batch);
+    const missed = missingStyleKeys(parsed, batch);
 
-    // Style tags are a nice-to-have, not essential — a failed batch (network or
-    // unparseable output) just leaves those images untagged rather than failing
-    // the whole product.
-    let parsed: Record<string, unknown> = {};
-    try {
-      const raw = await visionJsonCompletion(
-        client,
-        model,
-        [
-          { role: "system", content: STYLE_CLASSIFY_PROMPT },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Classify these images. Filenames: ${fileList}. Return JSON keyed by each filename.`,
-              },
-              ...batch.map((item) => imagePart(item.imageUrl)),
-            ],
-          },
-        ],
-        0.2,
-      );
-      parsed = parseJsonObject(raw) ?? {};
-    } catch {
-      parsed = {};
+    // Key mismatch or an empty parse: retry the gaps as single-image
+    // completions labelled img_1 (the prompt's example key) so a confused
+    // batch cannot blank a whole product.
+    for (const item of missed) {
+      const one = await parseStyleClassifyBatch(client, model, prompt, [
+        { ...item, label: styleClassifyLabel(0) },
+      ]);
+      parsed = {
+        ...parsed,
+        [item.label]: classifiedRawFor(one, styleClassifyLabel(0), item.callerKey),
+      };
     }
 
     for (const item of batch) {
-      const raw = parsed[item.filename];
-      // Accept a bare string (what the prompt asks for) or an array (what
-      // models occasionally return anyway). Normalization validates the values
-      // and, if several came back, keeps the most complete one.
-      const candidates = Array.isArray(raw)
-        ? raw.filter((t): t is string => typeof t === "string")
-        : typeof raw === "string"
-          ? [raw]
-          : [];
-      result[item.filename] = normalizeImageStyleTags(candidates);
+      result[item.callerKey] = coerceClassifiedStyle(
+        classifiedRawFor(parsed, item.label, item.callerKey),
+        offered,
+      );
     }
   }
 

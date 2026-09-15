@@ -16,14 +16,12 @@ import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
 import { collections, products, productCollections } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
-import {
-  MODEL_OPTION_NAME,
-  STYLE_OPTION_NAME,
-  getProductEntryPrice,
-  orderModels,
-  orderStyles,
-} from "@/lib/pricing";
+import { getProductEntryPrice } from "@/lib/pricing";
 import { productTypeLabel } from "@/lib/catalog/product-types";
+import {
+  offeredCompatibilityValues,
+  offeredPriceValues,
+} from "@/lib/catalog/offered-options";
 import { MAGSAFE_TAG } from "@/lib/catalog/magsafe";
 import { deviceProductTypes } from "@/lib/catalog/devices";
 import {
@@ -38,6 +36,7 @@ import {
 } from "@/lib/catalog/motifs";
 import { resolveCollectionFilterIds } from "@/lib/collections";
 import { getReviewSummaries } from "@/lib/reviews";
+import { canonicalizePublicR2Url } from "@/lib/catalog/r2-public";
 
 /**
  * The "from" price shown on listing cards / rails.
@@ -856,6 +855,9 @@ export type StorefrontProduct = Omit<ProductWithRelations, "variants">;
 async function computeProductBySlug(
   slug: string,
 ): Promise<StorefrontProduct | null> {
+  // Active-only on purpose. Drafts are inspected via the admin preview
+  // (`unpublishedProductPageHref`) so unpublished HTML can never land in this
+  // ISR-cached public route.
   const product = await db.query.products.findFirst({
     where: and(eq(products.slug, slug), eq(products.status, "active")),
     with: {
@@ -992,9 +994,9 @@ async function computeCatalogFeedItems(): Promise<CatalogFeedItem[]> {
 
 /**
  * A flattened, dashboard-ready view of every product for the admin console.
- * Surfaces the current media count, offered styles and offered iPhone models
- * so the operator can see — and bulk-edit — the catalog's variation state at a
- * glance, without opening each product individually.
+ * Surfaces the current media count, offered styles and offered device-fit
+ * values so the operator can see — and bulk-edit — the catalog's variation
+ * state at a glance, without opening each product individually.
  */
 export type AdminProductOverview = {
   id: number;
@@ -1010,9 +1012,12 @@ export type AdminProductOverview = {
   imageUrl: string | null;
   imageCount: number;
   hasVideo: boolean;
-  /** Offered Style values in canonical (price) order. */
+  /** Offered price-axis values in canonical order (Style for iPhone cases). */
   availableStyles: string[];
-  /** Offered iPhone Model values in canonical (release) order. */
+  /**
+   * Offered compatibility-axis values in canonical order (iPhone Model,
+   * AirPods Model, Watch Size, …). Empty when the type has no fit axis.
+   */
   availableModels: string[];
   /** Collection ids this product is assigned to (for facet filtering). */
   collectionIds: number[];
@@ -1049,8 +1054,6 @@ export async function getAdminProductOverviews(): Promise<
   });
 
   const overviews = rows.map((p): AdminProductOverview => {
-    const styleOpt = p.options.find((o) => o.name === STYLE_OPTION_NAME);
-    const modelOpt = p.options.find((o) => o.name === MODEL_OPTION_NAME);
     return {
       id: p.id,
       slug: p.slug,
@@ -1061,11 +1064,13 @@ export async function getAdminProductOverviews(): Promise<
       price: p.price,
       productType: p.productType,
       productTypeLabel: productTypeLabel(p.productType),
-      imageUrl: p.images[0]?.url ?? null,
+      imageUrl: p.images[0]?.url
+        ? canonicalizePublicR2Url(p.images[0].url)
+        : null,
       imageCount: p.images.length,
       hasVideo: Boolean(p.videoUrl),
-      availableStyles: orderStyles(styleOpt?.values ?? []),
-      availableModels: orderModels(modelOpt?.values ?? []),
+      availableStyles: offeredPriceValues(p.productType, p.options),
+      availableModels: offeredCompatibilityValues(p.productType, p.options),
       collectionIds: p.collections.map((c) => c.collectionId),
       motifs: (p.motifs ?? []).filter(isMotifFamilySlug),
       isMagsafe: (p.tags ?? []).includes(MAGSAFE_TAG),
@@ -1116,7 +1121,9 @@ export async function getBestsellers(): Promise<BestsellerItem[]> {
     title: p.title,
     slug: p.slug,
     status: p.status,
-    imageUrl: p.images[0]?.url ?? null,
+    imageUrl: p.images[0]?.url
+      ? canonicalizePublicR2Url(p.images[0].url)
+      : null,
     featuredPosition: p.featuredPosition,
   }));
 }
@@ -1150,7 +1157,9 @@ export async function getFeaturableProducts(
     title: p.title,
     slug: p.slug,
     status: p.status,
-    imageUrl: p.images[0]?.url ?? null,
+    imageUrl: p.images[0]?.url
+      ? canonicalizePublicR2Url(p.images[0].url)
+      : null,
     featuredPosition: p.featuredPosition,
   }));
 }
@@ -1185,6 +1194,8 @@ function toListItem(p: {
     currency: p.currency,
     tags: p.tags,
     featured: p.featured,
-    imageUrl: p.images[0]?.url ?? null,
+    imageUrl: p.images[0]?.url
+      ? canonicalizePublicR2Url(p.images[0].url)
+      : null,
   };
 }

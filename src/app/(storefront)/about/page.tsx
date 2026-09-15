@@ -13,6 +13,10 @@ import { PAGE_COPY } from "@/lib/seo/copy";
 import { SHIPPING_COUNTRIES, SHIPPING_MARKETS_SUMMARY } from "@/lib/shipping";
 import { ROUTES } from "@/lib/routes";
 import { IPHONE_FIT } from "@/lib/pricing";
+import {
+  AIRPODS_4_5,
+  AIRPODS_SHARED_FIT_NOTE,
+} from "@/lib/catalog/airpods";
 
 const PATH = "/about";
 const CRUMBS = [
@@ -102,6 +106,14 @@ export default function AboutPage() {
           The exact model is an option on the product page — that is the same
           list published on{" "}
           <Link href="/devices/iphone">iPhone cases</Link>.
+        </p>
+
+        <h2>AirPods fit</h2>
+        <p>
+          AirPods cases are a separate product from iPhone cases.{" "}
+          {AIRPODS_SHARED_FIT_NOTE} That mould is listed as {AIRPODS_4_5}.
+          AirPods Pro, AirPods 3 and AirPods 1 / 2 are different shells —
+          pick the model you own on the product page.
         </p>
 
         <h2>Returns and shipping</h2>

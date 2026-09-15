@@ -39,8 +39,22 @@ export async function extractColorsFromImage(
 
   const pixels: { r: number; g: number; b: number }[] = [];
   const channels = info.channels;
-  for (let i = 0; i < data.length; i += channels) {
-    pixels.push({ r: data[i]!, g: data[i + 1]!, b: data[i + 2]! });
+  const width = info.width;
+  const height = info.height;
+  const cx = (width - 1) / 2;
+  const cy = (height - 1) / 2;
+  const maxDist = Math.hypot(cx, cy) || 1;
+  // Normalized thumbnails put the case in the middle and the hanging charm
+  // strap / white sweep in the corners. Edge pixels are how Grey and Silver
+  // used to land on every clear shell.
+  const EDGE = 0.72;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const dist = Math.hypot(x - cx, y - cy) / maxDist;
+      if (dist > EDGE) continue;
+      const i = (y * width + x) * channels;
+      pixels.push({ r: data[i]!, g: data[i + 1]!, b: data[i + 2]! });
+    }
   }
   return classifyColorsFromPixels(pixels);
 }

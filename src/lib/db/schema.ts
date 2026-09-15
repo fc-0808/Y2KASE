@@ -72,6 +72,13 @@ export const accounts = pgTable(
   "account",
   {
     id: text("id").primaryKey(),
+    /**
+     * Better Auth 1.7 names every credential with a synthetic issuer
+     * (`local:credential`, `local:oauth:google`, …). Sign-in looks up
+     * email/password rows by this field — omitting it makes every login
+     * fail as "Invalid email or password" even when the hash is right.
+     */
+    issuer: text("issuer").notNull(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
     userId: text("user_id")
@@ -95,7 +102,10 @@ export const accounts = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("account_user_idx").on(t.userId)],
+  (t) => [
+    index("account_user_idx").on(t.userId),
+    uniqueIndex("account_issuer_account_id_idx").on(t.issuer, t.accountId),
+  ],
 );
 
 export const verifications = pgTable("verification", {

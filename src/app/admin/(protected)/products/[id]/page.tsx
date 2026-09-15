@@ -4,7 +4,10 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { getProductForAdmin } from "@/lib/products";
 import { isDbConfigured } from "@/lib/db";
-import { STYLE_OPTION_NAME } from "@/lib/pricing";
+import {
+  offeredCompatibilityValues,
+  offeredPriceValues,
+} from "@/lib/catalog/offered-options";
 import { listBrandOptions, resolveBrandAssignment } from "@/lib/catalog/brands";
 import { currentCollectionSlugs } from "@/lib/catalog/collection-filing";
 import { loadProductTitleState } from "@/lib/catalog/listing-title-service";
@@ -15,6 +18,8 @@ import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 
 export const metadata: Metadata = { title: "Admin · Edit product" };
 export const dynamic = "force-dynamic";
+/** Vision style detection reads every photo; 14 high-detail images can take a minute. */
+export const maxDuration = 180;
 
 export default async function AdminProductEditPage({
   params,
@@ -33,7 +38,6 @@ export default async function AdminProductEditPage({
   ]);
   if (!product) notFound();
 
-  const styleOption = product.options.find((o) => o.name === STYLE_OPTION_NAME);
   const brand = resolveStoredBrand(
     product.brandName,
     product.characterName,
@@ -56,7 +60,8 @@ export default async function AdminProductEditPage({
         titleIssues={titleState?.issues ?? []}
         slug={product.slug}
         status={product.status}
-        isIphoneCase={product.productType === "iphone_case"}
+        productType={product.productType}
+        currency={product.currency}
         videoUrl={product.videoUrl}
         videoPosition={product.videoPosition}
         brand={brand}
@@ -68,7 +73,14 @@ export default async function AdminProductEditPage({
           filename: i.sourceFilename,
           styleTags: i.styleTags ?? [],
         }))}
-        availableStyles={styleOption?.values ?? []}
+        availableStyles={offeredPriceValues(
+          product.productType,
+          product.options,
+        )}
+        availableModels={offeredCompatibilityValues(
+          product.productType,
+          product.options,
+        )}
         colors={(product.colors ?? []).filter(isColorFamilySlug)}
         colorsLocked={product.colorsLocked}
         motifs={(product.motifs ?? []).filter(isMotifFamilySlug)}

@@ -12,6 +12,8 @@ import { ProductsConsole } from "./ProductsConsole";
 
 export const metadata: Metadata = { title: "Admin · Products" };
 export const dynamic = "force-dynamic";
+/** Bulk "Detect styles" reads every photo on the active listing. */
+export const maxDuration = 180;
 
 export default async function AdminProductsPage({
   searchParams,

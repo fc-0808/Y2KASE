@@ -4,11 +4,12 @@
  *   npm run backfill:colors             # preview
  *   npm run backfill:colors:apply       # write
  *
- * Classifies from listing text (title, description, tags, folder, materials)
- * plus a Sharp histogram of the hero thumbnail. Operator-locked rows are
- * never touched. Default writes only empty `colors`; `--force` overwrites
- * unlocked rows that already have a classification (use after improving
- * the recogniser).
+ * Classifies from listing text (title and source folder) plus a Sharp
+ * histogram of the hero thumbnail. Observed photo hues cannot overwrite a
+ * colour the title already named, and cannot dump Grey/Clear/Silver from the
+ * canvas or charm strap. Operator-locked rows are never touched. Default
+ * writes only empty `colors`; `--force` overwrites unlocked rows that already
+ * have a classification (use after improving the recogniser).
  *
  * Preview is the default — see scripts/lib/cli.ts.
  */
@@ -38,9 +39,6 @@ async function main() {
     columns: {
       id: true,
       title: true,
-      description: true,
-      tags: true,
-      materials: true,
       sourceFolder: true,
       colors: true,
       colorsLocked: true,
@@ -69,6 +67,7 @@ async function main() {
 
   let filled = 0;
   let empty = 0;
+  let cleared = 0;
   let unchanged = 0;
   let failed = 0;
 
@@ -76,9 +75,6 @@ async function main() {
     try {
       const text = classifyProductColors({
         title: row.title,
-        description: row.description,
-        tags: row.tags,
-        materials: row.materials,
         sourceFolder: row.sourceFolder,
       });
       const pixels = row.images[0]?.url
@@ -94,16 +90,22 @@ async function main() {
         unchanged += 1;
         return;
       }
-      if (colors.length === 0) {
+      if (colors.length === 0 && previous.length === 0) {
         empty += 1;
         console.log(`  · #${row.id} ${row.title.slice(0, 72)} — no signal`);
         return;
       }
-
-      filled += 1;
-      console.log(
-        `  ${mode.verb("updated", "would update")} #${row.id} ${row.title.slice(0, 56)} → ${colors.join(", ")}`,
-      );
+      if (colors.length === 0) {
+        cleared += 1;
+        console.log(
+          `  ${mode.verb("cleared", "would clear")} #${row.id} ${row.title.slice(0, 56)}`,
+        );
+      } else {
+        filled += 1;
+        console.log(
+          `  ${mode.verb("updated", "would update")} #${row.id} ${row.title.slice(0, 56)} → ${colors.join(", ")}`,
+        );
+      }
       if (!mode.apply) return;
       await db
         .update(products)
@@ -118,7 +120,7 @@ async function main() {
   });
 
   console.log(
-    `\n${mode.verb("Wrote", "Would write")} ${filled}. Unchanged ${unchanged}. No signal ${empty}. Failed ${failed}.`,
+    `\n${mode.verb("Wrote", "Would write")} ${filled}. Cleared ${cleared}. Unchanged ${unchanged}. No signal ${empty}. Failed ${failed}.`,
   );
 }
 

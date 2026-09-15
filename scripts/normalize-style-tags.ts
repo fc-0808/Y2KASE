@@ -24,12 +24,11 @@ config({ path: ".env.local" });
 import { eq } from "drizzle-orm";
 import { db } from "../src/lib/db";
 import { productImages } from "../src/lib/db/schema";
+import { imageStyleTagsAreCanonical, normalizeImageStyleTags } from "../src/lib/pricing";
 import {
-  STYLE_OPTION_NAME,
-  orderStyles,
-  normalizeImageStyleTags,
-  imageStyleTagsAreCanonical,
-} from "../src/lib/pricing";
+  hasPriceAxis,
+  offeredPriceValues,
+} from "../src/lib/catalog/offered-options";
 import { resolveRunMode } from "./lib/cli";
 
 /** How a photo's tags read once collapsed, for the preview log. */
@@ -58,18 +57,12 @@ async function main() {
   let dangling = 0;
 
   for (const product of all) {
-    // Non-cases have no Style axis, so any tag on their photos is stale.
-    const offered =
-      product.productType === "iphone_case"
-        ? orderStyles(
-            product.options.find((o) => o.name === STYLE_OPTION_NAME)?.values ??
-              [],
-          )
-        : [];
-    const styles = offered.length > 0 ? offered : ["Case Only"];
+    const offered = hasPriceAxis(product.productType)
+      ? offeredPriceValues(product.productType, product.options)
+      : [];
 
     const stale = product.images.filter(
-      (img) => !imageStyleTagsAreCanonical(img.styleTags, styles),
+      (img) => !imageStyleTagsAreCanonical(img.styleTags, offered),
     );
     if (stale.length === 0) continue;
 
@@ -78,7 +71,7 @@ async function main() {
 
     for (const img of stale) {
       const before = img.styleTags ?? [];
-      const after = normalizeImageStyleTags(before, styles);
+      const after = normalizeImageStyleTags(before, offered);
       if (before.length > 1) multiTagged += 1;
       else dangling += 1;
       imagesChanged += 1;

@@ -24,16 +24,26 @@ are governed by Hong Kong law.
 
 ## What we sell
 
-Every product page has two choices:
+iPhone case product pages have two choices:
 
 1. **iPhone Model** — a free choice that does not change the price.
 2. **Style** — this is what sets the price.
 
-Supported models: iPhone 14 / 13, 14 Pro, 14 Pro Max, 15, 15 Pro, 15 Pro Max,
+Supported iPhone models: iPhone 14 / 13, 14 Pro, 14 Pro Max, 15, 15 Pro, 15 Pro Max,
 16, 16 Pro, 16 Pro Max, 17, 17 Pro, 17 Pro Max, 18 Pro and 18 Pro Max. The 18
 lineup is Pro and Pro Max only — there is no standard iPhone 18 cut. An
 individual design may be molded for only some of these; the product page lists
 exactly which models it offers.
+
+AirPods case product pages have one choice: **AirPods Model** — a free choice
+that does not change the price. Supported fits: AirPods Pro 3, AirPods Pro 2,
+AirPods 4 / 5, AirPods 3, and AirPods 1 / 2. AirPods 4 and
+AirPods 5 have the same dimensions, so they share one case (shown as
+"AirPods 4 / 5"). Do not tell a shopper they need a different case for
+AirPods 5 if the listing already offers AirPods 4 / 5. Pro, 3 and 1 / 2
+are different shells. We do not currently sell an AirPods Max case. An
+individual design may offer only some of these; the product page is
+authoritative.
 
 Styles, most to least complete:
 

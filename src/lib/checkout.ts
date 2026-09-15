@@ -10,11 +10,13 @@
 import { inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
+import { shippingQuote } from "@/lib/pricing";
+import { getProductType, priceAxisFor } from "@/lib/catalog/product-types";
 import {
-  STYLE_OPTION_NAME,
-  getStylePrice,
-  shippingQuote,
-} from "@/lib/pricing";
+  AIRPODS_MODEL_OPTION_NAME,
+  extendAirpodsSharedFits,
+} from "@/lib/catalog/airpods";
+import { canonicalizePublicR2Url } from "@/lib/catalog/r2-public";
 
 /** What the browser is allowed to send us — note: NO price. */
 export type CheckoutLineInput = {
@@ -128,6 +130,13 @@ export async function priceCart(
 
     const offeredOptions = new Map(
       product.options
+        .map((option) => {
+          const values =
+            option.name === AIRPODS_MODEL_OPTION_NAME
+              ? extendAirpodsSharedFits(option.values)
+              : option.values;
+          return { name: option.name, values };
+        })
         .filter((option) => option.values.length > 0)
         .map((option) => [option.name, new Set(option.values)]),
     );
@@ -145,18 +154,20 @@ export async function priceCart(
     }
 
     const currency = product.currency ?? "USD";
-    // Price source of truth: iPhone cases are priced by Style; everything else
-    // uses the stored base price. Mirrors ProductDetailClient exactly.
-    const unit =
-      product.productType === "iphone_case"
-        ? getStylePrice(c.options[STYLE_OPTION_NAME], currency)
-        : Number(product.price);
+    // Price source of truth: the product type's own table. iPhone and AirPods
+    // are priced by Style; flat types use the stored base price.
+    const type = getProductType(product.productType);
+    const unit = priceAxisFor(product.productType)
+      ? type.getPriceFromOptions(c.options, currency)
+      : Number(product.price);
 
     return {
       productId: product.id,
       slug: product.slug,
       title: product.title,
-      imageUrl: product.images?.[0]?.url ?? null,
+      imageUrl: product.images?.[0]?.url
+        ? canonicalizePublicR2Url(product.images[0].url)
+        : null,
       options: c.options,
       quantity: c.quantity,
       unitCents: toCents(unit),

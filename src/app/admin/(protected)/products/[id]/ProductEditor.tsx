@@ -11,25 +11,41 @@ import {
   Check,
   ExternalLink,
   ArrowDownAZ,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import {
   STYLES,
+  AIRPODS_STYLES,
   stylesForAddons,
   addonsFromStyles,
   orderStyles,
   normalizeImageStyleTags,
 } from "@/lib/pricing";
-import { compareFilenamesNatural } from "@/lib/utils";
+import { compareFilenamesNatural, formatPrice } from "@/lib/utils";
 import type { BrandOption } from "@/lib/catalog/brands";
 import type { TitleIssue } from "@/lib/catalog/listing-title";
 import { StyleTagPicker, StyleCoverageHint } from "../StyleTagPicker";
+import { DeviceFitPicker } from "../DeviceFitPicker";
 import { BrandReassignmentCard, type BrandState } from "./BrandReassignmentCard";
 import { ColorEditorCard } from "./ColorEditorCard";
 import { MotifEditorCard } from "./MotifEditorCard";
 import { ListingTitleEditor } from "./ListingTitleEditor";
-import { saveProduct, type SaveProductPayload } from "./actions";
+import { saveProduct, detectProductImageStyles, type SaveProductPayload } from "./actions";
 import type { ColorFamilySlug } from "@/lib/catalog/colors";
 import type { MotifFamilySlug } from "@/lib/catalog/motifs";
+import { compatibilityAxisFor } from "@/lib/catalog/product-types";
+import {
+  hasCompatibilityAxis,
+  hasPriceAxis,
+  normalizeOfferedCompatibility,
+  priceForOfferedStyle,
+} from "@/lib/catalog/offered-options";
+import {
+  PRODUCT_PAGE_LINK_ATTRS,
+  isLiveProductStatus,
+  productPageHref,
+} from "@/lib/catalog/product-page";
 
 type ImageInput = {
   id: number;
@@ -54,7 +70,8 @@ export function ProductEditor({
   titleIssues,
   slug,
   status,
-  isIphoneCase,
+  productType,
+  currency,
   videoUrl,
   videoPosition,
   brand,
@@ -62,6 +79,7 @@ export function ProductEditor({
   filedIn,
   images,
   availableStyles: initialStyles,
+  availableModels: initialModels,
   colors,
   colorsLocked,
   motifs,
@@ -73,7 +91,8 @@ export function ProductEditor({
   titleIssues: TitleIssue[];
   slug: string;
   status: string;
-  isIphoneCase: boolean;
+  productType: string;
+  currency: string;
   videoUrl: string | null;
   videoPosition: number | null;
   brand: BrandState;
@@ -81,20 +100,37 @@ export function ProductEditor({
   filedIn: string[];
   images: ImageInput[];
   availableStyles: string[];
+  availableModels: string[];
   colors: ColorFamilySlug[];
   colorsLocked: boolean;
   motifs: MotifFamilySlug[];
   motifsLocked: boolean;
 }) {
+  const isIphoneCase = productType === "iphone_case";
+  const isAirpodsCase = productType === "airpod_case";
+  const showStyles = hasPriceAxis(productType);
+  const fitAxis = compatibilityAxisFor(productType);
+  const showFit =
+    hasCompatibilityAxis(productType) && productType !== "iphone_case";
   // ── Available styles: stored as a set, edited via grip/charm toggles ───────
   // Declared first because the offered set decides which per-image tags below
   // are still valid.
-  const [styles, setStyles] = useState<string[]>(() =>
-    orderStyles(initialStyles.length ? initialStyles : ["Case Only"]),
+  const [styles, setStyles] = useState<string[]>(() => {
+    if (isIphoneCase) {
+      return orderStyles(initialStyles.length ? initialStyles : ["Case Only"]);
+    }
+    if (isAirpodsCase) {
+      return orderStyles(
+        initialStyles.length ? initialStyles : [...AIRPODS_STYLES],
+      );
+    }
+    return [];
+  });
+  const [models, setModels] = useState<string[]>(() =>
+    normalizeOfferedCompatibility(productType, initialModels),
   );
   const addons = useMemo(() => addonsFromStyles(styles), [styles]);
-  // Only phone cases have a Style axis; everything else is media-order only.
-  const tagStyles = isIphoneCase ? styles : [];
+  const tagStyles = showStyles ? styles : [];
 
   // ── Media list: images in saved order with the video spliced into its slot ──
   const [media, setMedia] = useState<MediaItem[]>(() => {
@@ -118,6 +154,11 @@ export function ProductEditor({
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(
     null,
   );
+  const [detecting, setDetecting] = useState(false);
+  const [detectMessage, setDetectMessage] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
 
   // ── Reordering ─────────────────────────────────────────────────────────────
   function move(from: number, to: number) {
@@ -158,6 +199,34 @@ export function ProductEditor({
         m.kind === "image" && m.id === imageId ? { ...m, styleTags } : m,
       ),
     );
+  }
+
+  async function detectStyles() {
+    setDetecting(true);
+    setDetectMessage(null);
+    try {
+      const res = await detectProductImageStyles(productId);
+      setDetectMessage({ ok: res.ok, message: res.message });
+      if (!res.ok) return;
+      setMedia((prev) =>
+        prev.map((m) => {
+          if (m.kind !== "image") return m;
+          const tags = res.tags[m.id];
+          if (!tags) return m;
+          return {
+            ...m,
+            styleTags: normalizeImageStyleTags(tags, styles),
+          };
+        }),
+      );
+    } catch (err) {
+      setDetectMessage({
+        ok: false,
+        message: err instanceof Error ? err.message : "Detection failed.",
+      });
+    } finally {
+      setDetecting(false);
+    }
   }
 
   /**
@@ -212,6 +281,7 @@ export function ProductEditor({
       videoSlot,
       styleTags,
       availableStyles: styles,
+      ...(showFit ? { availableModels: models } : {}),
     };
 
     startTransition(async () => {
@@ -234,25 +304,51 @@ export function ProductEditor({
               Drag to reorder. The first image is the listing thumbnail. Assign
               each photo to the one style it shows.
             </p>
-            {tagStyles.length > 0 && (
-              <StyleCoverageHint
-                styles={tagStyles}
-                tagsByImage={media
-                  .filter(
-                    (m): m is Extract<MediaItem, { kind: "image" }> =>
-                      m.kind === "image",
-                  )
-                  .map((m) => m.styleTags)}
-              />
-            )}
-          </div>
+          {tagStyles.length > 0 && (
+            <StyleCoverageHint
+              styles={tagStyles}
+              tagsByImage={media
+                .filter(
+                  (m): m is Extract<MediaItem, { kind: "image" }> =>
+                    m.kind === "image",
+                )
+                .map((m) => m.styleTags)}
+            />
+          )}
+          {detectMessage && (
+            <p
+              className={`mt-1 text-[11px] font-semibold ${
+                detectMessage.ok ? "text-green-600" : "text-red-500"
+              }`}
+            >
+              {detectMessage.message}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row">
+          {tagStyles.length > 0 && (
+            <button
+              onClick={detectStyles}
+              type="button"
+              disabled={detecting || pending}
+              className="flex items-center justify-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)] disabled:opacity-50"
+            >
+              {detecting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {detecting ? "Detecting…" : "Detect styles"}
+            </button>
+          )}
           <button
             onClick={sortImagesByFilename}
             type="button"
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)]"
+            className="flex items-center justify-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-sm font-semibold hover:border-[var(--primary)]"
           >
             <ArrowDownAZ className="h-4 w-4" /> Sort by filename
           </button>
+        </div>
         </div>
 
         <ul className="space-y-2">
@@ -372,11 +468,16 @@ export function ProductEditor({
             {videoUrl ? " · 1 video" : ""}
           </p>
           <Link
-            href={`/products/${slug}`}
-            target="_blank"
+            href={productPageHref({
+              productId,
+              slug,
+              productStatus: status,
+            })}
+            {...PRODUCT_PAGE_LINK_ATTRS}
             className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-[var(--primary)] hover:underline"
           >
-            View on store <ExternalLink className="h-3.5 w-3.5" />
+            {isLiveProductStatus(status) ? "View on store" : "Preview product page"}{" "}
+            <ExternalLink className="h-3.5 w-3.5" />
           </Link>
         </div>
 
@@ -399,24 +500,34 @@ export function ProductEditor({
           locked={motifsLocked}
         />
 
-        {isIphoneCase && (
+        {showStyles && (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
             <h2 className="text-sm font-bold">Style variations</h2>
             <p className="mt-1 text-xs text-[var(--foreground)]/60">
-              Pick which add-ons this product ships with. The available styles
-              update automatically.
+              {isAirpodsCase
+                ? "AirPods cases ship Case Only, Case + Charm and Charm Only (no grip). Prices match the phone-case Style table."
+                : "Pick which add-ons this product ships with. The available styles update automatically."}
             </p>
 
             <div className="mt-3 space-y-2">
-              <Toggle
-                label="Includes grip"
-                checked={addons.hasGrip}
-                onChange={(v) => setAddons({ hasGrip: v, hasCharm: addons.hasCharm })}
-              />
+              {isIphoneCase && (
+                <Toggle
+                  label="Includes grip"
+                  checked={addons.hasGrip}
+                  onChange={(v) =>
+                    setAddons({ hasGrip: v, hasCharm: addons.hasCharm })
+                  }
+                />
+              )}
               <Toggle
                 label="Includes charm"
                 checked={addons.hasCharm}
-                onChange={(v) => setAddons({ hasGrip: addons.hasGrip, hasCharm: v })}
+                onChange={(v) =>
+                  setAddons({
+                    hasGrip: isIphoneCase ? addons.hasGrip : false,
+                    hasCharm: v,
+                  })
+                }
               />
             </div>
 
@@ -425,14 +536,22 @@ export function ProductEditor({
                 Offered styles
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {styles.map((s) => (
-                  <span
-                    key={s}
-                    className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[11px] font-semibold"
-                  >
-                    {s}
-                  </span>
-                ))}
+                {styles.map((s) => {
+                  const price = priceForOfferedStyle(productType, s, currency);
+                  return (
+                    <span
+                      key={s}
+                      className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[11px] font-semibold"
+                    >
+                      {s}
+                      {price != null && (
+                        <span className="ml-1 tabular-nums text-[var(--foreground)]/55">
+                          {formatPrice(price, currency)}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
             </div>
 
@@ -445,7 +564,7 @@ export function ProductEditor({
             </button>
             {advanced && (
               <div className="mt-2 space-y-1">
-                {STYLES.map((s) => (
+                {(isAirpodsCase ? AIRPODS_STYLES : STYLES).map((s) => (
                   <label
                     key={s}
                     className="flex items-center gap-2 text-sm"
@@ -466,6 +585,23 @@ export function ProductEditor({
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {showFit && fitAxis && (
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+            <h2 className="text-sm font-bold">{fitAxis.name}</h2>
+            <p className="mt-1 text-xs text-[var(--foreground)]/60">
+              Which devices this listing ships for. Shoppers pick one; the
+              price stays the same.
+            </p>
+            <div className="mt-3">
+              <DeviceFitPicker
+                productType={productType}
+                selected={models}
+                onChange={setModels}
+              />
+            </div>
           </div>
         )}
 

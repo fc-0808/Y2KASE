@@ -2,8 +2,12 @@
  * Y2KASE pricing master — single source of truth.
  *
  * Mirrors Y2KASE_Pricing_Master_4_Currencies.xlsx ("True Customer Price" column).
- * Price depends ONLY on the selected Style. The iPhone model is a free choice
- * and does not change the price.
+ * Price depends ONLY on the selected Style. Device fit (iPhone model, AirPods
+ * mould, …) is a free choice and does not change the price.
+ *
+ * iPhone cases and AirPods cases share this table. AirPods simply omit the
+ * grip styles they never ship; Case + Charm, Case Only and Charm Only cost
+ * the same as the matching phone-case style in every currency.
  *
  * If you update the spreadsheet, update PRICE_TABLE here too (or regenerate it).
  */
@@ -87,6 +91,34 @@ export const PRICE_TABLE: Record<string, Record<Style, number>> = {
     "Charm Only": 92.99,
   },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AirPods cases — same Style table, offered subset
+//
+// AirPods never ship a grip, so the picker is always the charm trio. Those
+// three values are keys in PRICE_TABLE; there is no second AirPods ledger.
+// A currency or bundle-discount change on the phone-case row is therefore
+// the AirPods price too.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const AIRPODS_STYLES = [
+  "Case + Charm",
+  "Case Only",
+  "Charm Only",
+] as const;
+
+export type AirpodsStyle = (typeof AIRPODS_STYLES)[number];
+
+const AIRPODS_STYLE_SET: ReadonlySet<string> = new Set(AIRPODS_STYLES);
+
+export function isAirpodsStyle(style: string): style is AirpodsStyle {
+  return AIRPODS_STYLE_SET.has(style);
+}
+
+/** The three styles every newly ingested AirPods case offers. */
+export function defaultAirpodsStyles(): AirpodsStyle[] {
+  return [...AIRPODS_STYLES];
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shipping — single source of truth shared by the client cart and the server
@@ -174,19 +206,45 @@ export function getBasePrice(currency: string): number {
 }
 
 /**
+ * Price for an AirPods style + currency.
+ *
+ * Reads PRICE_TABLE so AirPods Case + Charm / Case Only / Charm Only can
+ * never drift from the matching phone-case row. A grip (or unknown) style is
+ * not an AirPods SKU — it prices as Case Only rather than charging a grip
+ * the listing does not sell.
+ */
+export function getAirpodsStylePrice(
+  style: string | undefined,
+  currency: string,
+): number {
+  return getStylePrice(
+    style && isAirpodsStyle(style) ? style : DEFAULT_STYLE,
+    currency,
+  );
+}
+
+/** Entry ("from") price for an AirPods case — Case Only, same as iPhone. */
+export function getAirpodsBasePrice(currency: string): number {
+  return getBasePrice(currency);
+}
+
+/**
  * Canonical price first shown for a product.
  *
- * iPhone cases are priced from the live Style table, while every other product
- * type uses its stored catalog price. Cards, PDP metadata, JSON-LD and merchant
- * feeds all call this boundary so a crawler can never see a different price
- * from the shopper.
+ * Types with a live Style table (iPhone, AirPods) are priced from that table
+ * so listing cards stay in lock-step with the PDP. Everything else uses its
+ * stored catalog price. Cards, PDP metadata, JSON-LD and merchant feeds all
+ * call this boundary so a crawler can never see a different price from the
+ * shopper.
  */
 export function getProductEntryPrice(
   productType: string,
   storedPrice: string | number,
   currency: string,
 ): number {
-  if (productType === "iphone_case") return getBasePrice(currency);
+  if (productType === "iphone_case" || productType === "airpod_case") {
+    return getBasePrice(currency);
+  }
 
   const parsed = Number(storedPrice);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
@@ -559,5 +617,21 @@ if (process.env.NODE_ENV !== "production") {
     throw new Error(
       `IPHONE_GENERATIONS is out of sync with IPHONE_MODELS (missing: ${missing.join(", ")})`,
     );
+  }
+  const styleSet = new Set<string>(STYLES);
+  const missingAirpods = AIRPODS_STYLES.filter((s) => !styleSet.has(s));
+  if (missingAirpods.length > 0) {
+    throw new Error(
+      `AIRPODS_STYLES must be a subset of STYLES (missing: ${missingAirpods.join(", ")})`,
+    );
+  }
+  for (const [currency, table] of Object.entries(PRICE_TABLE)) {
+    for (const style of AIRPODS_STYLES) {
+      if (getAirpodsStylePrice(style, currency) !== table[style]) {
+        throw new Error(
+          `AirPods ${style} in ${currency} drifted from PRICE_TABLE`,
+        );
+      }
+    }
   }
 }

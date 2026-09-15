@@ -78,6 +78,10 @@ import {
   r2KeyFromUrl,
 } from "@/lib/catalog/r2";
 import { productTypeLabel } from "@/lib/catalog/product-types";
+import {
+  offeredCompatibilityValues,
+  offeredPriceValues,
+} from "@/lib/catalog/offered-options";
 import { isInternalMediaDirectory } from "@/lib/catalog/discover";
 
 const VALID_STYLES = new Set<string>(STYLES);
@@ -1304,8 +1308,6 @@ export async function getBulkEditProducts(
   });
 
   return rows.map((p): BulkEditProduct => {
-    const styleOpt = p.options.find((o) => o.name === STYLE_OPTION_NAME);
-    const modelOpt = p.options.find((o) => o.name === MODEL_OPTION_NAME);
     const sourceLeaf =
       p.sourceFolder?.split(/[\\/]/).filter(Boolean).at(-1) ?? null;
     const internalSource =
@@ -1329,8 +1331,8 @@ export async function getBulkEditProducts(
         filename: i.sourceFilename,
         styleTags: i.styleTags ?? [],
       })),
-      availableStyles: orderStyles(styleOpt?.values ?? []),
-      availableModels: orderModels(modelOpt?.values ?? []),
+      availableStyles: offeredPriceValues(p.productType, p.options),
+      availableModels: offeredCompatibilityValues(p.productType, p.options),
     };
   });
 }

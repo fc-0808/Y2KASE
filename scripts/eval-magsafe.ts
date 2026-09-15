@@ -108,7 +108,7 @@ async function main() {
 
   console.log(
     `\nMagSafe verifier evaluation — ${FIXTURES.length} labelled products` +
-      `${runs > 1 ? `, ${runs} runs each` : ""}, model ${process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini"}\n`,
+      `${runs > 1 ? `, ${runs} runs each` : ""}, model ${process.env.OPENAI_VISION_MODEL ?? "qwen/qwen3.8-flash"}\n`,
   );
 
   // Graded on the routing decision, not the raw boolean, because that is what

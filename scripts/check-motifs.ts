@@ -50,6 +50,7 @@ test("every family has a unique slug and at least one alias", () => {
   for (const family of MOTIF_FAMILIES) {
     assert.ok(family.aliases.length > 0, family.slug);
     assert.ok(family.label.length > 0, family.slug);
+    assert.ok(family.icon.length > 0, family.slug);
   }
 });
 
@@ -206,10 +207,140 @@ test("parseMotifFamily accepts slugs and aliases", () => {
   ]);
 });
 
-test("merge keeps taxonomy order and the per-product cap", () => {
+test("merge is evidence-ranked: claimed wins, implied species cannot sneak in", () => {
   assert.deepEqual(
-    mergeMotifClassifications(["bows"], ["puppy", "clouds"], ["bows"]),
+    mergeMotifClassifications(["bows"], ["puppy", "clouds"]),
     ["puppy", "clouds", "bows"],
+  );
+  assert.deepEqual(
+    mergeMotifClassifications(["bows"], ["cat"], {
+      characterName: "Hello Kitty",
+    }),
+    ["bows"],
+  );
+  assert.deepEqual(
+    mergeMotifClassifications([], ["cat", "bows"], {
+      characterName: "Hello Kitty",
+    }),
+    ["bows"],
+  );
+  assert.deepEqual(
+    mergeMotifClassifications(["bunny"], ["bunny"], {
+      characterName: "Miffy",
+    }),
+    ["bunny"],
+  );
+});
+
+test("a strap charm is not the print; a named print still is", () => {
+  assert.deepEqual(
+    classifyProductMotifs({
+      title:
+        "Sumikko Gurashi Mint Green Clear with 3D Cat Charm Phone Case",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Kawaii Puppy Charm Phone Case with Beaded Strap",
+    }),
+    ["puppy"],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Pastel Heart Charm AirPods Case with Sweet Polka Dot",
+    }),
+    ["hearts", "patterns"],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Pastel striped case with cute bear charm grip",
+    }),
+    ["bear", "patterns"],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Cherry Blossom Clear AirPods Case with Cute Cherry Charm",
+    }),
+    ["florals"],
+  );
+});
+
+test("Hello Kitty cat-ear hardware is not Cat", () => {
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Sanrio Hello Kitty Glitter Cat-Ear Clear Case",
+    }),
+    [],
+  );
+});
+
+test("Tamagotchi Rainy Day is not Clouds; a cloud grip is", () => {
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Tamagotchi Rainy Day Phone Case with Beaded Strap",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Rainy Cloud Cute Clear Phone Case with 3D Cloud Grip",
+    }),
+    ["clouds"],
+  );
+});
+
+test("galaxy copy is not Stars; Little Twin Stars is IP not Stars", () => {
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Kuromi Glitter Galaxy Phone Case - Clear with Purple Frame",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Little Twin Stars Glitter Phone Case with Beaded Strap",
+    }),
+    [],
+  );
+});
+
+test("English folders do not vote; CJK folders fill only when the title is silent", () => {
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Cute pastel heart phone case with beaded strap",
+      sourceFolder: "bunny_bear_strawberry_bow_variants",
+    }),
+    ["hearts"],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Cute Clear Phone Case",
+      sourceFolder: "云朵小熊001",
+    }),
+    ["bear", "clouds"],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Pastel Polka Dot AirPods Case with Beaded Bow Charm",
+      sourceFolder: "碎花001",
+    }),
+    ["patterns"],
+  );
+});
+
+test("Apple AirPods is not Fruit; a strawberry print is", () => {
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Hello Kitty Clear Apple AirPods Case with Strawberry Charm",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    classifyProductMotifs({
+      title: "Strawberry Mirror Phone Case",
+    }),
+    ["fruit"],
   );
 });
 

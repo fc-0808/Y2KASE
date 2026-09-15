@@ -7,10 +7,12 @@
  * the provider could fetch it. Both are unsafe against the two failure modes
  * this bucket really has:
  *
- *   • `R2_PUBLIC_URL` points at a Cloudflare `*.r2.dev` endpoint, which is a
- *     development domain and is aggressively rate limited. One thumbnail batch
- *     asks for 5 products × 8 reference photos, so bursts of 429 are routine —
- *     and a provider reports that back only as an opaque "image fetch failed".
+ *   • A public `*.r2.dev` URL is a development endpoint and is aggressively
+ *     rate limited. One thumbnail batch asks for 5 products × 8 reference
+ *     photos, so bursts of 429 are routine — and a provider reports that back
+ *     only as an opaque "image fetch failed". Production now serves the same
+ *     objects from `media.y2kase.com`, but AI steps still must not depend on
+ *     the public host.
  *   • A few `product_images` rows still point at objects that were never
  *     uploaded (or were later deleted). R2 answers 404 with an HTML error page,
  *     so a caller that ignores the status ends up handing ~27 KB of Cloudflare
@@ -308,6 +310,24 @@ export async function loadImages(
     else failures.push(result);
   }
   return { images, failures };
+}
+
+/**
+ * Encode a loaded photo as a data URL for a vision model.
+ *
+ * Matches ingest: max-edge 1200 WebP, so a backfill sees the same pixels the
+ * upload path sent. Callers that already have a data URL (ingest) skip this.
+ */
+export async function visionDataUrl(
+  image: LoadedImage,
+  maxEdge = 1200,
+): Promise<string> {
+  const buf = await sharp(image.bytes)
+    .rotate()
+    .resize(maxEdge, maxEdge, { fit: "inside", withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer();
+  return `data:image/webp;base64,${buf.toString("base64")}`;
 }
 
 /**

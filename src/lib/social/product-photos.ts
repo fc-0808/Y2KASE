@@ -19,6 +19,7 @@ import { eq } from "drizzle-orm";
 import { insertCreative } from "@/lib/social/creatives";
 import { generateCaption } from "@/lib/social/caption-gen";
 import type { SocialPlatform } from "@/lib/social/presets";
+import { selectStorefrontImages } from "@/lib/catalog/storefront-media";
 
 /** Synthetic preset key marking a creative sourced from a real product photo. */
 export const PRODUCT_PHOTO_PRESET = "product_photo";
@@ -69,7 +70,7 @@ export async function getProductGallery(
     characterName: product.characterName ?? null,
     brandName: product.brandName ?? null,
     videoUrl: product.videoUrl,
-    photos: (product.images ?? []).map((img) => ({
+    photos: selectStorefrontImages(product.images ?? []).map((img) => ({
       id: img.id,
       url: img.url,
       altText: img.altText,

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Check, Loader2, Sparkles } from "lucide-react";
 import { MOTIF_FAMILIES, type MotifFamilySlug } from "@/lib/catalog/motifs";
 import { cn } from "@/lib/utils";
+import { MotifMark } from "@/components/catalog/MotifMark";
 import { detectProductMotifs, saveProductMotifs } from "./actions";
 
 /**
@@ -97,6 +98,7 @@ export function MotifEditorCard({
                 checked={checked}
                 onChange={() => toggle(family.slug)}
               />
+              <MotifMark family={family} size="md" />
               <span className="truncate">{family.label}</span>
             </label>
           );

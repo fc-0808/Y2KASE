@@ -76,6 +76,7 @@ import { cn } from "@/lib/utils";
 import { buildCatalogHref, type CatalogParams } from "@/lib/catalog/params";
 import { type BrandOption, brandOptionName } from "./brand-options";
 import { ColorSwatch } from "./ColorSwatch";
+import { MotifMark } from "./MotifMark";
 
 export type { BrandOption } from "./brand-options";
 
@@ -512,6 +513,7 @@ export function CatalogFilters({
                       disabled={count === 0 && !checked}
                       onSelect={() => toggleMotif(family.slug)}
                       compact
+                      swatch={<MotifMark family={family} size="md" />}
                     />
                   );
                 })}

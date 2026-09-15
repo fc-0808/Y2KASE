@@ -103,6 +103,7 @@ async function main() {
   // providerId is "credential" and whose accountId mirrors the user id.
   await db.insert(schema.accounts).values({
     id: generateId(),
+    issuer: "local:credential",
     accountId: userId,
     providerId: "credential",
     userId,

@@ -9,11 +9,12 @@ import { REDIRECTS, assertRedirectsAreResolvable } from "./src/lib/routes";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
-// Keep the optimizer's remote allow-list exact. The first host is the current
-// production R2 bucket; the environment-derived host lets a bucket/custom
-// domain move without a code release. Legacy import hosts remain allow-listed
-// while old catalog rows are migrated.
+// Keep the optimizer's remote allow-list exact. media.y2kase.com is the
+// production R2 custom domain. The environment-derived host lets a bucket
+// move without a code release. The r2.dev development host and legacy import
+// CDNs stay allow-listed while old catalog rows are migrated.
 const imageRemoteHosts = new Set([
+  "media.y2kase.com",
   "pub-ed7f8ed365ab49089eec8a6a7398124f.r2.dev",
   "res.cloudinary.com",
   "i.etsystatic.com",

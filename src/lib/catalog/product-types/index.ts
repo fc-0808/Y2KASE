@@ -1,8 +1,8 @@
 import type { ProductTypeConfig, ProductTypeId, OptionAxis } from "../types";
 import { axisByRole } from "../types";
 import { iphoneCaseType } from "./iphone-case";
+import { airpodCaseType } from "./airpod-case";
 import {
-  airpodCaseType,
   samsungCaseType,
   pixelCaseType,
   ipadCaseType,

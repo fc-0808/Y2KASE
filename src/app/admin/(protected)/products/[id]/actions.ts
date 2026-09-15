@@ -35,6 +35,9 @@ import {
   type MotifFamilySlug,
 } from "@/lib/catalog/motifs";
 import { extractColorsFromImageUrl } from "@/lib/catalog/color-extract";
+import { offeredPriceValues } from "@/lib/catalog/offered-options";
+import { mediaTagAxisFor } from "@/lib/catalog/product-types";
+import { classifyStoredImageStyles } from "@/lib/catalog/style-tag-stored";
 import {
   LISTING_TITLE_MAX,
   LISTING_TITLE_MIN,
@@ -55,7 +58,10 @@ export type SaveProductPayload = {
   styleTags: Record<number, string[]>;
   /** The styles this product offers (drives the Style option + price). */
   availableStyles: string[];
-  /** The iPhone models this product is sold for (optional; omit to keep). */
+  /**
+   * The devices this product is sold for (the type's compatibility axis).
+   * Omit to leave that axis untouched.
+   */
   availableModels?: string[];
 };
 export type SaveResult = SaveVariationsResult;
@@ -677,9 +683,6 @@ export async function detectProductColors(
     where: eq(products.id, productId),
     columns: {
       title: true,
-      description: true,
-      tags: true,
-      materials: true,
       sourceFolder: true,
     },
     with: {
@@ -694,9 +697,6 @@ export async function detectProductColors(
 
   const text = classifyProductColors({
     title: product.title,
-    description: product.description,
-    tags: product.tags,
-    materials: product.materials,
     sourceFolder: product.sourceFolder,
   });
   const pixels = product.images[0]?.url
@@ -795,5 +795,77 @@ export async function detectProductMotifs(
         ? `Detected ${motifs.map((slug) => MOTIF_FAMILIES.find((f) => f.slug === slug)?.label ?? slug).join(", ")}.`
         : "No theme signal in the title or folder.",
     motifs,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-image style tags
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type StyleDetectResult = {
+  ok: boolean;
+  message: string;
+  /** image id → at most one style. Unreadable photos are omitted. */
+  tags: Record<number, string[]>;
+};
+
+/**
+ * Re-run the same vision classifier ingest uses, against the photos already
+ * stored on this listing. Does not write — the operator confirms through Save.
+ */
+export async function detectProductImageStyles(
+  productId: number,
+): Promise<StyleDetectResult> {
+  const session = await requireAdmin(await headers());
+  if (!session) {
+    return { ok: false, message: "Not authorized.", tags: {} };
+  }
+
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { id: true, productType: true },
+    with: {
+      images: {
+        columns: { id: true, url: true, sourceFilename: true },
+        orderBy: (img, { asc }) => asc(img.position),
+      },
+      options: { columns: { name: true, values: true } },
+    },
+  });
+  if (!product) return { ok: false, message: "Product not found.", tags: {} };
+  if (!mediaTagAxisFor(product.productType)) {
+    return {
+      ok: false,
+      message: "This product has no style variations to tag.",
+      tags: {},
+    };
+  }
+  if (product.images.length === 0) {
+    return { ok: false, message: "No photos to classify.", tags: {} };
+  }
+
+  const offered = offeredPriceValues(product.productType, product.options);
+  const classified = await classifyStoredImageStyles(product.images, {
+    productType: product.productType,
+    offeredStyles: offered,
+  });
+
+  const total = classified.tagged + classified.universal;
+  const failNote =
+    classified.failures.length > 0
+      ? ` ${classified.failures.length} photo${
+          classified.failures.length === 1 ? "" : "s"
+        } could not be read.`
+      : "";
+
+  return {
+    ok: true,
+    tags: classified.tagsById,
+    message:
+      classified.tagged > 0
+        ? `Detected styles on ${classified.tagged} of ${total} photo${
+            total === 1 ? "" : "s"
+          }. ${classified.universal} left universal.${failNote} Save to keep.`
+        : `No style was identifiable — photos stay universal.${failNote}`,
   };
 }

@@ -33,6 +33,15 @@ import { IPHONE_GENERATIONS, summarizeModels } from "@/lib/pricing";
 import type { AdminProductOverview } from "@/lib/products";
 import type { AdminCollectionOption } from "@/lib/collections";
 import { deviceOfProductType, deviceProductTypes } from "@/lib/catalog/devices";
+import { formatPrice } from "@/lib/utils";
+import {
+  compatibilityChipLabel,
+  hasCompatibilityAxis,
+  hasPriceAxis,
+  priceForOfferedStyle,
+  summarizeCompatibility,
+} from "@/lib/catalog/offered-options";
+import { compatibilityAxisFor } from "@/lib/catalog/product-types";
 import type { TitleHealth } from "@/lib/catalog/listing-title-service";
 import type { BrandOption } from "@/lib/catalog/brands";
 import {
@@ -1156,7 +1165,9 @@ function ProductRow({
   onFeatureToggle: () => void;
   onDelete: () => void;
 }) {
-  const isCase = product.productType === "iphone_case";
+  const isIphoneCase = product.productType === "iphone_case";
+  const showStyles = hasPriceAxis(product.productType);
+  const showFit = hasCompatibilityAxis(product.productType);
   return (
     <li
       className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3.5 transition xl:grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] xl:items-center ${
@@ -1263,23 +1274,40 @@ function ProductRow({
         <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-foreground/40 xl:hidden">
           Variations
         </p>
-        {!isCase ? (
-          <span className="text-xs italic text-foreground/40">—</span>
+        {!showStyles ? (
+          <span
+            className="text-xs italic text-foreground/40"
+            title="No style bundles — one flat price"
+          >
+            Flat price
+          </span>
         ) : product.availableStyles.length === 0 ? (
           <span className="text-xs italic text-foreground/40">
             not set
           </span>
         ) : (
-          <div className="flex flex-wrap gap-1">
-            {product.availableStyles.map((s) => (
-              <span
-                key={s}
-                className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold"
-              >
-                {s}
-              </span>
-            ))}
-          </div>
+          <ul className="space-y-0.5">
+            {product.availableStyles.map((s) => {
+              const price = priceForOfferedStyle(
+                product.productType,
+                s,
+                product.currency,
+              );
+              return (
+                <li
+                  key={s}
+                  className="flex items-baseline justify-between gap-2 text-[11px] font-semibold leading-tight"
+                >
+                  <span className="min-w-0 truncate">{s}</span>
+                  {price != null && (
+                    <span className="shrink-0 tabular-nums text-foreground/55">
+                      {formatPrice(price, product.currency)}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
 
@@ -1288,10 +1316,20 @@ function ProductRow({
         <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-foreground/40 xl:hidden">
           Device fit
         </p>
-        {!isCase ? (
-          <span className="text-xs italic text-foreground/40">—</span>
+        {!showFit ? (
+          <span
+            className="text-xs italic text-foreground/40"
+            title="This product has no device-fit axis"
+          >
+            —
+          </span>
+        ) : isIphoneCase ? (
+          <IphoneModelBadges models={product.availableModels} />
         ) : (
-          <ModelBadges models={product.availableModels} />
+          <FitBadges
+            productType={product.productType}
+            models={product.availableModels}
+          />
         )}
       </div>
 
@@ -1580,7 +1618,7 @@ function TitleHealthBadge({
 }
 
 /** Compact per-generation availability badges, e.g. 14·3  15·3  16·3  17·3. */
-function ModelBadges({ models }: { models: string[] }) {
+function IphoneModelBadges({ models }: { models: string[] }) {
   if (models.length === 0) {
     return (
       <span className="text-xs italic text-[var(--foreground)]/40">
@@ -1614,6 +1652,58 @@ function ModelBadges({ models }: { models: string[] }) {
             >
               {gen.id}
               {state === "partial" && `·${have}`}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Device-fit chips for every non-iPhone type. Canon values render even when
+ * unoffered (muted) so a Pro-only AirPods case still reads against the full
+ * mould list, the same way iPhone generation badges do.
+ */
+function FitBadges({
+  productType,
+  models,
+}: {
+  productType: string;
+  models: string[];
+}) {
+  const axis = compatibilityAxisFor(productType);
+  if (models.length === 0) {
+    return (
+      <span className="text-xs italic text-[var(--foreground)]/40">
+        not set
+      </span>
+    );
+  }
+  const offered = new Set(models);
+  const extras = models.filter(
+    (value) => !(axis?.values.includes(value) ?? false),
+  );
+  const chips = [...(axis?.values ?? []), ...extras];
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold text-[var(--foreground)]/70">
+        {summarizeCompatibility(productType, models)}
+      </span>
+      <div className="flex flex-wrap gap-1">
+        {chips.map((value) => {
+          const on = offered.has(value);
+          return (
+            <span
+              key={value}
+              title={value}
+              className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                on
+                  ? "bg-[var(--primary)] text-white"
+                  : "bg-[var(--muted)] text-[var(--foreground)]/35"
+              }`}
+            >
+              {compatibilityChipLabel(productType, value)}
             </span>
           );
         })}

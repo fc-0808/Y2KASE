@@ -21,6 +21,7 @@ import {
   motifFamily,
   type MotifFamilySlug,
 } from "@/lib/catalog/motifs";
+import { MotifMark } from "@/components/catalog/MotifMark";
 import type {
   ClassificationHealth,
   ClassificationState,
@@ -108,8 +109,9 @@ export function ClassificationCell({
           <span
             key={slug}
             title={`Theme: ${family.label}`}
-            className="inline-flex items-center rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--foreground)]/70 ring-1 ring-inset ring-black/5"
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--foreground)]/70 ring-1 ring-inset ring-black/5"
           >
+            <MotifMark family={family} size="sm" className="bg-white/70" />
             {family.label}
           </span>
         );

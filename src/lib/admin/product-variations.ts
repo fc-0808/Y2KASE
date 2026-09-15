@@ -5,8 +5,9 @@
  * (`/admin/products` → Edit individually) persist the exact same shape of
  * change: a curated media order, per-image style tags, the video slot, the
  * offered Style set (which drives the base price) and — optionally — the
- * offered iPhone Model set. Centralizing it here guarantees both paths behave
- * identically and stay correct as the rules evolve.
+ * offered compatibility set (iPhone Model, AirPods Model, …). Centralizing it
+ * here guarantees both paths behave identically and stay correct as the rules
+ * evolve.
  *
  * This module is server-only (it imports the DB). It does NOT perform auth or
  * cache revalidation — callers (Server Actions) own those concerns so a bulk
@@ -16,17 +17,19 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products, productImages, productOptions } from "@/lib/db/schema";
 import {
-  STYLE_OPTION_NAME,
-  MODEL_OPTION_NAME,
-  IPHONE_MODELS,
   orderStyles,
-  orderModels,
   defaultStyleFor,
-  getStylePrice,
   normalizeImageStyleTags,
 } from "@/lib/pricing";
-
-const VALID_MODELS = new Set<string>(IPHONE_MODELS);
+import {
+  compatibilityAxisFor,
+  getProductType,
+  priceAxisFor,
+} from "@/lib/catalog/product-types";
+import {
+  normalizeOfferedCompatibility,
+  normalizeOfferedPriceValues,
+} from "@/lib/catalog/offered-options";
 
 export type SaveVariationsInput = {
   productId: number;
@@ -43,8 +46,8 @@ export type SaveVariationsInput = {
   /** The styles this product offers (drives the Style option + base price). */
   availableStyles: string[];
   /**
-   * The iPhone models this product is sold for. Omit to leave the Model axis
-   * untouched (the single editor doesn't manage models today).
+   * The devices this product is sold for (the type's compatibility axis).
+   * Omit to leave that axis untouched.
    */
   availableModels?: string[];
 };
@@ -90,9 +93,9 @@ async function upsertOption(
 
 /**
  * Persist media order, per-image style tags, the video slot, the offered Style
- * set (+ base price) and optionally the offered iPhone Model set for a single
- * product. Returns a per-product result so bulk callers can report partial
- * failures without aborting the whole batch.
+ * set (+ base price, phone cases) and optionally the offered compatibility
+ * set for a single product. Returns a per-product result so bulk callers can
+ * report partial failures without aborting the whole batch.
  */
 export async function saveProductVariations(
   input: SaveVariationsInput,
@@ -106,7 +109,8 @@ export async function saveProductVariations(
   });
   if (!product) return { ok: false, message: `#${productId}: not found.` };
 
-  const isIphoneCase = product.productType === "iphone_case";
+  const type = getProductType(product.productType);
+  const priceAxis = priceAxisFor(product.productType);
 
   // ── Validate the image set matches what's on the product ──────────────────
   const ownedIds = new Set(product.images.map((i) => i.id));
@@ -118,9 +122,20 @@ export async function saveProductVariations(
     };
   }
 
-  // ── Normalize the offered styles to the canonical, price-ordered set ──────
-  const availableStyles = orderStyles(input.availableStyles);
-  const styles = availableStyles.length > 0 ? availableStyles : ["Case Only"];
+  // ── Normalize the offered styles to the type's price-axis canon ───────────
+  // Types without a price axis keep an empty set so per-image tags are not
+  // rewritten against a vocabulary the product never sells.
+  let styles: string[] = [];
+  if (priceAxis) {
+    styles = normalizeOfferedPriceValues(
+      product.productType,
+      input.availableStyles,
+    );
+    if (styles.length === 0) styles = [...priceAxis.values];
+    if (product.productType === "iphone_case") {
+      styles = styles.length > 0 ? orderStyles(styles) : ["Case Only"];
+    }
+  }
 
   // ── 1. Image positions + style tags ───────────────────────────────────────
   // Normalization is the enforcement point for "one photo, one variation": it
@@ -147,24 +162,32 @@ export async function saveProductVariations(
     price?: string;
     updatedAt: Date;
   } = { videoPosition: videoSlot, updatedAt: new Date() };
-  if (isIphoneCase) {
+  if (priceAxis) {
     productUpdate.price = String(
-      getStylePrice(defaultStyleFor(styles), product.currency),
+      type.getPriceFromOptions(
+        { [priceAxis.name]: defaultStyleFor(styles) },
+        product.currency,
+      ),
     );
   }
   await db.update(products).set(productUpdate).where(eq(products.id, productId));
 
-  // ── 3. Variation axes (phone cases only) ──────────────────────────────────
-  if (isIphoneCase) {
-    await upsertOption(productId, STYLE_OPTION_NAME, styles);
+  // ── 3. Variation axes ─────────────────────────────────────────────────────
+  if (priceAxis && styles.length > 0) {
+    await upsertOption(productId, priceAxis.name, styles);
+  }
 
-    if (input.availableModels) {
-      const models = orderModels(
-        input.availableModels.filter((m) => VALID_MODELS.has(m)),
+  if (input.availableModels) {
+    const axis = compatibilityAxisFor(product.productType);
+    if (axis) {
+      const models = normalizeOfferedCompatibility(
+        product.productType,
+        input.availableModels,
       );
-      // A product must always offer at least one model; ignore empty sets.
+      // A product must always offer at least one fit; ignore empty sets so a
+      // caller cannot wipe the buyer's picker by accident.
       if (models.length > 0) {
-        await upsertOption(productId, MODEL_OPTION_NAME, models);
+        await upsertOption(productId, axis.name, models);
       }
     }
   }

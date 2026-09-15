@@ -12,6 +12,7 @@ import {
   Loader2,
   Wand2,
   ExternalLink,
+  Pencil,
   RefreshCw,
   Clock,
   Rocket,
@@ -40,6 +41,12 @@ import {
   DEFAULT_THUMBNAIL_SCOPE,
   type ThumbnailScope,
 } from "@/lib/admin/thumbnail-scope";
+import {
+  PRODUCT_PAGE_LINK_ATTRS,
+  adminProductEditorHref,
+  productPageHref,
+  productPageLinkLabel,
+} from "@/lib/catalog/product-page";
 import { ThumbnailCropModal } from "./ThumbnailCropModal";
 
 type Item = {
@@ -65,6 +72,50 @@ type BulkResult = ActionResult & { processed: number };
 
 const isDraft = (item: { productStatus: string }) =>
   item.productStatus === "draft";
+
+type ProductLinkItem = Pick<
+  BasicItem,
+  "productId" | "slug" | "title" | "productStatus"
+>;
+
+/**
+ * Title + photos open the shopper page (live PDP, or the authenticated draft
+ * preview). Actions stay outside this link so Approve / Generate never
+ * navigate. New tab keeps the review queue (selection, bulk progress) intact.
+ */
+function ProductIdentityLink({
+  item,
+  children,
+}: {
+  item: ProductLinkItem;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={productPageHref(item)}
+      {...PRODUCT_PAGE_LINK_ATTRS}
+      title={productPageLinkLabel(item.productStatus)}
+      className="group/product block cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-inset"
+    >
+      {children}
+    </Link>
+  );
+}
+
+function ProductTitle({ item }: { item: ProductLinkItem }) {
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="line-clamp-2 text-sm font-bold group-hover/product:text-[var(--primary)]">
+        {item.title}
+      </span>
+      {isDraft(item) && <DraftChip />}
+      <ExternalLink
+        className="h-3.5 w-3.5 shrink-0 text-[var(--foreground)]/35 group-hover/product:text-[var(--primary)]"
+        aria-hidden
+      />
+    </span>
+  );
+}
 
 export function ThumbnailsReview({
   scope,
@@ -859,30 +910,23 @@ function ProposalCard({
       }`}
     >
       <SelectBox checked={checked} onChange={onSelect} disabled={selectDisabled} />
-      <div className="flex items-start justify-between gap-2 p-3 pr-10">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link
-              href={`/products/${item.slug}`}
-              target="_blank"
-              className="line-clamp-2 text-sm font-bold hover:text-[var(--primary)]"
-            >
-              {item.title}
-            </Link>
-            {isDraft(item) && <DraftChip />}
+      <ProductIdentityLink item={item}>
+        <div className="flex items-start justify-between gap-2 p-3 pr-10">
+          <div className="min-w-0">
+            <ProductTitle item={item} />
           </div>
+          {item.score != null && (
+            <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">
+              {item.score.toFixed(2)} · {item.category}
+            </span>
+          )}
         </div>
-        {item.score != null && (
-          <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">
-            {item.score.toFixed(2)} · {item.category}
-          </span>
-        )}
-      </div>
 
-      <div className="grid grid-cols-2 gap-px bg-[var(--border)]">
-        <Figure label="Current" url={item.currentUrl} fit="cover" />
-        <Figure label="Proposed" url={item.proposalUrl} fit="contain" highlight />
-      </div>
+        <div className="grid grid-cols-2 gap-px bg-[var(--border)]">
+          <Figure label="Current" url={item.currentUrl} fit="cover" />
+          <Figure label="Proposed" url={item.proposalUrl} fit="contain" highlight />
+        </div>
+      </ProductIdentityLink>
 
       <div className="flex flex-col gap-2 p-3">
         <div className="flex gap-2">
@@ -949,47 +993,44 @@ function FlaggedCard({
       }`}
     >
       <SelectBox checked={checked} onChange={onSelect} disabled={selectDisabled} />
-      <Figure label="Current" url={item.currentUrl} fit="cover" />
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <Link
-          href={`/products/${item.slug}`}
-          target="_blank"
-          className="line-clamp-2 text-sm font-bold hover:text-[var(--primary)]"
-        >
-          {item.title}
-        </Link>
-        {item.reason && (
-          <p className="line-clamp-2 text-[11px] text-[var(--foreground)]/50">
-            {item.reason}
-          </p>
-        )}
-        <div className="mt-auto flex flex-col gap-1.5 pt-1">
-          <PrimaryButton onClick={onCleanup} disabled={disabled} busy={busy} className="w-full">
-            <Wand2 className="h-3.5 w-3.5" /> Remove hand
-          </PrimaryButton>
-          <div className="flex items-center gap-1.5">
-            <UploadButton
-              onFile={onUpload}
-              disabled={disabled}
-              busy={busy}
-              className="flex-1"
-            />
-            <IconLink
-              href={`/admin/products/${item.productId}`}
-              title="Open product"
-              className="flex-1"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </IconLink>
-            <GhostButton
-              onClick={onSkip}
-              disabled={disabled}
-              title="Skip"
-              className="flex-1"
-            >
-              <SkipForward className="h-3.5 w-3.5" />
-            </GhostButton>
-          </div>
+      <ProductIdentityLink item={item}>
+        <Figure label="Current" url={item.currentUrl} fit="cover" />
+        <div className="flex flex-col gap-2 p-3 pb-0">
+          <ProductTitle item={item} />
+          {item.reason && (
+            <p className="line-clamp-2 text-[11px] text-[var(--foreground)]/50">
+              {item.reason}
+            </p>
+          )}
+        </div>
+      </ProductIdentityLink>
+      <div className="mt-auto flex flex-col gap-1.5 p-3 pt-2">
+        <PrimaryButton onClick={onCleanup} disabled={disabled} busy={busy} className="w-full">
+          <Wand2 className="h-3.5 w-3.5" /> Remove hand
+        </PrimaryButton>
+        <div className="flex items-center gap-1.5">
+          <UploadButton
+            onFile={onUpload}
+            disabled={disabled}
+            busy={busy}
+            className="flex-1"
+          />
+          <IconLink
+            href={adminProductEditorHref(item.productId)}
+            title="Edit listing"
+            external
+            className="flex-1"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </IconLink>
+          <GhostButton
+            onClick={onSkip}
+            disabled={disabled}
+            title="Skip"
+            className="flex-1"
+          >
+            <SkipForward className="h-3.5 w-3.5" />
+          </GhostButton>
         </div>
       </div>
     </div>
@@ -1032,57 +1073,53 @@ function SimpleCard({
       }`}
     >
       <SelectBox checked={checked} onChange={onSelect} disabled={selectDisabled} />
-      <Figure label={badge} url={item.currentUrl} fit="cover" live={badge === "Live"} />
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <Link
-          href={`/products/${item.slug}`}
-          target="_blank"
-          className="line-clamp-2 text-sm font-bold hover:text-[var(--primary)]"
-        >
-          {item.title}
-        </Link>
-        <div className="mt-auto flex flex-col gap-1.5 pt-1">
-          <PrimaryButton onClick={onAction} disabled={disabled} busy={busy} className="w-full">
-            {actionIcon} {actionLabel}
-          </PrimaryButton>
-          <div className="flex items-center gap-1.5">
-            {onRemoveBg && (
-              <GhostButton
-                onClick={onRemoveBg}
-                disabled={disabled}
-                accent
-                title="Remove background"
-                className="flex-1"
-              >
-                <Eraser className="h-3.5 w-3.5" />
-              </GhostButton>
-            )}
-            {onRemoveTag && (
-              <GhostButton
-                onClick={onRemoveTag}
-                disabled={disabled}
-                accent
-                title="Remove tag"
-                className="flex-1"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-              </GhostButton>
-            )}
-            <UploadButton
-              onFile={onUpload}
+      <ProductIdentityLink item={item}>
+        <Figure label={badge} url={item.currentUrl} fit="cover" live={badge === "Live"} />
+        <div className="p-3 pb-0">
+          <ProductTitle item={item} />
+        </div>
+      </ProductIdentityLink>
+      <div className="mt-auto flex flex-col gap-1.5 p-3 pt-2">
+        <PrimaryButton onClick={onAction} disabled={disabled} busy={busy} className="w-full">
+          {actionIcon} {actionLabel}
+        </PrimaryButton>
+        <div className="flex items-center gap-1.5">
+          {onRemoveBg && (
+            <GhostButton
+              onClick={onRemoveBg}
               disabled={disabled}
-              busy={busy}
-              className="flex-1"
-            />
-            <IconLink
-              href={`/products/${item.slug}`}
-              title="View on store"
-              external
+              accent
+              title="Remove background"
               className="flex-1"
             >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </IconLink>
-          </div>
+              <Eraser className="h-3.5 w-3.5" />
+            </GhostButton>
+          )}
+          {onRemoveTag && (
+            <GhostButton
+              onClick={onRemoveTag}
+              disabled={disabled}
+              accent
+              title="Remove tag"
+              className="flex-1"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+            </GhostButton>
+          )}
+          <UploadButton
+            onFile={onUpload}
+            disabled={disabled}
+            busy={busy}
+            className="flex-1"
+          />
+          <IconLink
+            href={productPageHref(item)}
+            title={productPageLinkLabel(item.productStatus)}
+            external
+            className="flex-1"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </IconLink>
         </div>
       </div>
     </div>
@@ -1107,7 +1144,7 @@ function Figure({
       {url ? (
         <Image
           src={url}
-          alt={label}
+          alt=""
           fill
           sizes="(max-width: 640px) 50vw, 25vw"
           className={fit === "contain" ? "object-contain" : "object-cover"}
@@ -1292,7 +1329,8 @@ function IconLink({
   return (
     <Link
       href={href}
-      target={external ? "_blank" : undefined}
+      target={external ? PRODUCT_PAGE_LINK_ATTRS.target : undefined}
+      rel={external ? PRODUCT_PAGE_LINK_ATTRS.rel : undefined}
       title={title}
       className={`grid place-items-center rounded-full border border-[var(--border)] px-3 py-2 text-[var(--foreground)]/60 transition hover:border-[var(--primary)] hover:text-[var(--primary)] ${className ?? ""}`}
     >

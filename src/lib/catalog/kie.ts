@@ -8,11 +8,10 @@
  * The important design decision here is HOW reference images reach the gateway.
  * KIE's task API accepts image URLs and fetches them itself, which looks free
  * but makes every generation depend on a stranger's network being able to reach
- * our bucket. It frequently cannot: `R2_PUBLIC_URL` is a Cloudflare `*.r2.dev`
- * development endpoint that rate-limits bursts, and a reference whose object is
- * missing comes back from the gateway as the same undiagnosable
- * "image fetch failed. Check access settings or use our File Upload API
- * instead." for every cause.
+ * our bucket. It frequently cannot: a `*.r2.dev` development URL rate-limits
+ * bursts, and a missing object comes back from the gateway as the same
+ * undiagnosable "image fetch failed. Check access settings or use our File
+ * Upload API instead." for every cause.
  *
  * So we take the gateway's own advice and stop asking it to fetch anything: we
  * read the bytes ourselves (see `./image-source`), push them to KIE's File

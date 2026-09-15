@@ -29,6 +29,43 @@ const baseURL =
 /** Magic link lifetime in seconds (kept in sync with the email copy). */
 const MAGIC_LINK_TTL = 60 * 10; // 10 minutes
 
+/**
+ * Origins allowed to call the auth API.
+ *
+ * A single SITE_URL is not enough: phones hitting a LAN IP, `www` vs apex,
+ * and Vercel preview URLs all send a different Origin than the build-time
+ * localhost default — Better Auth then rejects the request.
+ */
+function authTrustedOrigins(): string[] {
+  const origins = new Set<string>();
+
+  const add = (raw: string | undefined) => {
+    if (!raw) return;
+    const trimmed = raw.trim().replace(/\/$/, "");
+    if (!trimmed) return;
+    origins.add(trimmed);
+    try {
+      const url = new URL(trimmed);
+      if (url.hostname.startsWith("www.")) {
+        origins.add(`${url.protocol}//${url.hostname.slice(4)}`);
+      } else if (url.hostname !== "localhost" && !url.hostname.endsWith(".localhost")) {
+        origins.add(`${url.protocol}//www.${url.hostname}`);
+      }
+    } catch {
+      // Ignore unparseable entries — Better Auth will reject them itself.
+    }
+  };
+
+  add(process.env.BETTER_AUTH_URL);
+  add(process.env.NEXT_PUBLIC_SITE_URL);
+  add("http://localhost:3000");
+  if (process.env.VERCEL_URL) add(`https://${process.env.VERCEL_URL}`);
+  for (const extra of (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "").split(",")) {
+    add(extra);
+  }
+  return [...origins];
+}
+
 export const auth = betterAuth({
   baseURL,
   database: drizzleAdapter(db, {
@@ -153,9 +190,7 @@ export const auth = betterAuth({
   ],
 
   // ── trusted origins ───────────────────────────────────────────────────────
-  trustedOrigins: process.env.NEXT_PUBLIC_SITE_URL
-    ? [process.env.NEXT_PUBLIC_SITE_URL]
-    : ["http://localhost:3000"],
+  trustedOrigins: authTrustedOrigins(),
 
   // ── advanced ─────────────────────────────────────────────────────────────
   advanced: {

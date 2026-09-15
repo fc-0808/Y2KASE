@@ -72,6 +72,6 @@ assert.match(heroSource, /autoPlayArmed/);
 // must keep serving the stored R2 WebP directly even if someone opts back in.
 assert.match(nextConfig, /NEXT_IMAGE_OPTIMIZED !== "true"/);
 assert.match(productMedia, /unoptimized/);
-assert.match(productDetail, /unoptimized/);
+assert.match(productDetail, /from "@\/components\/ProductMedia"/);
 
 console.log("✓ storefront performance invariants passed");

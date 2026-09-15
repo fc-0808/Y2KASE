@@ -192,7 +192,7 @@ export const COLOR_FAMILIES: readonly ColorFamily[] = [
       "scarlet",
       "crimson",
       "wine red",
-      "cherry",
+      "cherry red",
       "red",
       "酒红色",
       "大红色",
@@ -240,10 +240,7 @@ export const COLOR_FAMILIES: readonly ColorFamily[] = [
       "translucent",
       "see through",
       "see-through",
-      "clear case",
       "clear",
-      "jelly",
-      "果冻",
       "透明",
       "透色",
       "清透",
@@ -306,7 +303,6 @@ export const COLOR_FAMILIES: readonly ColorFamily[] = [
     aliases: [
       "tangerine",
       "apricot",
-      "peach",
       "coral",
       "orange",
       "橘色",
@@ -395,7 +391,6 @@ export const COLOR_FAMILIES: readonly ColorFamily[] = [
       "golden",
       "香槟金",
       "金色",
-      "金",
     ],
   },
   {
@@ -404,7 +399,7 @@ export const COLOR_FAMILIES: readonly ColorFamily[] = [
     merchant: "Silver",
     swatch: { kind: "silver" },
     light: true,
-    aliases: ["silver", "chrome", "银色", "银"],
+    aliases: ["silver", "chrome", "银色"],
   },
   {
     slug: "multicolor",
@@ -560,6 +555,51 @@ function normalizeHaystack(text: string): string {
 }
 
 /**
+ * Phrases that name a colour without describing the case. Nearly every listing
+ * in this catalogue is titled "Clear Phone Case" because that is the product
+ * noun (transparent TPU), the way fashion listings say "cotton tee" — treating
+ * it as the Clear facet made 80%+ of the grid light up at once. Charm-strap
+ * metals and cherry blossoms are the same class of lie.
+ */
+const LATIN_COLOR_NOISE = [
+  "clear phone case",
+  "clear phone",
+  "clear case",
+  "gold charm",
+  "gold bead",
+  "gold beads",
+  "silver charm",
+  "silver bead",
+  "silver beads",
+  "rose gold charm",
+  "cherry blossom",
+  "cherry blossoms",
+  "ice cream",
+].map((phrase) => ({
+  re: new RegExp(
+    `(?:^|[^a-z0-9])${escapeRegExp(phrase)}(?:$|[^a-z0-9])`,
+    "i",
+  ),
+}));
+
+const CJK_COLOR_NOISE = ["透明手机壳", "透明壳", "透明", "透色", "清透", "白色壳"];
+
+function stripColorNoise(latinHay: string, cjkHay: string): {
+  latin: string;
+  cjk: string;
+} {
+  let latin = latinHay;
+  for (const rule of LATIN_COLOR_NOISE) {
+    latin = latin.replace(rule.re, " ");
+  }
+  let cjk = cjkHay;
+  for (const needle of [...CJK_COLOR_NOISE].sort((a, b) => b.length - a.length)) {
+    if (cjk.includes(needle)) cjk = cjk.split(needle).join("");
+  }
+  return { latin, cjk };
+}
+
+/**
  * Walk a blob of listing text and return every family it names, in taxonomy
  * order. The padded-haystack trick lets the latin regex use `(^|[^a-z0-9])`
  * even at the start of the string, so "red" never matches "hundred" or
@@ -568,8 +608,10 @@ function normalizeHaystack(text: string): string {
 export function classifyColorsFromText(
   ...values: (string | null | undefined)[]
 ): ColorFamilySlug[] {
-  const latinHaystack = normalizeHaystack(values.filter(Boolean).join(" "));
-  const cjkHaystack = values.filter(Boolean).join(" ");
+  const joined = values.filter(Boolean).join(" ");
+  const stripped = stripColorNoise(normalizeHaystack(joined), joined);
+  const latinHaystack = stripped.latin;
+  const cjkHaystack = stripped.cjk;
   if (!latinHaystack.trim() && !cjkHaystack) return [];
 
   const found = new Set<ColorFamilySlug>();
@@ -602,15 +644,18 @@ export type ColorSignals = {
   materials?: string | null;
 };
 
-/** Text-side classification from every signal the catalog already stores. */
+/**
+ * Claimed colours — what the listing actually names.
+ *
+ * Title and the supplier folder are the honest signals. Descriptions and tags
+ * name charm beads and "gold hardware"; materials say "clear TPU" on every
+ * shell. Those belong to Observed (pixels / copy model), which is not allowed
+ * to dump them onto the facet. See {@link reconcileColorEvidence}.
+ */
 export function classifyProductColors(signals: ColorSignals): ColorFamilySlug[] {
-  return classifyColorsFromText(
-    signals.title,
-    signals.description,
-    signals.materials,
-    signals.sourceFolder,
-    ...(signals.tags ?? []),
-  );
+  const fromTitle = classifyColorsFromText(signals.title);
+  if (fromTitle.length > 0) return fromTitle;
+  return classifyColorsFromText(signals.sourceFolder);
 }
 
 /**
@@ -626,9 +671,12 @@ export function colorFamilyFromRgb(
   b: number,
 ): ColorFamilySlug | null {
   // Near-white canvas of the normalized thumbnail — never a product color.
-  if (r >= 248 && g >= 248 && b >= 248) return null;
+  if (r >= 242 && g >= 242 && b >= 242) return null;
 
   const { h, s, l } = rgbToHsl(r, g, b);
+
+  // Washed-out studio backdrop that survived the RGB cutoff.
+  if (l > 90 && s < 18) return null;
 
   if (l < 16) return "black";
   if (s < 10) {
@@ -669,16 +717,14 @@ export type PixelColorVote = {
  *
  * `minShare` drops trace colors (a 3% pink bow on an otherwise black case
  * should not file the listing under Pink — that's how filters lose trust).
- * A product with three or more chromatic families above the bar also earns
- * Multicolor, *in addition to* its dominant hues, so a shopper filtering
- * Pink still finds a pink-heavy print.
+ * Pixels never invent Multicolor; that label is a text claim (rainbow, holo).
  */
 export function classifyColorsFromPixels(
   pixels: readonly { r: number; g: number; b: number }[],
   opts: { minShare?: number; maxFamilies?: number } = {},
 ): ColorFamilySlug[] {
-  const minShare = opts.minShare ?? 0.12;
-  const maxFamilies = opts.maxFamilies ?? 3;
+  const minShare = opts.minShare ?? 0.18;
+  const maxFamilies = opts.maxFamilies ?? 2;
   if (pixels.length === 0) return [];
 
   const counts = new Map<ColorFamilySlug, number>();
@@ -700,39 +746,104 @@ export function classifyColorsFromPixels(
     .sort((a, b) => b.share - a.share);
 
   const slugs = votes.slice(0, maxFamilies).map((vote) => vote.slug);
-  const chromatic = slugs.filter(
-    (slug) =>
-      slug !== "black" &&
-      slug !== "white" &&
-      slug !== "grey" &&
-      slug !== "clear" &&
-      slug !== "multicolor",
-  );
-  if (chromatic.length >= 3 && !slugs.includes("multicolor")) {
-    slugs.push("multicolor");
-  }
   return COLOR_FAMILY_SLUGS.filter((slug) => slugs.includes(slug));
 }
 
-/** Cap on families stored per product — enough for a print, not a dump. */
-export const MAX_PRODUCT_COLORS = 4;
+/** Cap on families stored per product — a print colour, not a photo dump. */
+export const MAX_PRODUCT_COLORS = 3;
 
 /**
- * Union several classifiers, keeping taxonomy order and the per-product cap.
- * AI + text + pixels all get a vote; none of them is allowed to flood the
- * facet with every hue it half-saw.
+ * Families the camera/copy-model must not invent. A 48px thumbnail of a clear
+ * case on a white sweep, with a phone in it and a beaded strap, is full of
+ * white, grey, silver, orange (skin/gold beads) and "clear" it cannot see.
+ * Those only count when the listing *claims* them.
  */
-export function mergeColorClassifications(
-  ...groups: readonly (readonly ColorFamilySlug[])[]
-): ColorFamilySlug[] {
-  const found = new Set<ColorFamilySlug>();
-  for (const group of groups) {
-    for (const slug of group) found.add(slug);
-  }
-  return COLOR_FAMILY_SLUGS.filter((slug) => found.has(slug)).slice(
+const OBSERVED_UNTRUSTED = new Set<ColorFamilySlug>([
+  "black",
+  "white",
+  "grey",
+  "silver",
+  "beige",
+  "brown",
+  "gold",
+  "orange",
+  "clear",
+  "multicolor",
+]);
+
+function isTrustedObserved(slug: ColorFamilySlug): boolean {
+  return !OBSERVED_UNTRUSTED.has(slug);
+}
+
+function isChromaticClaim(slug: ColorFamilySlug): boolean {
+  return (
+    slug !== "clear" &&
+    slug !== "white" &&
+    slug !== "grey" &&
+    slug !== "black" &&
+    slug !== "silver" &&
+    slug !== "multicolor"
+  );
+}
+
+function capColors(found: Iterable<ColorFamilySlug>): ColorFamilySlug[] {
+  const set = found instanceof Set ? found : new Set(found);
+  return COLOR_FAMILY_SLUGS.filter((slug) => set.has(slug)).slice(
     0,
     MAX_PRODUCT_COLORS,
   );
+}
+
+/**
+ * Evidence-ranked colour, not a union.
+ *
+ * `claimed` is title+folder: the merchant named it. `observed` is pixels and
+ * the copy model: they may FILL a character listing that never says "pink",
+ * but they may not pile strap/canvas hues on top of a title that already
+ * named the print. Shoppers filtering Blue on a "Blue Wave" Hello Kitty
+ * must not also have to wade through Grey and Clear from the photo.
+ */
+export function reconcileColorEvidence(
+  claimed: readonly ColorFamilySlug[],
+  observed: readonly ColorFamilySlug[] = [],
+): ColorFamilySlug[] {
+  const claimedList = COLOR_FAMILY_SLUGS.filter((slug) =>
+    claimed.includes(slug),
+  );
+  const observedList = COLOR_FAMILY_SLUGS.filter((slug) =>
+    observed.includes(slug),
+  );
+  const trustedObserved = observedList.filter(isTrustedObserved);
+
+  if (claimedList.length === 0) {
+    if (trustedObserved.length > 0) {
+      return capColors(trustedObserved.slice(0, 2));
+    }
+    return [];
+  }
+
+  const out = new Set<ColorFamilySlug>(claimedList);
+  const claimedChromatic = claimedList.filter(isChromaticClaim);
+  if (claimedChromatic.length === 0) {
+    for (const slug of trustedObserved.slice(0, 2)) out.add(slug);
+  }
+  return capColors(out);
+}
+
+/**
+ * First group is claimed (title/folder); every later group is observed
+ * (copy model, pixels) and unioned before reconcile. A single-group call
+ * is claimed-only — useful for tests and title-only paths.
+ */
+export function mergeColorClassifications(
+  claimed: readonly ColorFamilySlug[] = [],
+  ...observed: readonly (readonly ColorFamilySlug[])[]
+): ColorFamilySlug[] {
+  const observedUnion = new Set<ColorFamilySlug>();
+  for (const group of observed) {
+    for (const slug of group) observedUnion.add(slug);
+  }
+  return reconcileColorEvidence(claimed, [...observedUnion]);
 }
 
 function rgbToHsl(

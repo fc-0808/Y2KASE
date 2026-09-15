@@ -9,6 +9,7 @@ import {
   products,
 } from "@/lib/db/schema";
 import type { Collection } from "@/lib/db/schema";
+import { isStorefrontRenderableUrl } from "@/lib/catalog/storefront-media";
 
 /** A collection enriched with its children and product counts, for menus/pages. */
 export type CollectionNode = {
@@ -420,7 +421,7 @@ export async function getCollectionImagePools(): Promise<
 
 const getCollectionImagePoolEntries = cachedCatalogRead(
   computeCollectionImagePoolEntries,
-  ["collection-image-pools"],
+  ["collection-image-pools-v2"],
   { tags: [CACHE_TAGS.collections, CACHE_TAGS.products], revalidate: 3600 },
 );
 
@@ -449,6 +450,7 @@ async function computeCollectionImagePoolEntries(): Promise<
     Map<number, { url: string; pos: number; createdAt: Date }>
   >();
   for (const r of imgRows) {
+    if (!isStorefrontRenderableUrl(r.url)) continue;
     let pm = perColProd.get(r.collectionId);
     if (!pm) perColProd.set(r.collectionId, (pm = new Map()));
     const cur = pm.get(r.productId);

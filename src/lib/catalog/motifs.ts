@@ -54,6 +54,8 @@ export type MotifFamily = {
   slug: MotifFamilySlug;
   /** Shopper-facing label. Title Case, never the slug. */
   label: string;
+  /** Filter-row glyph — visual, not a substitute for the label. */
+  icon: string;
   /**
    * Recognition vocabulary. Latin aliases match on word boundaries; CJK
    * aliases match as substrings. Longer phrases are compiled longest-first
@@ -72,6 +74,7 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "puppy",
     label: "Puppy",
+    icon: "🐶",
     aliases: [
       "puppy",
       "puppies",
@@ -91,6 +94,7 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "bunny",
     label: "Bunny",
+    icon: "🐰",
     aliases: [
       "bunny",
       "bunnies",
@@ -105,11 +109,13 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "cat",
     label: "Cat",
+    icon: "🐱",
     aliases: ["cat", "cats", "kitten", "kittens", "猫咪", "小猫", "喵星人"],
   },
   {
     slug: "bear",
     label: "Bear",
+    icon: "🧸",
     aliases: [
       "bear",
       "bears",
@@ -124,6 +130,7 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "animals",
     label: "Animals",
+    icon: "🐼",
     aliases: [
       "penguin",
       "penguins",
@@ -183,13 +190,13 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "clouds",
     label: "Clouds",
+    icon: "☁️",
     aliases: [
       "rainy cloud",
       "rain cloud",
       "cloud",
       "clouds",
       "cloudy",
-      "rainy",
       "raindrop",
       "raindrops",
       "云朵",
@@ -201,6 +208,7 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "stars",
     label: "Stars",
+    icon: "⭐",
     aliases: [
       "starry",
       "star",
@@ -208,7 +216,6 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
       "moon",
       "moons",
       "celestial",
-      "galaxy",
       "constellation",
       "星星",
       "月亮",
@@ -218,6 +225,7 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "florals",
     label: "Florals",
+    icon: "🌸",
     aliases: [
       "cherry blossom",
       "sunflower",
@@ -244,16 +252,19 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "bows",
     label: "Bows",
+    icon: "🎀",
     aliases: ["bow", "bows", "ribbon", "ribbons", "蝴蝶结", "丝带"],
   },
   {
     slug: "hearts",
     label: "Hearts",
+    icon: "💖",
     aliases: ["heart", "hearts", "heart wing", "爱心", "心形"],
   },
   {
     slug: "fruit",
     label: "Fruit",
+    icon: "🍓",
     aliases: [
       "strawberry",
       "strawberries",
@@ -268,19 +279,19 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
       "watermelon",
       "banana",
       "bananas",
-      "apple",
-      "apples",
       "草莓",
       "樱桃",
       "柠檬",
       "桃子",
       "西瓜",
       "香蕉",
+      "苹果",
     ],
   },
   {
     slug: "food",
     label: "Food",
+    icon: "🍞",
     aliases: [
       "breakfast",
       "toast",
@@ -306,6 +317,7 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "dolls",
     label: "Dolls",
+    icon: "👧",
     aliases: [
       "pixel girl",
       "anime girl",
@@ -324,6 +336,7 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
   {
     slug: "patterns",
     label: "Patterns",
+    icon: "🔲",
     aliases: [
       "polka dot",
       "polka dots",
@@ -459,19 +472,40 @@ const CJK_IP_STRIP = [...CJK_IP_BLOCKLIST].sort((a, b) => b.length - a.length);
 
 /**
  * Accessory copy that is not a print motif. Nearly every case in this
- * catalogue ships with a "star charm" strap; treating that as the Stars
- * facet would make the filter useless.
+ * catalogue ships with a beaded charm strap; treating "3D Cat Charm" as
+ * the Cat facet would make the filter useless. Hello Kitty "cat-ear"
+ * hardware is the same class of lie.
+ *
+ * Required context (`with` / `3d` / `beaded`) so "Puppy Charm Phone Case"
+ * — where the puppy *is* the print — still classifies.
  */
 const LATIN_NOISE_STRIP = [
   "star charm",
   "star pendant",
   "star strap",
+  "moon charm",
+  "character charm",
+  "beaded charm",
+  "twin stars",
+  "cat-ear",
+  "cat ear",
+  "cat ears",
+  "kitty ear",
+  "kitty ears",
 ].map((phrase) => ({
   re: new RegExp(
     `(?:^|[^a-z0-9])${escapeRegExp(phrase)}(?:$|[^a-z0-9])`,
     "i",
   ),
 }));
+
+const ACCESSORY_HEAD =
+  "star|heart|bear|bunny|rabbit|cat|kitten|dog|puppy|pup|flower|floral|bow|ribbon|cloud|moon|fruit|strawberry|cherry|lemon|peach|leaf";
+
+const ACCESSORY_MOTIF_RE = new RegExp(
+  String.raw`(?:^|[^a-z0-9])(?:with|&|and|\+|3d|beaded)\s+(?:(?:a|the|3d|beaded|tiny|mini|crystal|cute|kawaii|matching)\s+)*(?:${ACCESSORY_HEAD})\s+(?:charms?(?!\s+grip)|pendants?)(?:$|[^a-z0-9])`,
+  "gi",
+);
 
 function normalizeHaystack(text: string): string {
   return ` ${text
@@ -484,6 +518,7 @@ function normalizeHaystack(text: string): string {
 /** Remove licensed-character names so they cannot vote as a motif. */
 function stripIp(latinHay: string, cjkHay: string): { latin: string; cjk: string } {
   let latin = latinHay;
+  latin = latin.replace(ACCESSORY_MOTIF_RE, " ");
   for (const rule of LATIN_IP_STRIP) {
     latin = latin.replace(rule.re, " ");
   }
@@ -558,22 +593,125 @@ export type MotifSignals = {
   sourceFolder?: string | null;
 };
 
-export function classifyProductMotifs(signals: MotifSignals): MotifFamilySlug[] {
-  // Title and the supplier folder are the honest signals. Tags are an AI dump
-  // (bunny, star, girly) and descriptions name charms and "soft girl" vibes
-  // that are not the print. The copy model still votes at ingest from photos.
-  return classifyMotifsFromText(signals.title, signals.sourceFolder);
+function cjkRunes(value: string): string {
+  return [...value].filter((ch) => CJK_CHAR.test(ch)).join("");
 }
 
-export function mergeMotifClassifications(
-  ...groups: readonly (readonly MotifFamilySlug[])[]
+/**
+ * Claimed motifs — what the listing actually names.
+ *
+ * Title is the honest English signal. Supplier folders in English dump
+ * accessory words (bow, star, girl); only the CJK runes are read, after IP
+ * strip, so a folder named 云朵 still votes Clouds and `foo_variants` does not
+ * vote Bows. Tags and descriptions never vote — they are an AI dump.
+ */
+export function classifyProductMotifs(signals: MotifSignals): MotifFamilySlug[] {
+  const fromTitle = classifyMotifsFromText(signals.title);
+  if (fromTitle.length > 0) return fromTitle;
+  const folder = signals.sourceFolder?.trim();
+  if (folder && CJK_CHAR.test(folder)) {
+    return classifyMotifsFromText(cjkRunes(folder)).slice(0, MAX_PRODUCT_MOTIFS);
+  }
+  return [];
+}
+
+/**
+ * Species / silhouette a licensed character would otherwise leak into the
+ * Theme facet. Applied only to Observed (copy model) so a title that actually
+ * says "Bunny" still classifies, and a vision pass that guesses "Hello Kitty
+ * → cat" does not.
+ */
+const IMPLIED_MOTIFS_BY_NAME: Record<string, readonly MotifFamilySlug[]> = {
+  "hello kitty": ["cat"],
+  cinnamoroll: ["puppy", "clouds"],
+  pompompurin: ["puppy"],
+  pochacco: ["puppy"],
+  "my melody": ["bunny"],
+  keroppi: ["animals"],
+  "little twin stars": ["stars"],
+  "kiki lala": ["stars"],
+  rilakkuma: ["bear"],
+  korilakkuma: ["bear"],
+  kiiroitori: ["animals"],
+  miffy: ["bunny"],
+  nijntje: ["bunny"],
+  snoopy: ["puppy"],
+  woodstock: ["animals"],
+  "mickey mouse": ["animals"],
+  mickey: ["animals"],
+  "minnie mouse": ["animals"],
+  minnie: ["animals"],
+  "winnie the pooh": ["bear"],
+  pooh: ["bear"],
+  stitch: ["animals"],
+  chiikawa: ["animals"],
+  usagi: ["bunny"],
+  hachiware: ["cat"],
+  monchhichi: ["animals"],
+  "care bears": ["bear"],
+  "patrick star": ["stars"],
+  pikachu: ["animals"],
+  snorlax: ["animals"],
+  eevee: ["animals"],
+};
+
+export function impliedMotifsForIp(
+  brandName?: string | null,
+  characterName?: string | null,
 ): MotifFamilySlug[] {
   const found = new Set<MotifFamilySlug>();
-  for (const group of groups) {
-    for (const slug of group) found.add(slug);
+  for (const raw of [characterName, brandName]) {
+    const key = raw?.trim().toLowerCase();
+    if (!key) continue;
+    for (const slug of IMPLIED_MOTIFS_BY_NAME[key] ?? []) found.add(slug);
   }
-  return MOTIF_FAMILY_SLUGS.filter((slug) => found.has(slug)).slice(
+  return MOTIF_FAMILY_SLUGS.filter((slug) => found.has(slug));
+}
+
+/**
+ * Evidence-ranked theme, not a union.
+ *
+ * Claimed (title / CJK folder) always wins. Observed (copy model looking at
+ * photos) may fill an untitled original, and may add a bow the title forgot,
+ * but may not credit the character's own species.
+ */
+export function reconcileMotifEvidence(input: {
+  claimed: readonly MotifFamilySlug[];
+  observed?: readonly MotifFamilySlug[];
+  brandName?: string | null;
+  characterName?: string | null;
+}): MotifFamilySlug[] {
+  const claimed = new Set(
+    MOTIF_FAMILY_SLUGS.filter((slug) => input.claimed.includes(slug)),
+  );
+  const blocked = new Set(
+    impliedMotifsForIp(input.brandName, input.characterName),
+  );
+  for (const slug of input.observed ?? []) {
+    if (!isMotifFamilySlug(slug)) continue;
+    if (blocked.has(slug) && !claimed.has(slug)) continue;
+    claimed.add(slug);
+  }
+  return MOTIF_FAMILY_SLUGS.filter((slug) => claimed.has(slug)).slice(
     0,
     MAX_PRODUCT_MOTIFS,
   );
+}
+
+/**
+ * First group is claimed; the second is observed (copy model). Pass IP names
+ * so Observed cannot invent the character's species. A single-group call is
+ * claimed-only.
+ */
+export function mergeMotifClassifications(
+  claimed: readonly MotifFamilySlug[] = [],
+  observed: readonly MotifFamilySlug[] = [],
+  ip?: { brandName?: string | null; characterName?: string | null },
+): MotifFamilySlug[] {
+  return reconcileMotifEvidence({
+    claimed,
+    observed,
+    brandName: ip?.brandName,
+    characterName: ip?.characterName,
+  });
 }

@@ -12,6 +12,10 @@ import {
 } from "@/lib/shipping";
 import { ROUTES } from "@/lib/routes";
 import { IPHONE_FIT } from "@/lib/pricing";
+import {
+  AIRPODS_4_5,
+  AIRPODS_SHARED_FIT_NOTE,
+} from "@/lib/catalog/airpods";
 
 export type FaqItem = {
   question: string;
@@ -68,6 +72,10 @@ export const FAQ_SECTIONS: FaqSection[] = [
       {
         question: "Which iPhone models are compatible?",
         answer: `Most cases are available for ${IPHONE_FIT.listed} series (including Pro and Pro Max). The specific models are listed on each product page. See iPhone cases for the device landing page.`,
+      },
+      {
+        question: "Do AirPods 4 and AirPods 5 use the same case?",
+        answer: `Yes. ${AIRPODS_SHARED_FIT_NOTE} On an AirPods listing that mould is one option — ${AIRPODS_4_5}. AirPods Pro, AirPods 3 and AirPods 1 / 2 are different shells. Pick the model you own on the product page.`,
       },
       {
         question: 'What is the "Case + Grip + Charm" option?',

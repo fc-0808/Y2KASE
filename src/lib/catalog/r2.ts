@@ -3,6 +3,7 @@ import {
   DeleteObjectsCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { r2KeyFromPublicUrl } from "./r2-public";
 
 export function makeR2Client(): S3Client {
   const accountId = process.env.R2_ACCOUNT_ID;
@@ -87,15 +88,12 @@ export async function uploadVideoToR2(
 
 /**
  * Recover the bucket object key from a public R2 URL we previously generated.
- * Returns null for URLs that don't belong to our public bucket (e.g. legacy
- * Etsy/Cloudinary CDN links), so callers never try to delete foreign assets.
+ * Accepts the live custom domain, the legacy `*.r2.dev` host, and whatever
+ * `R2_PUBLIC_URL` currently is, so admin deletes still work after a host cutover.
+ * Returns null for foreign CDNs (Etsy, Cloudinary).
  */
 export function r2KeyFromUrl(url: string): string | null {
-  const base = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
-  if (!base) return null;
-  const prefix = `${base}/`;
-  if (!url.startsWith(prefix)) return null;
-  return decodeURIComponent(url.slice(prefix.length));
+  return r2KeyFromPublicUrl(url, process.env.R2_PUBLIC_URL);
 }
 
 /**

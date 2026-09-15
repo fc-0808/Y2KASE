@@ -10,7 +10,9 @@ import { createAuthClient } from "better-auth/react";
 import { anonymousClient, magicLinkClient } from "better-auth/client/plugins";
 
 export const authClient = createAuthClient({
-  baseURL: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  // Same origin as the page. A baked-in NEXT_PUBLIC_SITE_URL made the
+  // browser post to localhost (or production) even when the admin UI was
+  // opened from a phone on the LAN / a preview URL.
   plugins: [anonymousClient(), magicLinkClient()],
 });
 

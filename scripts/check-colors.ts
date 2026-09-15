@@ -79,9 +79,20 @@ test("粉红色 is pink, not also red", () => {
   assert.deepEqual(classifyColorsFromText("粉红色手机壳"), ["pink"]);
 });
 
-test("transparent / 透明 map to clear", () => {
+test("transparent / 透明: English material stays Clear; CJK boilerplate does not", () => {
   assert.deepEqual(classifyColorsFromText("transparent TPU"), ["clear"]);
-  assert.deepEqual(classifyColorsFromText("透明手机壳"), ["clear"]);
+  assert.deepEqual(classifyColorsFromText("透明手机壳"), []);
+  assert.deepEqual(classifyColorsFromText("浅蓝色透明壳"), ["blue"]);
+});
+
+test("title colour wins; folder 透明/白色 cannot dump extras", () => {
+  assert.deepEqual(
+    classifyProductColors({
+      title: "Hello Kitty Surfing Kitty Blue Wave Phone Case",
+      sourceFolder: "蓝色白色透明凯蒂猫",
+    }),
+    ["blue"],
+  );
 });
 
 test("word boundaries stop false positives", () => {
@@ -135,11 +146,51 @@ test("trace pixels do not invent a family", () => {
   assert.deepEqual(classifyColorsFromPixels(pixels), ["black"]);
 });
 
-test("merge keeps taxonomy order and the per-product cap", () => {
+test("merge is evidence-ranked: claimed wins, observed cannot dump neutrals", () => {
   assert.deepEqual(
     mergeColorClassifications(["blue"], ["pink", "clear"], ["blue"]),
-    ["pink", "blue", "clear"],
+    ["blue"],
   );
+  assert.deepEqual(
+    mergeColorClassifications([], ["pink", "white", "grey", "clear"]),
+    ["pink"],
+  );
+  assert.deepEqual(
+    mergeColorClassifications(["clear"], ["purple", "white", "grey"]),
+    ["purple", "clear"],
+  );
+  assert.deepEqual(mergeColorClassifications(["pink", "purple"], ["blue"]), [
+    "pink",
+    "purple",
+  ]);
+});
+
+test("boilerplate Clear Phone Case is not the Clear facet", () => {
+  assert.deepEqual(
+    classifyProductColors({
+      title: "Rainy Cloud Cute Clear Phone Case with 3D Cloud Grip",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    classifyColorsFromText("Clear with Purple Frame Charm"),
+    ["purple", "clear"],
+  );
+});
+
+test("descriptions and tags do not vote as claimed colour", () => {
+  assert.deepEqual(
+    classifyProductColors({
+      title: "Sanrio Hello Kitty Kawaii Case with Charm",
+      description: "Pink glitter with gold beads and a silver charm.",
+      tags: ["pink", "gold", "silver"],
+    }),
+    [],
+  );
+});
+
+test("ice cream is not beige via cream", () => {
+  assert.deepEqual(classifyColorsFromText("pastel ice cream phone case"), []);
 });
 
 test("merchant color joins with a slash", () => {

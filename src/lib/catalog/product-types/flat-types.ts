@@ -21,7 +21,6 @@ import type { ProductTypeConfig, ProductTypeId } from "../types";
  * {@link FX_FROM_USD}. Tune freely — these are deliberate defaults, not magic.
  */
 const USD_BASE: Record<string, number> = {
-  airpod_case: 16.99,
   samsung_case: 24.99,
   pixel_case: 24.99,
   ipad_case: 26.99,
@@ -80,24 +79,6 @@ function flatType(opts: {
     getPriceFromOptions: (_options, currency) => priceFor(currency),
   };
 }
-
-export const airpodCaseType = flatType({
-  id: "airpod_case",
-  label: "AirPods Case",
-  description: "AirPods / AirPods Pro cases — one flat price, buyer picks fit.",
-  noun: "Case",
-  axis: {
-    name: "AirPods Model",
-    values: [
-      "AirPods Pro 3",
-      "AirPods Pro 2",
-      "AirPods 4",
-      "AirPods 3",
-      "AirPods 1 / 2",
-      "AirPods Max",
-    ],
-  },
-});
 
 export const samsungCaseType = flatType({
   id: "samsung_case",

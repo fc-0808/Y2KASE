@@ -143,6 +143,7 @@ async function main() {
         const styleMap = await withRetry(() =>
           classifyImageStyles(
             items.map((it) => ({ filename: it.filename, imageUrl: it.imageUrl })),
+            { productType: "iphone_case" },
           ),
         );
         for (const it of items) {

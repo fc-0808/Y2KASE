@@ -2,12 +2,10 @@
  * /api/video/[productId] — product video proxy.
  *
  * TikTok's PULL_FROM_URL method requires the video to be hosted on a domain
- * that has been verified in the TikTok Developer Portal. Our product videos
- * live on Cloudflare R2 (pub-*.r2.dev), which we don't control at the DNS
- * level. Instead we verify y2kase.com once in the TikTok portal, and this
- * endpoint proxies the request: TikTok fetches
+ * verified in the TikTok Developer Portal. Shoppers load product videos from
+ * media.y2kase.com; this endpoint still proxies through y2kase.com for TikTok:
  *   https://y2kase.com/api/video/42
- * which streams the product's R2 video back to TikTok's servers.
+ * which streams the R2 object back to TikTok's servers.
  *
  * The proxy is range-request aware (TikTok may send Range headers for
  * large video files), and sets Cache-Control headers so Vercel's Edge

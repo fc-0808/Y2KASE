@@ -16,6 +16,7 @@ import {
   colorFamilyLabel,
   isColorFamilySlug,
 } from "@/lib/catalog/colors";
+import type { MotifFamily } from "@/lib/catalog/motifs";
 import {
   isMotifFamilySlug,
   motifFamily,
@@ -25,6 +26,7 @@ import { buildCatalogHref, type CatalogParams } from "@/lib/catalog/params";
 import type { BrandOption } from "./brand-options";
 import { brandOptionName } from "./brand-options";
 import { ColorSwatch } from "./ColorSwatch";
+import { MotifMark } from "./MotifMark";
 
 export type CatalogChip = {
   key: string;
@@ -32,6 +34,8 @@ export type CatalogChip = {
   clearHref: string;
   /** Visual marker for color chips — omitted for every other facet. */
   swatch?: ColorFamily;
+  /** Visual marker for theme chips. */
+  motif?: MotifFamily;
 };
 
 /** Prettify a slug we have no display name for ("my-melody" → "my melody"). */
@@ -98,6 +102,7 @@ export function buildCatalogChips(
       clearHref: buildCatalogHref(params, {
         motifs: params.motifs.filter((s) => s !== slug),
       }),
+      motif: family ?? undefined,
     });
   }
   if (params.magsafe !== undefined)
@@ -171,6 +176,9 @@ export function CatalogSummary({
               size="sm"
               className="ring-white/40"
             />
+          )}
+          {chip.motif && (
+            <MotifMark family={chip.motif} size="sm" className="bg-white/20" />
           )}
           {chip.label}
           <X aria-hidden className="h-3.5 w-3.5 text-white/80" />

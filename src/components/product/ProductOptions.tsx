@@ -21,6 +21,10 @@
  *  • Style — a card grid carrying each bundle's real price. Style *is* the
  *    price axis, and pricing it inline turns a blind choice into a comparison.
  *
+ *  • AirPods Model — pills with the repeated "AirPods" prefix stripped, and a
+ *    note when the 4/5 shared mould is offered so a shopper with AirPods 5
+ *    does not hunt for a chip that isn't there.
+ *
  * Any other axis (future product types) falls back to plain pills, so this
  * component stays safe to render for anything the catalogue grows.
  *
@@ -39,6 +43,13 @@ import {
   modelTier,
   type IphoneGeneration,
 } from "@/lib/pricing";
+import {
+  AIRPODS_4_5,
+  AIRPODS_MODEL_OPTION_NAME,
+  AIRPODS_SHARED_FIT_NOTE,
+  airpodsChipLabel,
+  offersAirpods45,
+} from "@/lib/catalog/airpods";
 import { cn, formatPrice } from "@/lib/utils";
 
 export type ProductOption = { id: number; name: string; values: string[] };
@@ -73,13 +84,17 @@ export function ProductOptions({
         // the shopper exactly what they're buying.
         if (opt.values.length <= 1)
           return (
-            <FieldHeader
-              key={opt.id}
-              id={`option-${opt.id}-label`}
-              label={opt.name}
-              value={shared.value}
-              className="mb-0"
-            />
+            <div key={opt.id}>
+              <FieldHeader
+                id={`option-${opt.id}-label`}
+                label={opt.name}
+                value={shared.value}
+                className="mb-0"
+              />
+              {opt.name === AIRPODS_MODEL_OPTION_NAME ? (
+                <AirpodsFitNote values={opt.values} />
+              ) : null}
+            </div>
           );
 
         if (opt.name === MODEL_OPTION_NAME)
@@ -94,6 +109,9 @@ export function ProductOptions({
               priceForStyle={priceForStyle}
             />
           );
+
+        if (opt.name === AIRPODS_MODEL_OPTION_NAME)
+          return <AirpodsModelPicker key={opt.id} {...shared} />;
 
         return <ChipPicker key={opt.id} {...shared} />;
       })}
@@ -354,27 +372,98 @@ function ChipPicker({ optionId, name, values, value, onSelect }: PickerProps) {
   return (
     <div>
       <FieldHeader id={labelId} label={name} value={value} />
-      <div
-        role="radiogroup"
-        aria-labelledby={labelId}
-        className="flex flex-wrap gap-2"
-      >
-        {values.map((option) => (
-          <OptionCard
-            key={option}
-            group={`option-${optionId}`}
-            value={option}
-            checked={value === option}
-            onSelect={onSelect}
-            srLabel={option}
-            className="items-center justify-center px-4 py-2 text-center"
-            rounded="rounded-full"
-          >
-            <span className="text-sm font-semibold">{option}</span>
-          </OptionCard>
-        ))}
-      </div>
+      <ChipRow
+        optionId={optionId}
+        labelId={labelId}
+        values={values}
+        value={value}
+        onSelect={onSelect}
+      />
     </div>
+  );
+}
+
+/**
+ * AirPods chips drop the repeated "AirPods" prefix (the axis already says
+ * that) and spell out the 4/5 shared mould so a shopper with AirPods 5 does
+ * not hunt for a chip that isn't there.
+ */
+function AirpodsModelPicker({
+  optionId,
+  name,
+  values,
+  value,
+  onSelect,
+}: PickerProps) {
+  const labelId = `option-${optionId}-label`;
+
+  return (
+    <div>
+      <FieldHeader id={labelId} label={name} value={value} />
+      <ChipRow
+        optionId={optionId}
+        labelId={labelId}
+        values={values}
+        value={value}
+        onSelect={onSelect}
+        labelFor={airpodsChipLabel}
+      />
+      <AirpodsFitNote values={values} />
+    </div>
+  );
+}
+
+function ChipRow({
+  optionId,
+  labelId,
+  values,
+  value,
+  onSelect,
+  labelFor,
+}: {
+  optionId: number;
+  labelId: string;
+  values: string[];
+  value: string;
+  onSelect: (value: string) => void;
+  labelFor?: (value: string) => string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-labelledby={labelId}
+      className="flex flex-wrap gap-2"
+    >
+      {values.map((option) => (
+        <OptionCard
+          key={option}
+          group={`option-${optionId}`}
+          value={option}
+          checked={value === option}
+          onSelect={onSelect}
+          srLabel={option}
+          className="items-center justify-center px-4 py-2 text-center"
+          rounded="rounded-full"
+        >
+          <span className="text-sm font-semibold">
+            {labelFor ? labelFor(option) : option}
+          </span>
+        </OptionCard>
+      ))}
+    </div>
+  );
+}
+
+function AirpodsFitNote({ values }: { values: readonly string[] }) {
+  if (!offersAirpods45(values)) return null;
+  return (
+    <p className="mt-2 text-xs leading-relaxed text-[var(--foreground)]/55">
+      {AIRPODS_SHARED_FIT_NOTE} Pick{" "}
+      <span className="font-semibold text-[var(--foreground)]/70">
+        {AIRPODS_4_5}
+      </span>{" "}
+      if you own either.
+    </p>
   );
 }
 

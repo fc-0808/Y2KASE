@@ -25,8 +25,12 @@ import {
   compatibilityAxisFor,
   getProductType,
   inferProductTypeId,
+  mediaTagAxisFor,
+  priceAxisFor,
 } from "@/lib/catalog/product-types";
 import { listingIp, repairListingTitle } from "@/lib/catalog/listing-title";
+import { normalizeImageStyleTags } from "@/lib/pricing";
+import { styleClassifyLabel } from "@/lib/catalog/style-classify";
 import { dhashFromBuffer } from "@/lib/catalog/phash";
 import { sanitizeTag } from "@/lib/catalog/copy-schema";
 import {
@@ -349,11 +353,19 @@ export async function ingestProductFolder(
   }
 
   let styleMap: Record<string, string[]> = {};
-  if (type.id === "iphone_case") {
+  if (mediaTagAxisFor(type.id)) {
     try {
+      const offeredStyles = priceAxisFor(type.id)?.values ?? [];
       styleMap = await classifyImageStyles(
-        webp.map((w, i) => ({ filename: w.filename, imageUrl: dataUrls[i] })),
+        webp.map((w, i) => ({
+          filename: styleClassifyLabel(i),
+          imageUrl: dataUrls[i]!,
+        })),
+        { productType: type.id, offeredStyles },
       );
+      const tagged = Object.values(styleMap).filter((tags) => tags.length > 0)
+        .length;
+      log(`style tags → ${tagged}/${webp.length} photos`);
     } catch (e) {
       log(
         `style classification skipped: ${e instanceof Error ? e.message : e}`,
@@ -368,7 +380,7 @@ export async function ingestProductFolder(
   const uploaded = await mapWithConcurrency(
     webp,
     UPLOAD_CONCURRENCY,
-    async (w) => {
+    async (w, index) => {
       const key = `products/${keyBase}/${w.objectName}`;
       const [url, phash] = await Promise.all([
         uploadWebpToR2(r2, bucket, key, w.buffer),
@@ -378,7 +390,7 @@ export async function ingestProductFolder(
       return {
         url,
         filename: w.filename,
-        styleTags: styleMap[w.filename] ?? [],
+        styleTags: styleMap[styleClassifyLabel(index)] ?? [],
         phash,
       };
     },
@@ -456,26 +468,25 @@ export async function ingestProductFolder(
     }
   }
   const colors = mergeColorClassifications(
-    copy?.colors ?? [],
     classifyProductColors({
       title,
-      description,
-      tags,
       sourceFolder: folder.folderPath,
-      materials,
     }),
+    copy?.colors ?? [],
     pixelColors,
   );
   if (colors.length > 0) log(`colors → ${colors.join(", ")}`);
 
   const motifs = mergeMotifClassifications(
-    copy?.motifs ?? [],
     classifyProductMotifs({
       title,
-      description,
-      tags,
       sourceFolder: folder.folderPath,
     }),
+    copy?.motifs ?? [],
+    {
+      brandName: brandClassification.brand,
+      characterName: brandClassification.character,
+    },
   );
   if (motifs.length > 0) log(`motifs → ${motifs.join(", ")}`);
 
@@ -508,6 +519,7 @@ export async function ingestProductFolder(
     })
     .returning({ id: products.id });
 
+  const offeredStyles = priceAxisFor(type.id)?.values ?? [];
   await db.insert(productImages).values(
     uploaded.map((u, idx) => ({
       productId: product.id,
@@ -515,7 +527,9 @@ export async function ingestProductFolder(
       position: idx,
       altText: idx === 0 ? altText : null,
       aiAnalyzed: true,
-      styleTags: u.styleTags,
+      styleTags: offeredStyles.length
+        ? normalizeImageStyleTags(u.styleTags, offeredStyles)
+        : [],
       sourceFilename: u.filename,
       phash: u.phash,
     })),

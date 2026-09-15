@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ShoppingBag, Check, Play } from "lucide-react";
 import { useCart } from "@/lib/store/cart";
@@ -8,15 +7,22 @@ import { formatPrice } from "@/lib/utils";
 import {
   MODEL_OPTION_NAME,
   STYLE_OPTION_NAME,
-  getStylePrice,
   defaultStyleFor,
   defaultModelFor,
 } from "@/lib/pricing";
+import { getProductType, priceAxisFor } from "@/lib/catalog/product-types";
+import {
+  AIRPODS_MODEL_OPTION_NAME,
+  defaultAirpodsModelFor,
+  extendAirpodsSharedFits,
+} from "@/lib/catalog/airpods";
+import { selectStorefrontImages, storefrontVideoUrl } from "@/lib/catalog/storefront-media";
 import {
   trackCartAdd,
   trackProductView,
 } from "@/lib/analytics/commerce";
 import { Stars } from "@/components/reviews/Stars";
+import { ProductMedia } from "@/components/ProductMedia";
 import { ProductOptions } from "@/components/product/ProductOptions";
 import { StickyBuyBar } from "@/components/product/StickyBuyBar";
 
@@ -33,6 +39,32 @@ type Slide =
   | { kind: "image"; id: number; url: string; alt: string }
   | { kind: "video"; url: string };
 
+/**
+ * Storefront option values as the shopper should see them.
+ *
+ * AirPods 4 and 5 share a mould. Legacy rows (and a stale ISR entry) may
+ * still store `"AirPods 4"`; folding that onto `"AirPods 4 / 5"` here keeps
+ * the picker, the default selection and the cart line on the same string
+ * even before the backfill lands. AirPods Max is not in the catalogue; the
+ * same fold drops it so a leftover chip cannot reappear on the picker.
+ */
+function storefrontOptions(options: Option[]): Option[] {
+  return options.map((option) =>
+    option.name === AIRPODS_MODEL_OPTION_NAME
+      ? { ...option, values: extendAirpodsSharedFits(option.values) }
+      : option,
+  );
+}
+
+function defaultValueFor(option: Option): string {
+  if (option.name === STYLE_OPTION_NAME) return defaultStyleFor(option.values);
+  if (option.name === MODEL_OPTION_NAME) return defaultModelFor(option.values);
+  if (option.name === AIRPODS_MODEL_OPTION_NAME) {
+    return defaultAirpodsModelFor(option.values);
+  }
+  return option.values[0] ?? "";
+}
+
 export function ProductDetailClient({
   productId,
   slug,
@@ -47,6 +79,7 @@ export function ProductDetailClient({
   videoPosition,
   images,
   options,
+  trackCommerce = true,
 }: {
   productId: number;
   slug: string;
@@ -61,21 +94,19 @@ export function ProductDetailClient({
   videoPosition: number | null;
   images: Img[];
   options: Option[];
+  /**
+   * Commerce pixels (view + add-to-cart). Off on unpublished admin previews
+   * so draft inspections do not pollute storefront analytics.
+   */
+  trackCommerce?: boolean;
 }) {
   const addItem = useCart((s) => s.addItem);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const axes = useMemo(() => storefrontOptions(options), [options]);
   const [selected, setSelected] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      options
-        .map((o) => [
-          o.name,
-          // Style axis opens on the cheapest entry style ("Case Only" when offered).
-          o.name === STYLE_OPTION_NAME
-            ? defaultStyleFor(o.values)
-            : o.name === MODEL_OPTION_NAME
-              ? defaultModelFor(o.values)
-              : o.values[0] ?? "",
-        ])
+      storefrontOptions(options)
+        .map((o) => [o.name, defaultValueFor(o)])
         .filter(([, v]) => v),
     ),
   );
@@ -86,73 +117,112 @@ export function ProductDetailClient({
   const [styleAtSlideReset, setStyleAtSlideReset] = useState(
     selected[STYLE_OPTION_NAME],
   );
+  // Runtime 404s (objects deleted after ingest, flaky CDN) are dropped from
+  // the gallery so a native broken-image icon never stays on the PDP.
+  const [failedUrls, setFailedUrls] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [mediaProductId, setMediaProductId] = useState(productId);
+  if (mediaProductId !== productId) {
+    setMediaProductId(productId);
+    setActiveSlide(0);
+    setFailedUrls(new Set());
+  }
 
-  const allSelected = options.every((o) => selected[o.name]);
+  const gallery = useMemo(
+    () =>
+      selectStorefrontImages(images).filter((img) => !failedUrls.has(img.url)),
+    [images, failedUrls],
+  );
+  const playableVideoUrl =
+    storefrontVideoUrl(videoUrl) && videoUrl && !failedUrls.has(videoUrl)
+      ? videoUrl
+      : null;
+
+  const allSelected = axes.every((o) => selected[o.name]);
   const selectedStyle = selected[STYLE_OPTION_NAME];
 
   // The video is spliced into the slide list at this slot, so an image's index
-  // within `images` shifts by one for slides at/after it. -1 = no video.
-  const videoSlot = videoUrl
-    ? Math.max(0, Math.min(videoPosition ?? 1, images.length))
+  // within `gallery` shifts by one for slides at/after it. -1 = no video.
+  const videoSlot = playableVideoUrl
+    ? Math.max(0, Math.min(videoPosition ?? 1, gallery.length))
     : -1;
   const imageIndexToSlideIndex = (imgIdx: number) =>
     videoSlot >= 0 && imgIdx >= videoSlot ? imgIdx + 1 : imgIdx;
 
-  // The FULL gallery is always shown so shoppers see every angle at a glance.
-  // Switching Style never hides images — it simply reveals the first photo
-  // tagged for the newly chosen style (like Apple / CASETiFY variant galleries).
-  // If the style has no dedicated photo, the current slide is left untouched.
-  // Uses the render-time "adjust state on dependency change" pattern (no effect).
+  // The FULL live gallery is always shown so shoppers see every angle at a
+  // glance. Switching Style never hides images — it simply reveals the first
+  // photo tagged for the newly chosen style (like Apple / CASETiFY variant
+  // galleries). If the style has no dedicated live photo, the current slide is
+  // left untouched. Uses the render-time "adjust state on dependency change"
+  // pattern (no effect).
   if (selectedStyle !== styleAtSlideReset) {
     setStyleAtSlideReset(selectedStyle);
     const imgIdx = selectedStyle
-      ? images.findIndex((img) => img.styleTags.includes(selectedStyle))
+      ? gallery.findIndex((img) => img.styleTags.includes(selectedStyle))
       : -1;
     if (imgIdx >= 0) setActiveSlide(imageIndexToSlideIndex(imgIdx));
   }
 
-  // Price is driven by the selected Style (iPhone cases). Other product types
-  // fall back to the stored base price until their own pricing is wired.
-  const isIphoneCase = productType === "iphone_case";
-  const currentPrice = useMemo(
-    () => (isIphoneCase ? getStylePrice(selectedStyle, currency) : price),
-    [isIphoneCase, selectedStyle, currency, price],
-  );
+  function noteBrokenImage(url: string) {
+    setFailedUrls((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
+  }
+
+  // Price is driven by the selected Style when the type has a price axis.
+  // Flat types fall back to the stored base price.
+  const priceAxis = priceAxisFor(productType);
+  const currentPrice = useMemo(() => {
+    if (!priceAxis) return price;
+    return getProductType(productType).getPriceFromOptions(
+      selected,
+      currency,
+    );
+  }, [priceAxis, productType, selected, currency, price]);
   const onSale =
     compareAtPrice !== null &&
     compareAtPrice !== undefined &&
     compareAtPrice > currentPrice;
 
-  // Every image is a slide (plus the optional video) — nothing is filtered out.
+  // Every live image is a slide (plus the optional video) — retired 404
+  // objects never enter the strip.
   const slides = useMemo<Slide[]>(() => {
-    const imgSlides: Slide[] = images.map((img) => ({
+    const imgSlides: Slide[] = gallery.map((img) => ({
       kind: "image",
       id: img.id,
       url: img.url,
       alt: img.altText ?? title,
     }));
-    if (!videoUrl) return imgSlides;
+    if (!playableVideoUrl) return imgSlides;
 
     // Insert the video at its configured slot (default: second slide, index 1).
     return [
       ...imgSlides.slice(0, videoSlot),
-      { kind: "video", url: videoUrl },
+      { kind: "video", url: playableVideoUrl },
       ...imgSlides.slice(videoSlot),
     ];
-  }, [images, videoUrl, videoSlot, title]);
+  }, [gallery, playableVideoUrl, videoSlot, title]);
 
-  const current = slides[activeSlide] ?? slides[0];
+  const lastSlide = Math.max(0, slides.length - 1);
+  if (activeSlide > lastSlide) setActiveSlide(lastSlide);
+
+  const current = slides[Math.min(activeSlide, lastSlide)] ?? slides[0];
 
   // Commerce view event — fire exactly once when the PDP is first viewed.
   const viewedRef = useRef(false);
   useEffect(() => {
+    if (!trackCommerce) return;
     if (viewedRef.current) return;
     viewedRef.current = true;
     trackProductView(
       { productId, slug, title, price: currentPrice, options: selected },
       currency,
     );
-  }, [productId, slug, title, currentPrice, currency, selected]);
+  }, [trackCommerce, productId, slug, title, currentPrice, currency, selected]);
 
   function handleAdd() {
     if (!allSelected) return;
@@ -166,16 +236,25 @@ export function ProductDetailClient({
       // falling back to the hero image when the style has no dedicated shot.
       imageUrl:
         (selectedStyle
-          ? images.find((img) => img.styleTags.includes(selectedStyle))?.url
+          ? gallery.find((img) => img.styleTags.includes(selectedStyle))?.url
           : undefined) ??
-        images[0]?.url ??
+        gallery[0]?.url ??
         null,
       options: selected,
     });
-    trackCartAdd(
-      { productId, slug, title, price: currentPrice, options: selected, quantity: 1 },
-      currency,
-    );
+    if (trackCommerce) {
+      trackCartAdd(
+        {
+          productId,
+          slug,
+          title,
+          price: currentPrice,
+          options: selected,
+          quantity: 1,
+        },
+        currency,
+      );
+    }
     setAdded(true);
     setTimeout(() => setAdded(false), 1500);
   }
@@ -194,18 +273,19 @@ export function ProductDetailClient({
               muted
               loop
               playsInline
+              onError={() => noteBrokenImage(current.url)}
             />
           ) : current?.kind === "image" ? (
-            <Image
+            <ProductMedia
+              key={current.url}
               src={current.url}
               alt={current.alt}
-              fill
-              quality={82}
-              unoptimized
+              fit="contain"
               loading={activeSlide === 0 ? "eager" : "lazy"}
               fetchPriority={activeSlide === 0 ? "high" : "auto"}
               sizes="(max-width: 1024px) 100vw, 50vw"
-              className="object-contain"
+              className="h-full w-full"
+              onImageError={noteBrokenImage}
             />
           ) : (
             <div className="grid h-full place-items-center text-6xl">🎀</div>
@@ -262,16 +342,15 @@ export function ProductDetailClient({
                 >
                   {slide.kind === "video" ? (
                     <>
-                      {images[0]?.url ? (
-                        <Image
-                          src={images[0].url}
+                      {gallery[0]?.url ? (
+                        <ProductMedia
+                          src={gallery[0].url}
                           alt=""
-                          fill
-                          quality={72}
-                          unoptimized
+                          fit="contain"
                           loading="lazy"
                           sizes="80px"
-                          className="object-contain"
+                          className="h-full w-full"
+                          onImageError={noteBrokenImage}
                         />
                       ) : null}
                       <span className="absolute inset-0 grid place-items-center bg-black/30">
@@ -279,15 +358,14 @@ export function ProductDetailClient({
                       </span>
                     </>
                   ) : (
-                    <Image
+                    <ProductMedia
                       src={slide.url}
                       alt={slide.alt}
-                      fill
-                      quality={82}
-                      unoptimized
+                      fit="contain"
                       loading="lazy"
                       sizes="80px"
-                      className="object-contain"
+                      className="h-full w-full"
+                      onImageError={noteBrokenImage}
                     />
                   )}
                 </button>
@@ -331,16 +409,20 @@ export function ProductDetailClient({
         </div>
 
         <ProductOptions
-          options={options}
+          options={axes}
           selected={selected}
           onSelect={(name, value) =>
             setSelected((s) => ({ ...s, [name]: value }))
           }
           currency={currency}
-          // Only the iPhone-case axis is priced per style today; other product
-          // types would otherwise price every card at the same base number.
           priceForStyle={
-            isIphoneCase ? (style) => getStylePrice(style, currency) : undefined
+            priceAxis
+              ? (style) =>
+                  getProductType(productType).getPriceFromOptions(
+                    { ...selected, [priceAxis.name]: style },
+                    currency,
+                  )
+              : undefined
           }
         />
 

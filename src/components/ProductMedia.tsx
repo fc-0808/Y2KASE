@@ -1,6 +1,10 @@
+"use client";
+
 import Image from "next/image";
 import type { ImageProps } from "next/image";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { canonicalizePublicR2Url } from "@/lib/catalog/r2-public";
+import { isStorefrontRenderableUrl } from "@/lib/catalog/storefront-media";
 
 type ProductMediaFit = "cover" | "contain";
 
@@ -15,6 +19,10 @@ type ProductMediaFit = "cover" | "contain";
  * surface, plus a graceful fallback). Sizing, radius and borders stay with the
  * caller via `className`, and overlays (sale badges, video controls) render as
  * `children`.
+ *
+ * A URL that 404s (or that {@link isStorefrontRenderableUrl} already rejected)
+ * never stays as a native broken-image icon — we swap to the fallback so a
+ * single dead object cannot blank a listing card or the PDP hero.
  */
 export function ProductMedia({
   src,
@@ -26,6 +34,7 @@ export function ProductMedia({
   className,
   imageClassName,
   fallbackClassName = "text-4xl",
+  onImageError,
   children,
 }: {
   src?: string | null;
@@ -40,9 +49,21 @@ export function ProductMedia({
   imageClassName?: string;
   /** Sizing for the emoji fallback shown when no image is available. */
   fallbackClassName?: string;
+  /** Fired after a requested `src` fails to decode, so galleries can drop it. */
+  onImageError?: (src: string) => void;
   children?: ReactNode;
 }) {
+  const renderable = isStorefrontRenderableUrl(src)
+    ? canonicalizePublicR2Url(src)
+    : null;
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [renderable]);
+
   const fitClass = fit === "contain" ? "object-contain" : "object-cover";
+  const showImage = Boolean(renderable) && !failed;
 
   return (
     <div
@@ -50,9 +71,9 @@ export function ProductMedia({
         className ? ` ${className}` : ""
       }`}
     >
-      {src ? (
+      {showImage && renderable ? (
         <Image
-          src={src}
+          src={renderable}
           alt={alt}
           fill
           sizes={sizes}
@@ -63,6 +84,10 @@ export function ProductMedia({
           unoptimized
           loading={loading}
           fetchPriority={fetchPriority}
+          onError={() => {
+            setFailed(true);
+            onImageError?.(renderable);
+          }}
           className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
         />
       ) : (
