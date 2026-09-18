@@ -11,6 +11,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Package, Sparkles } from "lucide-react";
 import { getSession } from "@/lib/auth";
+import { isSignedInUser } from "@/lib/auth-redirect";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export default async function AccountLayout({
   children: React.ReactNode;
 }) {
   const session = await getSession(await headers());
-  if (!session?.user || session.user.isAnonymous) {
+  if (!session || !isSignedInUser(session.user)) {
     redirect("/sign-in?callbackUrl=/account/orders");
   }
 

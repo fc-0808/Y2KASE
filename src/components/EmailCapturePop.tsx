@@ -67,6 +67,7 @@ import { useCart } from "@/lib/store/cart";
 import { usePromoActions } from "@/lib/store/promo";
 import { BUNDLE, WELCOME_COUPON, resolveLocalCoupon } from "@/lib/promotions";
 import { gaEvent } from "@/lib/analytics/gtag";
+import { CreateAccountInvite } from "@/components/auth/CreateAccountInvite";
 
 const LS_KEY_SHOWN_AT = "y2k_popup_shown_at";
 const LS_KEY_DISMISS_COUNT = "y2k_popup_dismiss_count";
@@ -387,7 +388,7 @@ export function EmailCapturePop() {
           // The successful server-side subscription remains authoritative.
         }
         // Only count net-new signups as conversions — re-submits are acknowledgement.
-        if (!returning) gaEvent("sign_up", { method: "welcome_popup" });
+        if (!returning) gaEvent("generate_lead", { method: "welcome_popup" });
       }
     } catch (submitError) {
       if (
@@ -605,6 +606,7 @@ export function EmailCapturePop() {
                 >
                   Shop Now ✨
                 </Link>
+                <CreateAccountInvite email={email} className="mt-4 text-center text-[13px] leading-snug text-[var(--foreground)]/65" />
               </div>
             )}
           </div>

@@ -24,6 +24,7 @@ import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe } from "@/lib/stripe";
 import { sendOrderConfirmationOnce } from "@/lib/email";
 import { sendCapiPurchase } from "@/lib/analytics/meta-capi";
+import { normalizeEmail } from "@/lib/email-address";
 
 export const runtime = "nodejs";
 
@@ -128,7 +129,7 @@ function contactFrom(session: Stripe.Checkout.Session): {
   } = {};
 
   const email = session.customer_details?.email ?? session.customer_email;
-  if (email) patch.email = email;
+  if (email) patch.email = normalizeEmail(email);
 
   const shipping = session.collected_information?.shipping_details ?? null;
   const address = shipping?.address;

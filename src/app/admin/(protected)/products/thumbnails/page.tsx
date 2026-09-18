@@ -81,7 +81,8 @@ export default async function ThumbnailReviewPage({
       <p className="mt-1 max-w-2xl text-sm text-[var(--foreground)]/60">
         AI selects each product&apos;s cleanest photo, removes its background and
         centers it on a uniform white surface. Approve to make it the product&apos;s
-        thumbnail, flag products that need a better source photo, or skip. The
+        thumbnail — drafts stay unpublished unless you turn on “Publish drafts on
+        approve.” Flag products that need a better source photo, or skip. The
         real product is never altered — only isolated.
       </p>
 

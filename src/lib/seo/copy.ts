@@ -13,6 +13,7 @@
  */
 
 import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
+import { deviceLabel } from "@/lib/catalog/devices";
 import { truncateDescription } from "@/lib/seo";
 
 /** Matches the root layout `title.template`. Keep these in lockstep. */
@@ -41,6 +42,12 @@ export type CollectionSeoInput = {
   slug: string;
   kind?: string | null;
   description?: string | null;
+  /**
+   * Device ids this collection currently stocks, in menu order.
+   * Drives the product noun: an AirPods-only character page may say
+   * "AirPods Cases"; a mixed or iPhone page keeps "Phone Cases".
+   */
+  stockedDeviceIds?: string[];
 };
 
 export type CollectionSeoCopy = {
@@ -65,6 +72,7 @@ export type CollectionSeoCopy = {
  * | `/collections/magsafe`      | "magsafe phone cases"                     |                                       |
  * | `/collections/originals`    | "original cute phone cases"               | Licensed character queries            |
  * | `/devices/iphone`           | "iphone cases"                            | Character queries                     |
+ * | `/devices/airpods`          | "airpods cases" (when the line is live)   | Character queries                     |
  * | `/blog`                     | Informational guides                      | Commercial category queries           |
  * | `/insights`                 | First-party catalog snapshot              | Commercial category queries           |
  */
@@ -101,7 +109,7 @@ export const PAGE_COPY = {
     title: "Shipping, MagSafe & Returns FAQ",
     heading: "Frequently Asked Questions",
     description:
-      "Answers about Y2KASE shipping, iPhone compatibility, MagSafe cases, charms and 30-day returns.",
+      "Answers about Y2KASE shipping, iPhone and AirPods fit, MagSafe cases, charms and 30-day returns.",
     primary: "y2kase shipping faq",
   },
   contact: {
@@ -142,14 +150,53 @@ const COLLECTION_HEADING_OVERRIDES: Record<string, string> = {
   originals: "Original Phone Cases",
 };
 
-const PRODUCT_NOUN_RE = /\b(phone cases?|iphone cases?|cases)\b/i;
+const PRODUCT_NOUN_RE = /\b(phone cases?|iphone cases?|airpods cases?|cases)\b/i;
+
+const PHONE_CASES_NOUN = "Phone Cases";
+const AIRPODS_CASES_NOUN = "AirPods Cases";
+
+/**
+ * Product noun for a collection landing.
+ *
+ * Character pages own "phone cases". `/devices/airpods` owns "airpods cases".
+ * The exception is a collection that stocks *only* AirPods — then the H1
+ * telling the truth ("Hello Kitty AirPods Cases") cannot cannibalize a
+ * phone-cases URL that does not exist on this page.
+ *
+ * MagSafe is a phone-case feature collection and never flips noun.
+ */
+export function collectionProductNoun(
+  stockedDeviceIds?: string[],
+  slug?: string,
+): typeof PHONE_CASES_NOUN | typeof AIRPODS_CASES_NOUN {
+  if (slug === "magsafe") return PHONE_CASES_NOUN;
+  const ids = [...new Set(stockedDeviceIds ?? [])];
+  if (ids.length === 1 && ids[0] === "airpods") return AIRPODS_CASES_NOUN;
+  return PHONE_CASES_NOUN;
+}
+
+function applyCollectionNoun(heading: string, noun: string): string {
+  return heading.replace(/\bPhone Cases\b/g, noun);
+}
+
+function collectionIsAirPodsOnly(input: CollectionSeoInput): boolean {
+  return (
+    collectionProductNoun(input.stockedDeviceIds, input.slug) ===
+    AIRPODS_CASES_NOUN
+  );
+}
 
 /** Visible H1 / title leaf for a collection landing page. */
-export function collectionHeading(name: string, slug: string): string {
+export function collectionHeading(
+  name: string,
+  slug: string,
+  stockedDeviceIds?: string[],
+): string {
+  const noun = collectionProductNoun(stockedDeviceIds, slug);
   const override = COLLECTION_HEADING_OVERRIDES[slug];
-  if (override) return override;
+  if (override) return applyCollectionNoun(override, noun);
   if (PRODUCT_NOUN_RE.test(name)) return name;
-  return `${name} Phone Cases`;
+  return `${name} ${noun}`;
 }
 
 function joinSentences(...parts: string[]): string {
@@ -165,11 +212,16 @@ function collectionTagline(input: CollectionSeoInput, heading: string): string {
   if (curated) return curated;
 
   const kind = input.kind ?? "";
+  const airpodsOnly = collectionIsAirPodsOnly(input);
   if (kind === "character" || kind === "brand") {
-    return `Kawaii, Y2K and holographic designs featuring ${input.name} — MagSafe-ready and drop-protective.`;
+    return airpodsOnly
+      ? `Kawaii, Y2K and holographic designs featuring ${input.name} — AirPods cases.`
+      : `Kawaii, Y2K and holographic designs featuring ${input.name} — MagSafe-ready and drop-protective.`;
   }
   if (kind === "feature") {
-    return `Shop ${heading} — kawaii, Y2K and holographic designs, MagSafe-ready.`;
+    return airpodsOnly
+      ? `Shop ${heading} — kawaii, Y2K and holographic designs.`
+      : `Shop ${heading} — kawaii, Y2K and holographic designs, MagSafe-ready.`;
   }
   return `Shop ${heading} — holographic, glittery and character-themed designs.`;
 }
@@ -184,9 +236,12 @@ function collectionDescription(
       joinSentences(curated, `Shop ${heading}`, FREE_SHIPPING_OFFER),
     );
   }
+  const magSafeClause = collectionIsAirPodsOnly(input)
+    ? ""
+    : " with MagSafe options";
   return truncateDescription(
     joinSentences(
-      `Shop ${heading} at Y2KASE — kawaii, Y2K and holographic designs with MagSafe options`,
+      `Shop ${heading} at Y2KASE — kawaii, Y2K and holographic designs${magSafeClause}`,
       FREE_SHIPPING_OFFER,
     ),
   );
@@ -194,7 +249,11 @@ function collectionDescription(
 
 /** Title, H1, tagline and meta description for a collection landing page. */
 export function collectionSeo(input: CollectionSeoInput): CollectionSeoCopy {
-  const heading = collectionHeading(input.name, input.slug);
+  const heading = collectionHeading(
+    input.name,
+    input.slug,
+    input.stockedDeviceIds,
+  );
   return {
     title: heading,
     heading,
@@ -202,6 +261,65 @@ export function collectionSeo(input: CollectionSeoInput): CollectionSeoCopy {
     tagline: collectionTagline(input, heading),
     primary: heading.toLowerCase(),
   };
+}
+
+/**
+ * Browser-tab title for a device-narrowed collection view.
+ *
+ * These URLs are `noindex` (they are facets, not landings), so the title is
+ * allowed to name the device without competing with `/devices/{id}`. The
+ * visible H1 stays the collection identity.
+ */
+export function collectionFilteredTitle(
+  input: CollectionSeoInput,
+  deviceId: string | undefined,
+): string {
+  const heading = collectionHeading(
+    input.name,
+    input.slug,
+    input.stockedDeviceIds,
+  );
+  if (!deviceId) return heading;
+  const device = deviceLabel(deviceId);
+  if (deviceId === "apple-accessories") return `${input.name} ${device}`;
+  if (deviceId === "airpods" && heading.endsWith("AirPods Cases")) {
+    return heading;
+  }
+  return `${input.name} ${device} Cases`;
+}
+
+function joinEnglish(labels: string[]): string {
+  if (labels.length === 0) return "";
+  if (labels.length === 1) return labels[0]!;
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
+/**
+ * On-page tagline that names every stocked product line.
+ *
+ * Indexable titles stay "{name} Phone Cases" on mixed and iPhone grids —
+ * that query is the money term and must not be diluted the day the first
+ * AirPods SKU is filed. An AirPods-only collection is allowed to name the
+ * line it actually sells. The visible subtitle tells the truth about a
+ * mixed grid. Curated descriptions (merchant-written) always win.
+ */
+export function collectionBrowseTagline(
+  input: CollectionSeoInput,
+  stockedDeviceIds: string[],
+): string {
+  const copy = collectionSeo({ ...input, stockedDeviceIds });
+  if (input.description?.trim()) return copy.tagline;
+
+  const kind = input.kind ?? "";
+  if (kind !== "character" && kind !== "brand") return copy.tagline;
+
+  const labels = stockedDeviceIds
+    .map((id) => deviceLabel(id))
+    .filter((label, index, all) => label.length > 0 && all.indexOf(label) === index);
+  if (labels.length < 2) return copy.tagline;
+
+  return `Kawaii, Y2K and holographic designs featuring ${input.name} — ${joinEnglish(labels)} cases.`;
 }
 
 /**

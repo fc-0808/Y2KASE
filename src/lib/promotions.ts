@@ -157,6 +157,11 @@ export const BUNDLE = {
   stackableWithCoupons: false,
 } as const;
 
+/** Shopper-facing ticker: derived so the bar cannot drift from checkout. */
+export function bundleStorefrontOffer(): string {
+  return `Buy ${BUNDLE.groupSize} Cases—Pay For ${BUNDLE.groupSize - BUNDLE.freePerGroup}`;
+}
+
 /** Units the bundle makes free for a given total unit count (tiered). */
 export function bundleFreeUnits(totalUnits: number): number {
   if (totalUnits < BUNDLE.groupSize) return 0;

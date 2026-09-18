@@ -3,11 +3,13 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, desc, eq, ne, or } from "drizzle-orm";
+import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { Package } from "lucide-react";
 import { db } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth";
+import { isSignedInUser } from "@/lib/auth-redirect";
+import { normalizeEmail } from "@/lib/email-address";
 import { formatPrice } from "@/lib/utils";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
 
@@ -45,16 +47,18 @@ export default async function AccountOrdersPage() {
   // Layout already guards access, but we re-resolve the session to scope the
   // query to exactly this user (defense-in-depth — never trust the layout alone).
   const session = await getSession(await headers());
-  if (!session?.user || session.user.isAnonymous) {
+  if (!session || !isSignedInUser(session.user)) {
     redirect("/sign-in?callbackUrl=/account/orders");
   }
 
   const { id: userId, email } = session.user;
+  const emailNorm = email ? normalizeEmail(email) : "";
 
   // Match orders linked to this account OR placed as a guest with this email
   // (so historical guest purchases appear once the customer signs in).
-  const ownership = email
-    ? or(eq(orders.userId, userId), eq(orders.email, email))
+  // `lower()` because Stripe and auth providers do not agree on casing.
+  const ownership = emailNorm
+    ? or(eq(orders.userId, userId), sql`lower(${orders.email}) = ${emailNorm}`)
     : eq(orders.userId, userId);
 
   const rows = await db.query.orders.findMany({

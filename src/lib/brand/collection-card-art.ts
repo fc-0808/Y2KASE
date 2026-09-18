@@ -11,16 +11,26 @@
  * surface, so a missing file degrades gracefully instead of 404-ing.
  */
 export const COLLECTION_CARD_ART_SLUGS: ReadonlySet<string> = new Set<string>([
+  "care-bears",
+  "chiikawa",
+  "crayon-shin-chan",
+  "disney",
   "miffy",
+  "monchhichi",
+  "peanuts",
+  "pokemon",
+  "rilakkuma",
   "sanrio",
+  "spongebob-squarepants",
   "tamagotchi",
+  "toy-story",
 ]);
 
 /**
  * Cache-busting stamp, refreshed on every generation run. Filenames are stable,
  * so this query param is what forces browsers to re-fetch regenerated art.
  */
-export const COLLECTION_CARD_ART_VERSION = "ms76ftmx";
+export const COLLECTION_CARD_ART_VERSION = "mu497r0m";
 
 /** Public path to a collection's card background (cache-busted). */
 export function collectionCardArtSrc(slug: string): string {

@@ -5,16 +5,17 @@ import { ArrowRight, Truck, ShieldCheck, Heart, Gift } from "lucide-react";
 import {
   getFeaturedProducts,
   getCollectionRail,
+  getDeviceFacetCounts,
   type ProductListItem,
 } from "@/lib/products";
 import { getCollectionTree } from "@/lib/collections";
-import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
+import { DEVICE_FAMILIES, deviceBrowseHref, deviceIsLive } from "@/lib/catalog/devices";
 import { RAIL_HIDDEN_SLUGS } from "@/lib/catalog/collections-config";
 import { BUNDLE } from "@/lib/promotions";
 import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 import { DEVICE_COVER_IDS, deviceCoverSrc } from "@/lib/brand/device-covers";
-import { ProductCard } from "@/components/ProductCard";
+import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
 import { HeroCarousel } from "@/components/home/HeroCarousel";
 import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
@@ -40,13 +41,14 @@ export default async function HomePage() {
   const col = (slug: string) =>
     getCollectionRail(slug).catch(() => [] as ProductListItem[]);
 
-  const [featured, tree, sanrioItems, helloKittyItems, originalsItems] =
+  const [featured, tree, sanrioItems, helloKittyItems, originalsItems, deviceCounts] =
     await Promise.all([
     getFeaturedProducts(8),
     getCollectionTree().catch(() => []),
     col("sanrio"),
     col("hello-kitty"),
     col("originals"),
+    getDeviceFacetCounts().catch(() => undefined),
   ]);
 
   // ── Global product de-duplication ────────────────────────────────────────
@@ -126,7 +128,7 @@ export default async function HomePage() {
       <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
         <SectionHeading eyebrow="Most loved" title="Bestsellers" href="/products" />
         {featured.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className={PRODUCT_MOSAIC}>
             {featured.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
@@ -174,7 +176,7 @@ export default async function HomePage() {
                 key={d.id}
                 // Live devices have a dedicated, indexable landing page; others
                 // fall back to the filtered catalog until they're stocked.
-                href={d.comingSoon ? `/products?device=${d.id}` : `/devices/${d.id}`}
+                href={deviceBrowseHref(d, deviceCounts)}
                 className="group relative block overflow-hidden rounded-3xl border border-[var(--border)] shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 hover:-translate-y-1 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-24px_rgba(255,62,165,0.55)]"
               >
                 {/* Themed device banner — the name is baked into the art
@@ -195,7 +197,7 @@ export default async function HomePage() {
                       </span>
                     </span>
                   )}
-                  {d.comingSoon && (
+                  {!deviceIsLive(d, deviceCounts) && (
                     <span className="absolute right-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/60 backdrop-blur-sm">
                       Soon
                     </span>

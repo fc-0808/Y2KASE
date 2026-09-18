@@ -8,7 +8,7 @@
  * ISR-cached public route (which would leak unpublished listings to shoppers
  * and crawlers).
  *
- * Pure strings only: the thumbnail review client, the preview page, and any
+ * Pure helpers only: the thumbnail review client, the preview page, and any
  * future "view product" control must agree. No DB, no React.
  */
 
@@ -23,6 +23,20 @@ export type ProductPageRef = {
 
 export function isLiveProductStatus(status: string): boolean {
   return status === LIVE_PRODUCT_STATUS;
+}
+
+/**
+ * Whether approving a thumbnail should also flip the listing live.
+ *
+ * Only drafts can move. Already-active products stay put; archived listings
+ * stay retired. The operator has to ask — a review pass must not leak
+ * unpublished SKUs onto the storefront.
+ */
+export function shouldPublishDraftOnApprove(
+  status: string,
+  publish: boolean | undefined,
+): boolean {
+  return publish === true && status === "draft";
 }
 
 export function liveProductPageHref(slug: string): string {

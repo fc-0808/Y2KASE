@@ -96,6 +96,7 @@ function revalidateCatalog(productId?: number) {
   // route so edited media/variations/availability appear immediately rather
   // than after the hourly ISR window. (Dynamic segment → requires `type`.)
   revalidatePath("/products/[slug]", "page");
+  revalidatePath("/devices/[slug]", "page");
   revalidatePath("/collections");
   revalidatePath("/collections/[slug]", "page");
   revalidatePath("/");
@@ -1433,19 +1434,24 @@ export async function generateThumbnailProposals(
   }
 }
 
-/** Approve a proposal — promotes the normalized image to the live thumbnail. */
+/**
+ * Approve a proposal — promotes the normalized image to the live thumbnail.
+ * Pass `publish: true` to also set a *draft* listing live in the same write.
+ * Active products are unchanged; the default is thumbnail-only.
+ */
 export async function approveThumbnailProposal(
   productId: number,
+  publish = false,
 ): Promise<ActionResult> {
   if (!(await requireAdmin(await headers()))) {
     return { ok: false, message: "Not authorized." };
   }
-  const res = await approveProposal(productId);
+  const res = await approveProposal(productId, { publish: publish === true });
   if (res.ok) {
     revalidateCatalog(productId);
     revalidatePath("/admin/products/thumbnails");
   }
-  return res;
+  return { ok: res.ok, message: res.message };
 }
 
 /** Flag (needs a better photo) or skip a proposal. */
@@ -1541,21 +1547,35 @@ export async function adjustThumbnailCrop(
   }
 }
 
-export type BulkResult = ActionResult & { processed: number };
+export type BulkResult = ActionResult & {
+  processed: number;
+  published?: number;
+};
 
 /** Approve a set of proposals (non-proposed ids are skipped). */
 export async function bulkApproveThumbnails(
   ids: number[],
+  publish = false,
 ): Promise<BulkResult> {
   if (!(await requireAdmin(await headers()))) {
-    return { ok: false, message: "Not authorized.", processed: 0 };
+    return { ok: false, message: "Not authorized.", processed: 0, published: 0 };
   }
-  const { processed } = await approveProposals(ids);
+  const { processed, published } = await approveProposals(ids, {
+    publish: publish === true,
+  });
   if (processed > 0) {
     revalidateCatalog();
     revalidatePath("/admin/products/thumbnails");
   }
-  return { ok: true, processed, message: `Approved ${processed}.` };
+  return {
+    ok: true,
+    processed,
+    published,
+    message:
+      published > 0
+        ? `Approved ${processed} · published ${published} draft${published === 1 ? "" : "s"}.`
+        : `Approved ${processed}.`,
+  };
 }
 
 /** Flag or skip a set of proposals. */

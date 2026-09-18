@@ -14,7 +14,11 @@ import {
 import type { Review } from "@/lib/db/schema";
 import { ProductDetailClient } from "@/components/ProductDetailClient";
 import { ProductReviews } from "@/components/reviews/ProductReviews";
-import { ProductCard } from "@/components/ProductCard";
+import {
+  ProductCard,
+  PRODUCT_CARD_FRAME,
+  PRODUCT_MOSAIC,
+} from "@/components/ProductCard";
 import { RecentlyViewed } from "@/components/RecentlyViewed";
 import { SocialShare } from "@/components/SocialShare";
 import { collectionHeading } from "@/lib/seo/copy";
@@ -237,7 +241,7 @@ async function RelatedProducts({
   return (
     <section className="mt-16">
       <h2 className="mb-5 text-xl font-black">You may also like</h2>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      <div className={PRODUCT_MOSAIC}>
         {related.map((item) => (
           <ProductCard key={item.id} product={item} />
         ))}
@@ -250,11 +254,11 @@ function RelatedProductsSkeleton() {
   return (
     <section className="mt-16" aria-hidden>
       <div className="mb-5 h-7 w-44 animate-pulse rounded bg-[var(--muted)]" />
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      <div className={PRODUCT_MOSAIC}>
         {Array.from({ length: 4 }, (_, index) => (
           <div
             key={index}
-            className="aspect-[2/3] animate-pulse rounded-3xl bg-[var(--muted)] md:aspect-[4/5]"
+            className={`${PRODUCT_CARD_FRAME} animate-pulse rounded-3xl bg-[var(--muted)]`}
           />
         ))}
       </div>

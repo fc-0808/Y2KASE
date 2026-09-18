@@ -292,7 +292,7 @@ export function OrderConfirmation({
           {/* CTA */}
           <Section style={{ padding: "24px 32px 8px", textAlign: "center" }}>
             <Link
-              href={`${base}/products`}
+              href={`${base}/sign-in?callbackUrl=${encodeURIComponent("/account/orders")}&intent=orders`}
               style={{
                 display: "inline-block",
                 backgroundColor: BRAND.primary,
@@ -304,8 +304,32 @@ export function OrderConfirmation({
                 borderRadius: "999px",
               }}
             >
-              Keep shopping ✨
+              Track this order ✨
             </Link>
+            <Text
+              style={{
+                margin: "12px 0 0",
+                fontSize: "13px",
+                color: BRAND.subtle,
+                lineHeight: "20px",
+              }}
+            >
+              Use the same email you checked out with. No password — we&apos;ll
+              send a one-tap sign-in link. Guest orders show up automatically.
+            </Text>
+            <Text style={{ margin: "16px 0 0" }}>
+              <Link
+                href={`${base}/products`}
+                style={{
+                  color: BRAND.primary,
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  textDecoration: "underline",
+                }}
+              >
+                Keep shopping
+              </Link>
+            </Text>
           </Section>
 
           <Hr style={{ borderColor: BRAND.border, margin: "20px 0 0" }} />

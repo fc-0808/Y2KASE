@@ -5,7 +5,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/auth";
 import {
   fetchEmails,
@@ -14,14 +13,18 @@ import {
   markEmail,
   isImapConfigured,
 } from "@/lib/imap";
+import { parseInboxUid } from "@/lib/inbox/attachments";
 
-async function auth() {
-  const session = await requireAdmin(await headers());
-  return session;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+async function auth(req: NextRequest) {
+  return requireAdmin(req.headers);
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
+  const session = await auth(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -33,10 +36,13 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const uid = req.nextUrl.searchParams.get("uid");
-
-  if (uid) {
-    const email = await fetchEmailDetail(Number(uid));
+  const uidParam = req.nextUrl.searchParams.get("uid");
+  if (uidParam) {
+    const uid = parseInboxUid(uidParam);
+    if (!uid) {
+      return NextResponse.json({ error: "Invalid uid" }, { status: 400 });
+    }
+    const email = await fetchEmailDetail(uid);
     if (!email) {
       return NextResponse.json({ error: "Email not found" }, { status: 404 });
     }
@@ -48,12 +54,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
+  const session = await auth(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const uid = Number(req.nextUrl.searchParams.get("uid"));
+  const uid = parseInboxUid(req.nextUrl.searchParams.get("uid"));
   if (!uid) {
     return NextResponse.json({ error: "Missing uid" }, { status: 400 });
   }
@@ -63,12 +69,12 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
+  const session = await auth(req);
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const uid = Number(req.nextUrl.searchParams.get("uid"));
+  const uid = parseInboxUid(req.nextUrl.searchParams.get("uid"));
   const read = req.nextUrl.searchParams.get("read") !== "false";
 
   if (!uid) {

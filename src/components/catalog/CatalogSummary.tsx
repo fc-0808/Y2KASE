@@ -5,11 +5,16 @@
  * The chips are the only affordance that makes a faceted grid recoverable: a
  * shopper who has narrowed three ways needs to see all three and undo any one
  * of them without hunting back through the menus that set them.
+ *
+ * On a phone the chips scroll sideways rather than wrapping under the count —
+ * wrapping was a second clutter row on top of the old pill toolbar. Desktop
+ * still wraps; there is room, and a horizontal rail next to a five-column
+ * grid looks unfinished.
  */
 
 import Link from "next/link";
 import { X } from "lucide-react";
-import { deviceLabel } from "@/lib/catalog/devices";
+import { deviceFilterLabel } from "@/lib/catalog/devices";
 import type { ColorFamily } from "@/lib/catalog/colors";
 import {
   colorFamily,
@@ -66,7 +71,7 @@ export function buildCatalogChips(
   if (params.device)
     chips.push({
       key: "device",
-      label: deviceLabel(params.device),
+      label: deviceFilterLabel(params.device),
       clearHref: buildCatalogHref(params, { device: undefined }),
     });
   if (params.collection)
@@ -142,56 +147,70 @@ export function CatalogSummary({
   resetHref?: string;
 }) {
   return (
-    <div className="mb-5 mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 sm:mb-6 sm:mt-4">
-      <p
-        aria-live="polite"
-        className="text-sm font-semibold text-[var(--foreground)]/55"
-      >
-        {total > 0 ? (
-          <>
-            <span className="font-extrabold text-[var(--foreground)]">
-              {rangeStart}–{rangeEnd}
-            </span>{" "}
-            of{" "}
-            <span className="font-extrabold text-[var(--foreground)]">
-              {total}
-            </span>{" "}
-            product{total === 1 ? "" : "s"}
-          </>
-        ) : (
-          "No products"
+    <div className="mb-4 mt-3 sm:mb-6 sm:mt-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <p
+          aria-live="polite"
+          className="text-sm font-semibold text-[var(--foreground)]/55"
+        >
+          {total > 0 ? (
+            <>
+              <span className="font-extrabold text-[var(--foreground)]">
+                {rangeStart}–{rangeEnd}
+              </span>{" "}
+              of{" "}
+              <span className="font-extrabold text-[var(--foreground)]">
+                {total}
+              </span>{" "}
+              product{total === 1 ? "" : "s"}
+            </>
+          ) : (
+            "No products"
+          )}
+        </p>
+
+        {resetHref && (
+          <Link
+            href={resetHref}
+            className="shrink-0 text-sm font-semibold text-[var(--foreground)]/50 underline-offset-4 transition hover:text-[var(--primary)] hover:underline"
+          >
+            Clear all
+          </Link>
         )}
-      </p>
+      </div>
 
-      {chips.map((chip) => (
-        <Link
-          key={chip.key}
-          href={chip.clearHref}
-          aria-label={`Remove filter: ${chip.label}`}
-          className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1 text-sm font-semibold capitalize text-white shadow-[0_2px_0_#d62f88] transition hover:brightness-105"
+      {chips.length > 0 && (
+        <ul
+          aria-label="Active filters"
+          className="-mx-4 mt-2.5 flex gap-2 overflow-x-auto px-4 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
         >
-          {chip.swatch && (
-            <ColorSwatch
-              family={chip.swatch}
-              size="sm"
-              className="ring-white/40"
-            />
-          )}
-          {chip.motif && (
-            <MotifMark family={chip.motif} size="sm" className="bg-white/20" />
-          )}
-          {chip.label}
-          <X aria-hidden className="h-3.5 w-3.5 text-white/80" />
-        </Link>
-      ))}
-
-      {resetHref && (
-        <Link
-          href={resetHref}
-          className="text-sm font-semibold text-[var(--foreground)]/50 underline-offset-4 transition hover:text-[var(--primary)] hover:underline"
-        >
-          Clear all
-        </Link>
+          {chips.map((chip) => (
+            <li key={chip.key} className="shrink-0">
+              <Link
+                href={chip.clearHref}
+                aria-label={`Remove filter: ${chip.label}`}
+                className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-1.5 text-sm font-semibold capitalize text-white shadow-[0_2px_0_#d62f88] transition hover:brightness-105"
+              >
+                {chip.swatch && (
+                  <ColorSwatch
+                    family={chip.swatch}
+                    size="sm"
+                    className="ring-white/40"
+                  />
+                )}
+                {chip.motif && (
+                  <MotifMark
+                    family={chip.motif}
+                    size="sm"
+                    className="bg-white/20"
+                  />
+                )}
+                {chip.label}
+                <X aria-hidden className="h-3.5 w-3.5 text-white/80" />
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

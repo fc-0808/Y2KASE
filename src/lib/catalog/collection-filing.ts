@@ -26,17 +26,24 @@
  *   • Genre and feature are ADDITIVE. "Kawaii", "Y2K" and "MagSafe" are
  *     multi-valued, and an operator may have curated them by hand; a keyword
  *     miss on this run is not evidence that a human's earlier decision was
- *     wrong. Adding what the text now implies is safe, removing is not.
+ *     wrong. Adding what the text now implies is safe, removing is not —
+ *     except MagSafe on a product type that cannot offer it, which is a
+ *     category error and is stripped.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { collections, productCollections, products } from "@/lib/db/schema";
 import {
   BRAND_COLLECTION_KINDS,
   flattenTaxonomy,
   matchCollectionSlugs,
+  MAGSAFE_SLUG,
   ORIGINALS_SLUG,
 } from "@/lib/catalog/collections-config";
+import {
+  filterMagSafeCollectionSlugs,
+  productTypeOffersMagSafe,
+} from "@/lib/catalog/devices";
 import { collectionIdsForSlugs } from "@/lib/catalog/taxonomy-sync";
 import {
   isOperatorConfirmed,
@@ -99,6 +106,7 @@ export async function refileProduct(productId: number): Promise<RefileResult> {
       brandName: true,
       characterName: true,
       brandEvidence: true,
+      productType: true,
     },
   });
   if (!product) return NO_REFILE;
@@ -127,11 +135,14 @@ export async function refileProduct(productId: number): Promise<RefileResult> {
   // the character its own title names — without removing anything — is the
   // safest reading available until a human settles it.
   const owned = brandOwnedSlugs();
-  const wanted = matchCollectionSlugs({
-    tags: product.tags,
-    title: product.title,
-    sourceFolder: product.sourceFolder,
-  }).filter((slug) => held !== null || !owned.has(slug));
+  const wanted = filterMagSafeCollectionSlugs(
+    matchCollectionSlugs({
+      tags: product.tags,
+      title: product.title,
+      sourceFolder: product.sourceFolder,
+    }).filter((slug) => held !== null || !owned.has(slug)),
+    product.productType,
+  );
 
   const idBySlug = await collectionIdsForSlugs(wanted);
   const unseeded = wanted.filter((slug) => !idBySlug.has(slug));
@@ -167,6 +178,13 @@ export async function refileProduct(productId: number): Promise<RefileResult> {
     product.characterName,
   );
 
+  // MagSafe on a non-phone type is a category error, not a curated feature.
+  // The genre pass is additive and will not delete it; this pass must.
+  const strippedMagSafe = await stripIneligibleMagSafe(
+    productId,
+    product.productType,
+  );
+
   return {
     added: [
       ...new Set([
@@ -179,6 +197,7 @@ export async function refileProduct(productId: number): Promise<RefileResult> {
       ...new Set([
         ...brandSync.removed,
         ...(originals.removed ? [ORIGINALS_SLUG] : []),
+        ...(strippedMagSafe ? [MAGSAFE_SLUG] : []),
       ]),
     ],
     unseeded: [
@@ -232,6 +251,30 @@ function brandAxisHold(
   if (verdict === "conflict") return "brand_conflict";
   if (verdict === "unverified") return "brand_unverified";
   return null;
+}
+
+/**
+ * Drop MagSafe collection membership when the product type cannot offer it.
+ * Returns true when a row was actually removed.
+ */
+async function stripIneligibleMagSafe(
+  productId: number,
+  productType: string,
+): Promise<boolean> {
+  if (productTypeOffersMagSafe(productType)) return false;
+  const idBySlug = await collectionIdsForSlugs([MAGSAFE_SLUG]);
+  const magsafeId = idBySlug.get(MAGSAFE_SLUG);
+  if (magsafeId === undefined) return false;
+  const deleted = await db
+    .delete(productCollections)
+    .where(
+      and(
+        eq(productCollections.productId, productId),
+        eq(productCollections.collectionId, magsafeId),
+      ),
+    )
+    .returning({ collectionId: productCollections.collectionId });
+  return deleted.length > 0;
 }
 
 /**

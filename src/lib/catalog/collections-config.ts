@@ -364,6 +364,9 @@ export const COLLECTION_TAXONOMY: CollectionSeed[] = [
 /** Browse node for products with no licensed brand/character. */
 export const ORIGINALS_SLUG = "originals";
 
+/** Feature collection for MagSafe phone cases. Never file AirPods here. */
+export const MAGSAFE_SLUG = "magsafe";
+
 /**
  * Collections intentionally hidden from the "Shop the universe" homepage rail
  * (and its generated cover set). These broad genre umbrellas are still browsable

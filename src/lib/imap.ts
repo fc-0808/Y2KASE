@@ -12,7 +12,19 @@
  */
 
 import { ImapFlow } from "imapflow";
-import PostalMime from "postal-mime";
+import PostalMime, { type Email } from "postal-mime";
+import {
+  prepareInboxBody,
+  type InboxAttachment,
+  type InboxBinaryPart,
+} from "@/lib/inbox/attachments";
+import {
+  getInboxAttachment,
+  loadInboxAttachments,
+  rememberInboxAttachments,
+} from "@/lib/inbox/attachment-cache";
+
+export type { InboxAttachment };
 
 export interface EmailHeader {
   uid: number;
@@ -29,6 +41,7 @@ export interface EmailDetail extends EmailHeader {
   html: string | null;
   text: string;
   toEmail: string;
+  attachments: InboxAttachment[];
 }
 
 // Known spam/solicitation patterns based on actual inbox content.
@@ -130,19 +143,53 @@ export async function fetchEmails(limit = 40): Promise<EmailHeader[]> {
   }
 }
 
+type PreparedMessage = {
+  detail: EmailDetail;
+  binaries: InboxBinaryPart[];
+};
+
 /**
- * Fetch a single email's full content and mark it as read.
+ * Fetch a single email's full content, rewrite inline images so the admin
+ * iframe can render them, and mark the message as read.
  */
 export async function fetchEmailDetail(uid: number): Promise<EmailDetail | null> {
   if (!isImapConfigured()) return null;
 
+  const prepared = await downloadAndPrepare(uid, { markSeen: true });
+  return prepared?.detail ?? null;
+}
+
+/**
+ * Serve one MIME part previously discovered while reading the message.
+ * Cache-first so a gallery of photos does not open N IMAP connections.
+ */
+export async function fetchEmailAttachment(
+  uid: number,
+  id: string,
+): Promise<InboxBinaryPart | null> {
+  if (!isImapConfigured()) return null;
+
+  const cached = getInboxAttachment(uid, id);
+  if (cached) return cached;
+
+  const loaded = await loadInboxAttachments(uid, async () => {
+    const prepared = await downloadAndPrepare(uid, { markSeen: false });
+    return prepared?.binaries ?? null;
+  });
+  return loaded?.parts.get(id) ?? null;
+}
+
+async function downloadAndPrepare(
+  uid: number,
+  opts: { markSeen: boolean },
+): Promise<PreparedMessage | null> {
   const client = makeClient();
 
   try {
     await client.connect();
     await client.mailboxOpen("INBOX");
 
-    let detail: EmailDetail | null = null;
+    let prepared: PreparedMessage | null = null;
 
     for await (const msg of client.fetch(
       { uid: String(uid) },
@@ -156,35 +203,50 @@ export async function fetchEmailDetail(uid: number): Promise<EmailDetail | null>
       const fromEmail = fromAddr?.address ?? "";
       const subject = msg.envelope.subject ?? "(no subject)";
 
-      // Parse the raw RFC 2822 message with PostalMime.
       const rawSource: Buffer | undefined = msg.source as Buffer | undefined;
-      const parsed = rawSource
-        ? await new PostalMime().parse(rawSource)
-        : { html: null, text: "" };
+      let parsed: Email | null = null;
+      if (rawSource) {
+        try {
+          parsed = await PostalMime.parse(rawSource, { maxNestingDepth: 64 });
+        } catch (err) {
+          console.error("[imap] Failed to parse message", uid, err);
+        }
+      }
 
-      detail = {
-        uid: msg.uid,
-        from: fromAddr?.name ?? fromEmail,
-        fromEmail,
-        toEmail: toAddr?.address ?? "",
-        subject,
-        date: msg.envelope.date ?? new Date(),
-        isRead: msg.flags.has("\\Seen"),
-        isSpam: detectSpam(subject, fromEmail),
-        preview: ((parsed as { text?: string }).text ?? "").slice(0, 140),
-        html: (parsed as { html?: string | null }).html ?? null,
-        text: (parsed as { text?: string }).text ?? "",
+      const body = prepareInboxBody(
+        parsed ?? { html: null, text: "", attachments: [] },
+        uid,
+      );
+
+      prepared = {
+        detail: {
+          uid: msg.uid,
+          from: fromAddr?.name ?? fromEmail,
+          fromEmail,
+          toEmail: toAddr?.address ?? "",
+          subject,
+          date: msg.envelope.date ?? new Date(),
+          isRead: msg.flags.has("\\Seen"),
+          isSpam: detectSpam(subject, fromEmail),
+          preview: body.text.slice(0, 140),
+          html: body.html,
+          text: body.text,
+          attachments: body.attachments,
+        },
+        binaries: body.binaries,
       };
     }
 
-    // Mark as \Seen after reading.
-    if (detail) {
-      await client
-        .messageFlagsAdd({ uid: String(uid) }, ["\\Seen"], { uid: true })
-        .catch(() => {});
+    if (prepared) {
+      rememberInboxAttachments(uid, prepared.binaries);
+      if (opts.markSeen) {
+        await client
+          .messageFlagsAdd({ uid: String(uid) }, ["\\Seen"], { uid: true })
+          .catch(() => {});
+      }
     }
 
-    return detail;
+    return prepared;
   } finally {
     await client.logout().catch(() => {});
   }

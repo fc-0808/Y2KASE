@@ -18,6 +18,7 @@ import {
   liveProductPageHref,
   productPageHref,
   productPageLinkLabel,
+  shouldPublishDraftOnApprove,
   unpublishedProductPageHref,
 } from "../src/lib/catalog/product-page";
 
@@ -129,6 +130,31 @@ test("unpublished preview is session-gated and not the admin chrome", () => {
 test("thumbnail cards route through productPageHref instead of a hard-coded PDP", () => {
   assert.match(review, /productPageHref/);
   assert.doesNotMatch(review, /href=\{`\/products\/\$\{item\.slug\}`\}/);
+});
+
+test("thumbnail approve publishes drafts only when the operator asks", () => {
+  assert.equal(shouldPublishDraftOnApprove("draft", true), true);
+  assert.equal(shouldPublishDraftOnApprove("draft", false), false);
+  assert.equal(shouldPublishDraftOnApprove("draft", undefined), false);
+  assert.equal(shouldPublishDraftOnApprove("active", true), false);
+  assert.equal(shouldPublishDraftOnApprove("archived", true), false);
+});
+
+test("thumbnail review keeps publish-on-approve opt-in for cards and bulk", () => {
+  assert.match(review, /publishDraftsOnApprove/);
+  assert.match(
+    review,
+    /y2kase\.admin\.thumbnails\.publish-drafts-on-approve/,
+  );
+  assert.match(
+    review,
+    /approveThumbnailProposal\(\s*item\.productId,\s*publishDraftsOnApprove/,
+  );
+  assert.match(
+    review,
+    /bulkApproveThumbnails\(c, publishDraftsOnApprove\)/,
+  );
+  assert.match(review, /Publish drafts on approve/);
 });
 
 if (failed > 0) {

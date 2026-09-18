@@ -10,8 +10,11 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { formatPrice } from "@/lib/utils";
 import { ClearCartOnMount } from "@/components/checkout/ClearCartOnMount";
 import { PurchaseTracking } from "@/components/checkout/PurchaseTracking";
+import { ClaimAccountCard } from "@/components/checkout/ClaimAccountCard";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
-import { getSession } from "@/lib/auth";
+import { authProviders, getSession } from "@/lib/auth";
+import { isSignedInUser } from "@/lib/auth-redirect";
+import { normalizeEmail } from "@/lib/email-address";
 import {
   checkoutAccessCookieName,
   verifyCheckoutAccessToken,
@@ -36,16 +39,20 @@ export default async function CheckoutSuccessPage({
   let order:
     | (typeof orders.$inferSelect & { items: (typeof orderItems.$inferSelect)[] })
     | null = null;
+  let customerEmail = "";
+
+  const authSession = await getSession(await headers());
+  const signedIn = isSignedInUser(authSession?.user);
 
   if (sessionId && isStripeConfigured()) {
     try {
       // Confirm with Stripe that this session was actually paid. The webhook is
       // the source of truth for fulfillment, but this gives the buyer instant,
       // trustworthy feedback even if the webhook is a second behind.
-      const session = await getStripe().checkout.sessions.retrieve(sessionId);
+      const stripeSession = await getStripe().checkout.sessions.retrieve(sessionId);
       const sessionPaid =
-        session.payment_status === "paid" ||
-        session.payment_status === "no_payment_required";
+        stripeSession.payment_status === "paid" ||
+        stripeSession.payment_status === "no_payment_required";
 
       const row = await db.query.orders.findFirst({
         where: eq(orders.stripeSessionId, sessionId),
@@ -63,13 +70,18 @@ export default async function CheckoutSuccessPage({
         );
 
         if (!canView && row.userId) {
-          const authSession = await getSession(await headers());
           canView = authSession?.user.id === row.userId;
         }
 
         if (canView) {
           paid = sessionPaid;
           order = row;
+          customerEmail = normalizeEmail(
+            row.email ||
+              stripeSession.customer_details?.email ||
+              stripeSession.customer_email ||
+              "",
+          );
         }
       }
     } catch {
@@ -177,7 +189,22 @@ export default async function CheckoutSuccessPage({
           </div>
         )}
 
+        {paid && order && !signedIn && customerEmail ? (
+          <ClaimAccountCard
+            email={customerEmail}
+            magicLinkEnabled={authProviders.magicLink}
+          />
+        ) : null}
+
         <div className="border-t border-[var(--border)] p-6">
+          {paid && order && signedIn ? (
+            <Link
+              href="/account/orders"
+              className="mb-3 flex w-full items-center justify-center py-3 text-sm font-bold text-[var(--primary)] underline decoration-[var(--primary)]/40 underline-offset-2 hover:decoration-[var(--primary)]"
+            >
+              View this order in your account
+            </Link>
+          ) : null}
           <Link href="/products" className="btn-candy flex w-full items-center justify-center gap-2 py-3">
             <Sparkles className="h-4 w-4" /> Keep shopping
           </Link>

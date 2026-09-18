@@ -1,7 +1,7 @@
 /**
  * Generate the BACKGROUND artwork for the /collections "Characters & brands"
- * cards (Sanrio, Miffy, Tamagotchi) with Nano Banana Pro, then flatten it to a
- * measured legibility budget and refresh the manifest.
+ * cards with Nano Banana Pro, then flatten it to a measured legibility budget
+ * and refresh the manifest.
  *
  *   npm run cards:generate                 # generate any missing card art
  *   npm run cards:generate:force           # regenerate every card (calls the API)
@@ -27,7 +27,7 @@
  *   saturated, high contrast     pale, contrast-capped, sits under body copy
  *
  * ── Why the palette ignores each brand's accent colour ──────────────────────
- * Miffy is orange and Tamagotchi is teal, but all three cards share one soft
+ * Miffy is orange and Tamagotchi is teal, but every card shares one soft
  * pink/lavender/blue pastel palette taken from the site's own design tokens, so
  * the row reads as one calm surface that blends into the page. Brand identity is
  * carried by the accent rule along the card's top edge and by the pixel motifs
@@ -99,17 +99,26 @@ const MAX_VEIL = 0.78;
 /** Pull the colour punch down before veiling, so pastels stay pastel. */
 const SATURATION = 0.82;
 
-function arg(name: string): string | undefined {
-  const i = process.argv.indexOf(`--${name}`);
-  return i !== -1 ? process.argv[i + 1] : undefined;
-}
 const FORCE = process.argv.includes("--force");
 /** Re-derive the shipped WebP from cached model output; never calls the API. */
 const REPROCESS = process.argv.includes("--reprocess");
-const ONLY = (arg("only") ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+/**
+ * `--only` accepts a comma list or, on shells that split commas (PowerShell),
+ * the rest of argv until the next flag. Both become a slug set.
+ */
+const ONLY = (() => {
+  const i = process.argv.indexOf("--only");
+  if (i === -1) return [] as string[];
+  const collected: string[] = [];
+  for (const token of process.argv.slice(i + 1)) {
+    if (token.startsWith("--")) break;
+    collected.push(token);
+  }
+  return collected
+    .flatMap((s) => s.split(","))
+    .map((s) => s.trim())
+    .filter(Boolean);
+})();
 
 type BrandArt = {
   /**
@@ -146,6 +155,56 @@ const BRAND_ART: Record<string, BrandArt> = {
     cast: "retro Tamagotchi-style pixel virtual pets repeating across the whole field — small egg-shaped handheld devices with a dot-matrix screen and three buttons, together with the little 8-bit blob pets themselves (a round chick, a small dinosaur, a smiling blob with a tail) — interleaved with tiny pixel hearts, d-pad buttons and sparkles",
     motifs:
       "tiny pixel egg-shaped handheld virtual-pet outlines, small dot-matrix screen squares, little pixel d-pad buttons, pixel hearts, and simple 8-bit blob pets",
+  },
+  rilakkuma: {
+    cast: "a relaxed round brown pixel bear with a cream muzzle and a sleepy smile, a smaller white pixel bear with pink blush, and a tiny round yellow pixel chick, repeating across the whole field — interleaved with tiny pixel honey pots, clovers, stars and hearts",
+    motifs:
+      "tiny pixel bear silhouettes, little pixel honey pots, four-leaf pixel clovers, small pixel stars and soft pixel hearts",
+  },
+  disney: {
+    cast: "kawaii pixel mascots loosely suggesting a classic cartoon studio crew — a round-eared black-and-white mouse, a round-eared mouse with a polka-dot bow, a small blue alien with huge black eyes and tall notched ears, and a round yellow bear in a little red shirt — interleaved with tiny pixel stars, sparkles and bows",
+    motifs:
+      "tiny pixel magic wands with star tips, jeweled pixel crowns, rainbow pixel ribbons, four-point sparkles and small pixel stars",
+  },
+  "toy-story": {
+    cast: "a wrapping-paper print of generic toybox pixel figures — a lanky cowboy doll in a brown hat, a bulky astronaut action figure in a clear dome helmet, and a cowgirl doll with a yarn-loop ponytail — interleaved with tiny pixel wooden alphabet blocks, bouncing balls, stars and rockets",
+    motifs:
+      "tiny pixel cowboy hats, space helmets, bouncing rubber balls, spinning tops, toy rockets and little pixel stars",
+  },
+  monchhichi: {
+    cast: "a cute round monkey doll with big ears, a tuft of hair and a tiny thumb near its mouth, repeating across the whole field as a kawaii pixel print — interleaved with tiny pixel bows, hearts, stars and pacifiers",
+    motifs:
+      "tiny pixel monkey-ear silhouettes, little pixel bows, hearts, stars and tiny round pixel pacifiers",
+  },
+  chiikawa: {
+    cast: "tiny round anxious pixel creatures repeating across the whole field — a small white spotted bean-shaped animal with big worried eyes, a round cat-like friend with dark ears, and a rabbit-eared companion — interleaved with tiny pixel sparkles, tears-of-joy droplets and hearts",
+    motifs:
+      "tiny pixel bean-shaped creature outlines, little pixel sparkles, hearts and small round-petal flowers",
+  },
+  peanuts: {
+    cast: "a simple white pixel beagle with black ears and a tiny round yellow bird, repeating across the whole field — interleaved with tiny pixel doghouses, hearts, stars and woodstock-style dashes",
+    motifs:
+      "tiny pixel beagle silhouettes, little red pixel doghouses, small yellow bird shapes, hearts and stars",
+  },
+  "crayon-shin-chan": {
+    cast: "a cheeky little pixel kid with short spiky hair and a mischievous grin in a simple red shirt, repeating as a kawaii wrapping-paper print — interleaved with tiny pixel crayons, action stars and hearts",
+    motifs:
+      "tiny pixel crayons, action-line bursts, small stars, hearts and simple kid-doodle flowers",
+  },
+  pokemon: {
+    cast: "cute pocket-monster pixel creatures repeating across the whole field — a round yellow mouse with long black-tipped ears and red cheek circles, a brown fox-like creature with a cream ruff, and a large sleepy teal-blue bear — interleaved with tiny pixel lightning bolts, stars and pokeball-like two-tone spheres",
+    motifs:
+      "tiny two-tone pixel spheres, little lightning bolts, four-point sparkles, stars and simple monster silhouettes",
+  },
+  "spongebob-squarepants": {
+    cast: "kawaii underwater pixel cartoons repeating across the whole field — a square yellow sponge with holes and a wide smile, and a round pink starfish with green spots — interleaved with tiny pixel bubbles, starfish, pineapple silhouettes and hearts",
+    motifs:
+      "tiny pixel bubbles, starfish, pineapple silhouettes, waves, hearts and small sea-flower shapes",
+  },
+  "care-bears": {
+    cast: "round pastel pixel teddy bears with simple tummy badges repeating across the whole field — interleaved with tiny pixel rainbows, hearts, clovers, stars and clouds",
+    motifs:
+      "tiny pixel rainbows, hearts, clovers, stars, clouds and round bear silhouettes",
   },
 };
 
@@ -313,6 +372,16 @@ async function main() {
     .filter((n) => n.kind === "brand")
     .map((n) => ({ slug: n.slug, name: n.name }));
   if (ONLY.length) targets = targets.filter((t) => ONLY.includes(t.slug));
+
+  if (ONLY.length && targets.length === 0) {
+    console.error(
+      `No matching brands for --only ${JSON.stringify(ONLY)}. ` +
+        `Known brand slugs: ${flattenTaxonomy()
+          .filter((n) => n.kind === "brand")
+          .map((n) => n.slug)
+          .join(", ")}`,
+    );
+  }
 
   console.log(
     `\nGenerating card backgrounds for ${targets.length} brand(s) via Nano Banana Pro…\n`,

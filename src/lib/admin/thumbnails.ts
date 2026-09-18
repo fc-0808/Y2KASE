@@ -16,10 +16,22 @@ import {
 } from "@/lib/db/schema";
 import { makeR2Client, deleteObjectsFromR2, r2KeyFromUrl } from "@/lib/catalog/r2";
 import {
+  LIVE_PRODUCT_STATUS,
+  shouldPublishDraftOnApprove,
+} from "@/lib/catalog/product-page";
+import {
   SCOPE_STATUSES,
   DEFAULT_THUMBNAIL_SCOPE,
   type ThumbnailScope,
 } from "./thumbnail-scope";
+
+export type ApproveProposalOptions = {
+  /**
+   * When true, a draft product is published in the same write. Live products
+   * are unchanged. Default is thumbnail-only.
+   */
+  publish?: boolean;
+};
 
 /**
  * The `products` predicate for a scope. Every query that feeds the review page
@@ -37,18 +49,25 @@ export function productScopeFilter(scope: ThumbnailScope): SQL {
  */
 export async function approveProposal(
   productId: number,
-): Promise<{ ok: boolean; message: string }> {
+  options?: ApproveProposalOptions,
+): Promise<{ ok: boolean; message: string; published: boolean }> {
   const prop = await db.query.thumbnailProposals.findFirst({
     where: eq(thumbnailProposals.productId, productId),
   });
-  if (!prop) return { ok: false, message: "No proposal for this product." };
+  if (!prop) {
+    return { ok: false, message: "No proposal for this product.", published: false };
+  }
   if (prop.status !== "proposed" || !prop.proposalUrl) {
-    return { ok: false, message: "No pending proposal to approve." };
+    return {
+      ok: false,
+      message: "No pending proposal to approve.",
+      published: false,
+    };
   }
 
   const product = await db.query.products.findFirst({
     where: eq(products.id, productId),
-    columns: { title: true },
+    columns: { title: true, status: true },
     with: {
       images: {
         columns: { id: true, altText: true, url: true, sourceFilename: true },
@@ -104,7 +123,23 @@ export async function approveProposal(
     .set({ status: "approved", updatedAt: new Date() })
     .where(eq(thumbnailProposals.productId, productId));
 
-  return { ok: true, message: "Thumbnail approved." };
+  const publish =
+    product != null &&
+    shouldPublishDraftOnApprove(product.status, options?.publish);
+  if (publish) {
+    await db
+      .update(products)
+      .set({ status: LIVE_PRODUCT_STATUS, updatedAt: new Date() })
+      .where(eq(products.id, productId));
+  }
+
+  return {
+    ok: true,
+    message: publish
+      ? "Thumbnail approved and published."
+      : "Thumbnail approved.",
+    published: publish,
+  };
 }
 
 /**
@@ -292,16 +327,22 @@ export async function getProposalQueue({
 }
 
 /** Approve many proposals in sequence (each is a fast DB/R2 op). Returns how
- *  many actually applied (non-proposed ones are skipped by approveProposal). */
+ *  many actually applied (non-proposed ones are skipped by approveProposal)
+ *  and how many drafts were published along with the thumbnail. */
 export async function approveProposals(
   ids: number[],
-): Promise<{ processed: number }> {
+  options?: ApproveProposalOptions,
+): Promise<{ processed: number; published: number }> {
   let processed = 0;
+  let published = 0;
   for (const id of ids) {
-    const res = await approveProposal(id);
-    if (res.ok) processed++;
+    const res = await approveProposal(id, options);
+    if (res.ok) {
+      processed++;
+      if (res.published) published++;
+    }
   }
-  return { processed };
+  return { processed, published };
 }
 
 /** Flag or skip many proposals in sequence. */

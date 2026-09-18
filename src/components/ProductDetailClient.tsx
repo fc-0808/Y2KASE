@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ShoppingBag, Check, Play } from "lucide-react";
+import { ShoppingBag, Check } from "lucide-react";
 import { useCart } from "@/lib/store/cart";
 import { formatPrice } from "@/lib/utils";
 import {
@@ -22,7 +22,10 @@ import {
   trackProductView,
 } from "@/lib/analytics/commerce";
 import { Stars } from "@/components/reviews/Stars";
-import { ProductMedia } from "@/components/ProductMedia";
+import {
+  ProductGallery,
+  type ProductGallerySlide,
+} from "@/components/product/ProductGallery";
 import { ProductOptions } from "@/components/product/ProductOptions";
 import { StickyBuyBar } from "@/components/product/StickyBuyBar";
 
@@ -34,10 +37,7 @@ type Img = {
   styleTags: string[];
 };
 
-/** A gallery slide is either an image or the product video. */
-type Slide =
-  | { kind: "image"; id: number; url: string; alt: string }
-  | { kind: "video"; url: string };
+type Slide = ProductGallerySlide;
 
 /**
  * Storefront option values as the shopper should see them.
@@ -210,8 +210,6 @@ export function ProductDetailClient({
   const lastSlide = Math.max(0, slides.length - 1);
   if (activeSlide > lastSlide) setActiveSlide(lastSlide);
 
-  const current = slides[Math.min(activeSlide, lastSlide)] ?? slides[0];
-
   // Commerce view event — fire exactly once when the PDP is first viewed.
   const viewedRef = useRef(false);
   useEffect(() => {
@@ -261,119 +259,12 @@ export function ProductDetailClient({
 
   return (
     <div className="grid gap-8 pb-[max(5rem,calc(80px+env(safe-area-inset-bottom)))] lg:grid-cols-2 lg:pb-0">
-      <div className="flex min-w-0 flex-col gap-3">
-        <div className="relative aspect-square overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--product-surface)]">
-          {current?.kind === "video" ? (
-            <video
-              key={current.url}
-              src={current.url}
-              className="h-full w-full object-contain"
-              controls
-              autoPlay
-              muted
-              loop
-              playsInline
-              onError={() => noteBrokenImage(current.url)}
-            />
-          ) : current?.kind === "image" ? (
-            <ProductMedia
-              key={current.url}
-              src={current.url}
-              alt={current.alt}
-              fit="contain"
-              loading={activeSlide === 0 ? "eager" : "lazy"}
-              fetchPriority={activeSlide === 0 ? "high" : "auto"}
-              sizes="(max-width: 1024px) 100vw, 50vw"
-              className="h-full w-full"
-              onImageError={noteBrokenImage}
-            />
-          ) : (
-            <div className="grid h-full place-items-center text-6xl">🎀</div>
-          )}
-        </div>
-
-        {slides.length > 1 && (
-          <>
-            <div
-              className="flex justify-center gap-1.5"
-              role="tablist"
-              aria-label="Product images"
-            >
-              {slides.map((slide, i) => (
-                <button
-                  key={
-                    slide.kind === "video"
-                      ? `dot-video-${slide.url}`
-                      : `dot-img-${slide.id}`
-                  }
-                  type="button"
-                  role="tab"
-                  aria-selected={i === activeSlide}
-                  aria-label={`View image ${i + 1} of ${slides.length}`}
-                  onClick={() => setActiveSlide(i)}
-                  className={`h-2 rounded-full transition-all ${
-                    i === activeSlide
-                      ? "w-5 bg-[var(--primary)]"
-                      : "w-2 bg-[var(--foreground)]/25 hover:bg-[var(--foreground)]/40"
-                  }`}
-                />
-              ))}
-            </div>
-
-            <div className="flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {slides.map((slide, i) => (
-                <button
-                  key={
-                    slide.kind === "video"
-                      ? `video-${slide.url}`
-                      : `img-${slide.id}`
-                  }
-                  type="button"
-                  aria-label={`Show ${
-                    slide.kind === "video" ? "product video" : "product image"
-                  } ${i + 1} of ${slides.length}`}
-                  aria-pressed={i === activeSlide}
-                  onClick={() => setActiveSlide(i)}
-                  className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 bg-[var(--product-surface)] sm:h-20 sm:w-20 ${
-                    i === activeSlide
-                      ? "border-[var(--primary)]"
-                      : "border-transparent"
-                  }`}
-                >
-                  {slide.kind === "video" ? (
-                    <>
-                      {gallery[0]?.url ? (
-                        <ProductMedia
-                          src={gallery[0].url}
-                          alt=""
-                          fit="contain"
-                          loading="lazy"
-                          sizes="80px"
-                          className="h-full w-full"
-                          onImageError={noteBrokenImage}
-                        />
-                      ) : null}
-                      <span className="absolute inset-0 grid place-items-center bg-black/30">
-                        <Play className="h-4 w-4 fill-white text-white sm:h-5 sm:w-5" />
-                      </span>
-                    </>
-                  ) : (
-                    <ProductMedia
-                      src={slide.url}
-                      alt={slide.alt}
-                      fit="contain"
-                      loading="lazy"
-                      sizes="80px"
-                      className="h-full w-full"
-                      onImageError={noteBrokenImage}
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      <ProductGallery
+        slides={slides}
+        activeIndex={Math.min(activeSlide, lastSlide)}
+        onActiveIndexChange={setActiveSlide}
+        onImageError={noteBrokenImage}
+      />
 
       <div className="flex min-w-0 flex-col gap-5 sm:gap-6">
         <div>

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { CheckoutFooter } from "@/components/checkout/CheckoutFooter";
 import { CheckoutHeader } from "@/components/checkout/CheckoutHeader";
 import { MarketingAnalytics } from "@/components/analytics/MarketingAnalytics";
+import { AuthConversionTracker } from "@/components/auth/AuthConversionTracker";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -25,6 +27,9 @@ export default function CheckoutLayout({
       <main className="flex-1">{children}</main>
       <CheckoutFooter />
       <MarketingAnalytics />
+      <Suspense fallback={null}>
+        <AuthConversionTracker />
+      </Suspense>
     </>
   );
 }

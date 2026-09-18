@@ -171,6 +171,10 @@ export const auth = betterAuth({
       expiresIn: MAGIC_LINK_TTL,
       // Hash tokens at rest so a DB leak can't be replayed into sessions.
       storeToken: "hashed",
+      // Independent of emailAndPassword.disableSignUp — clicking the link is
+      // how customers create an account. Turning this on would 302 new buyers
+      // to `new_user_signup_disabled` and silently kill storefront sign-up.
+      disableSignUp: false,
       sendMagicLink: async ({ email, url }) => {
         await sendMagicLinkEmail({
           email,

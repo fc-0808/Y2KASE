@@ -9,8 +9,8 @@
  * AirPods, …; Samsung → Galaxy; Google → Pixel) onto those product types.
  *
  * Keeping it as code (mirroring the product-type REGISTRY) means the device
- * mega-menu, `/products?device=…` filtering and any future device landing pages
- * all stay in sync from one place.
+ * mega-menu, `/products?device=…` filtering, collection Device facets and
+ * device landing pages all stay in sync from one place.
  */
 import type { ProductTypeId } from "./types";
 
@@ -23,7 +23,10 @@ export type DeviceNode = {
   productTypes: ProductTypeId[];
   /** Emoji shown as a lightweight icon in menus. */
   icon: string;
-  /** Hide from the menu until at least one product type is enabled/stocked. */
+  /**
+   * Merchandising hold: the line is not for sale yet, even if a stray SKU
+   * exists. Liveness also requires active stock — see {@link deviceIsLive}.
+   */
   comingSoon?: boolean;
 };
 
@@ -53,7 +56,6 @@ export const DEVICE_FAMILIES: DeviceFamily[] = [
         label: "AirPods",
         productTypes: ["airpod_case"],
         icon: "🎧",
-        comingSoon: true,
       },
       {
         id: "macbook",
@@ -192,7 +194,130 @@ export function deviceProductTypes(id: string): ProductTypeId[] | null {
   return DEVICE_BY_ID.get(id)?.productTypes ?? null;
 }
 
+/** True when `id` is a real device slug, including lines still flagged comingSoon. */
+export function isDeviceId(id: string): boolean {
+  return DEVICE_BY_ID.has(id);
+}
+
 /** Human label for a device id, falling back to the raw id. */
 export function deviceLabel(id: string): string {
   return DEVICE_BY_ID.get(id)?.label ?? id;
+}
+
+/**
+ * Shopper-facing facet / chip label, e.g. "iPhone cases", "AirPods cases".
+ *
+ * Accessories are already a plural group name and must not grow a second noun.
+ */
+export function deviceFilterLabel(id: string): string {
+  const device = DEVICE_BY_ID.get(id);
+  if (!device) return id;
+  if (device.id === "apple-accessories") return device.label;
+  return `${device.label} cases`;
+}
+
+/**
+ * A device landing is live when it is not merchandised as comingSoon and —
+ * when a stock snapshot is supplied — has at least one active SKU.
+ *
+ * Omit `stocked` when the catalog mix is unknown (static params, unit tests).
+ * An empty snapshot is *known* emptiness: AirPods with zero live SKUs must
+ * not claim `/devices/airpods`.
+ */
+export function deviceIsLive(
+  device: DeviceNode,
+  stocked?: Record<string, number>,
+): boolean {
+  if (device.comingSoon) return false;
+  if (stocked === undefined) return true;
+  return (stocked[device.id] ?? 0) > 0;
+}
+
+/**
+ * Indexable landing when the line is live; filtered catalog otherwise.
+ * Homepage tiles, the nav mega-menu, the footer and the collections index
+ * must all agree on this, or a "Soon" tile and a live landing disagree.
+ */
+export function deviceBrowseHref(
+  device: DeviceNode,
+  stocked?: Record<string, number>,
+): string {
+  return deviceIsLive(device, stocked)
+    ? `/devices/${device.id}`
+    : `/products?device=${device.id}`;
+}
+
+/**
+ * MagSafe is a phone-case attribute. AirPods (and Watch, Kindle, …) have no
+ * magnet ring, so pairing `?device=airpods` with `?magsafe=` is a dead end
+ * the catalog must refuse rather than render as an empty grid.
+ */
+const MAGSAFE_PRODUCT_TYPES: ReadonlySet<ProductTypeId> = new Set([
+  "iphone_case",
+  "samsung_case",
+  "pixel_case",
+]);
+
+/** Whether MagSafe is a meaningful facet for this device. Unknown ids stay open. */
+export function deviceOffersMagSafe(id: string): boolean {
+  const types = DEVICE_BY_ID.get(id)?.productTypes;
+  if (!types) return true;
+  return types.some((type) => MAGSAFE_PRODUCT_TYPES.has(type));
+}
+
+/** MagSafe is a phone-case feature. AirPods, Watch, Kindle, … cannot wear it. */
+export function productTypeOffersMagSafe(productType: string): boolean {
+  return MAGSAFE_PRODUCT_TYPES.has(productType as ProductTypeId);
+}
+
+/**
+ * Genre/feature filing is additive, but MagSafe membership on a non-phone
+ * type is never additive — it is a category error. Drop the slug before
+ * insert so ingest and refile share one rule.
+ */
+export function filterMagSafeCollectionSlugs(
+  slugs: readonly string[],
+  productType: string,
+): string[] {
+  if (productTypeOffersMagSafe(productType)) return [...slugs];
+  // The slug is the MagSafe feature collection (`MAGSAFE_SLUG`). Kept as a
+  // literal so this module stays out of the collections-config tree — the
+  // navbar is a client component and must not pull the whole taxonomy.
+  return slugs.filter((slug) => slug !== "magsafe");
+}
+
+/**
+ * Roll product-type counts up to buyer-facing device ids.
+ *
+ * One product type maps to exactly one device in {@link DEVICE_FAMILIES};
+ * unknown types are dropped so a leftover `phone_charm` row cannot invent a
+ * facet the toolbar cannot name.
+ */
+export function rollupDeviceCounts(
+  rows: readonly { productType: string; count: number }[],
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    const device = DEVICE_OF_TYPE.get(row.productType);
+    if (!device) continue;
+    counts[device.id] = (counts[device.id] ?? 0) + row.count;
+  }
+  return counts;
+}
+
+/** Device ids with at least one matching product, in menu order. */
+export function stockedDeviceIds(
+  counts: Record<string, number> | undefined,
+): string[] {
+  if (!counts) return [];
+  return allDevices()
+    .map((device) => device.id)
+    .filter((id) => (counts[id] ?? 0) > 0);
+}
+
+/** True when the current view spans more than one product line. */
+export function catalogHasMultipleDevices(
+  counts: Record<string, number> | undefined,
+): boolean {
+  return stockedDeviceIds(counts).length > 1;
 }

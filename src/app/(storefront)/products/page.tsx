@@ -5,8 +5,8 @@ import {
   type ProductQuery,
 } from "@/lib/products";
 import { getBrandFacets, getCollectionBySlug } from "@/lib/collections";
-import { findDevice } from "@/lib/catalog/devices";
-import { ProductCard } from "@/components/ProductCard";
+import { findDevice, catalogHasMultipleDevices, deviceFilterLabel } from "@/lib/catalog/devices";
+import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
 import {
   CatalogSummary,
@@ -30,6 +30,7 @@ import { PAGE_COPY } from "@/lib/seo/copy";
 import {
   buildCatalogHref,
   CATALOG_PATH,
+  dropIncompatibleFacets,
   hasActiveFilters,
   parseCatalogParams,
   type CatalogParams,
@@ -73,10 +74,14 @@ export default async function ProductsPage({
       ...(brand.children?.map((child) => child.slug) ?? []),
     ]),
   );
-  const params: CatalogParams = {
+  const scoped: CatalogParams = {
     ...requested,
     brands: requested.brands.filter((slug) => offered.has(slug)),
   };
+  const params = dropIncompatibleFacets(scoped);
+  if (params !== scoped) {
+    redirect(buildCatalogHref(params));
+  }
 
   const query: ProductQuery = {
     search: params.q,
@@ -130,6 +135,8 @@ export default async function ProductsPage({
     collectionName: activeCollection?.name,
   });
   const filtered = hasActiveFilters(params);
+  const showDeviceBadge =
+    catalogHasMultipleDevices(facetCounts.devices) && !params.device;
 
   /*
    * The page heading is intentionally not painted.
@@ -144,7 +151,7 @@ export default async function ProductsPage({
    * accessibility and SEO regression dressed up as a visual cleanup.
    */
   const heading = activeDevice
-    ? `${activeDevice.label} cases`
+    ? deviceFilterLabel(activeDevice.id)
     : activeCollection
       ? activeCollection.name
       : params.brands.length === 1
@@ -162,7 +169,7 @@ export default async function ProductsPage({
               : PAGE_COPY.catalog.heading;
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-5 sm:px-6 sm:py-7">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-3 sm:px-6 sm:py-7">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -186,7 +193,13 @@ export default async function ProductsPage({
       />
       <h1 className="sr-only">{heading}</h1>
 
-      <CatalogToolbar params={params} brands={brands} counts={facetCounts} />
+      <CatalogToolbar
+        params={params}
+        brands={brands}
+        counts={facetCounts}
+        resultCount={total}
+        resetHref={filtered ? CATALOG_PATH : undefined}
+      />
 
       <CatalogSummary
         total={total}
@@ -198,13 +211,14 @@ export default async function ProductsPage({
 
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className={PRODUCT_MOSAIC}>
             {items.map((product, index) => (
               <ProductCard
                 key={product.id}
                 product={product}
                 imagePriority={index === 0}
                 headingLevel={2}
+                showDeviceBadge={showDeviceBadge}
               />
             ))}
           </div>

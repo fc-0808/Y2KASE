@@ -2,13 +2,13 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
-import { DEVICE_FAMILIES, findDevice } from "@/lib/catalog/devices";
+import { DEVICE_FAMILIES, deviceOffersMagSafe, findDevice } from "@/lib/catalog/devices";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 import { deviceSeo } from "@/lib/seo/device-content";
 import { getCatalogPage, type ProductQuery } from "@/lib/products";
 import { getBrandFacets } from "@/lib/collections";
-import { ProductCard } from "@/components/ProductCard";
+import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
 import { JsonLd } from "@/components/JsonLd";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
 import {
@@ -34,18 +34,19 @@ import {
 } from "@/lib/catalog/params";
 
 export const revalidate = 3600;
-// Only the live devices below are valid; anything else 404s (no thin pages).
+// Merchandised devices get a route; empty stock 404s at request time so we
+// never index a thin landing. Anything else 404s (no thin pages).
 export const dynamicParams = false;
 
-/** Live (stocked) devices get an indexable landing page. */
-function liveDeviceIds(): string[] {
+/** Merchandised devices get a generated route; stock is checked at request. */
+function merchandisedDeviceIds(): string[] {
   return DEVICE_FAMILIES.flatMap((f) => f.devices)
     .filter((d) => !d.comingSoon)
     .map((d) => d.id);
 }
 
 export function generateStaticParams() {
-  return liveDeviceIds().map((slug) => ({ slug }));
+  return merchandisedDeviceIds().map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({
@@ -114,12 +115,21 @@ export default async function DeviceLandingPage({
       ...(brand.children?.map((child) => child.slug) ?? []),
     ]),
   );
-  const catalogParams: CatalogParams = {
+  const scoped: CatalogParams = {
     ...requested,
     device: undefined,
     collection: undefined,
     brands: requested.brands.filter((brandSlug) => offered.has(brandSlug)),
   };
+  // The route, not the URL, names the device — drop MagSafe here the same
+  // way `dropIncompatibleFacets` would if `?device=` were still in state.
+  const catalogParams =
+    !deviceOffersMagSafe(slug) && scoped.magsafe !== undefined
+      ? { ...scoped, magsafe: undefined }
+      : scoped;
+  if (catalogParams !== scoped) {
+    redirect(buildCatalogHref(catalogParams));
+  }
 
   const query: ProductQuery = {
     search: catalogParams.q,
@@ -143,6 +153,11 @@ export default async function DeviceLandingPage({
     characterSlugs,
   );
 
+  const filtered = hasActiveFilters(catalogParams);
+  // An unstocked line must not occupy an indexable URL. Filtered emptiness
+  // (MagSafe on a real grid, a brand with no SKUs) still shows CatalogEmpty.
+  if (total === 0 && !filtered) notFound();
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Stale bookmark or a crawler walking `?page=` past the end — send it to the
@@ -153,7 +168,6 @@ export default async function DeviceLandingPage({
 
   const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
   const rangeEnd = Math.min(catalogParams.page * pageSize, total);
-  const filtered = hasActiveFilters(catalogParams);
   const chips = buildCatalogChips(catalogParams, { brands });
 
   // Destination links below the grid, counted under this device rather than the
@@ -199,7 +213,7 @@ export default async function DeviceLandingPage({
           long-form intro moved below the grid, where it no longer pushes the
           first row of products off a phone screen. */}
       <header
-        className="mb-4 overflow-hidden rounded-2xl border border-[var(--border)] px-4 py-3.5 sm:rounded-3xl sm:px-6 sm:py-4"
+        className="mb-3 overflow-hidden rounded-2xl border border-[var(--border)] px-3 py-3 sm:mb-4 sm:rounded-3xl sm:px-6 sm:py-4"
         style={{
           background:
             "linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, transparent), transparent 70%)",
@@ -224,10 +238,10 @@ export default async function DeviceLandingPage({
             {seo.heading}
           </span>
         </nav>
-        <h1 className="mt-1.5 text-2xl font-black sm:text-3xl">
+        <h1 className="mt-1.5 text-xl font-black sm:text-3xl">
           {seo.heading}
         </h1>
-        <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:text-base">
+        <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:mt-1.5 sm:line-clamp-none sm:text-base">
           {seo.tagline}
         </p>
       </header>
@@ -236,8 +250,11 @@ export default async function DeviceLandingPage({
         params={catalogParams}
         brands={brands}
         counts={facetCounts}
+        lockedDevice={slug}
         searchPlaceholder={`Search ${device.label} cases…`}
         searchLabel={`Search ${device.label} cases`}
+        resultCount={total}
+        resetHref={filtered ? basePath : undefined}
       />
 
       <CatalogSummary
@@ -250,13 +267,14 @@ export default async function DeviceLandingPage({
 
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className={PRODUCT_MOSAIC}>
             {items.map((product, index) => (
               <ProductCard
                 key={product.id}
                 product={product}
                 imagePriority={index === 0}
                 headingLevel={2}
+                showDeviceBadge={false}
               />
             ))}
           </div>

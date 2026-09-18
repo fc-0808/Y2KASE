@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import {
   Check,
   Flag,
@@ -21,6 +21,7 @@ import {
   Upload,
   Crop,
   Eraser,
+  Globe,
 } from "lucide-react";
 import {
   generateThumbnailProposals,
@@ -68,10 +69,66 @@ type BasicItem = Pick<
 >;
 
 type ActionResult = { ok: boolean; message: string };
-type BulkResult = ActionResult & { processed: number };
+type BulkResult = ActionResult & { processed: number; published?: number };
 
 const isDraft = (item: { productStatus: string }) =>
   item.productStatus === "draft";
+
+/** Session preference: whether Approve should also publish drafts. Off by default. */
+const PUBLISH_DRAFTS_STORAGE_KEY =
+  "y2kase.admin.thumbnails.publish-drafts-on-approve";
+const PUBLISH_DRAFTS_EVENT = "y2kase-thumbnails-publish-drafts";
+
+/** Fallback when localStorage is blocked; also the SSR snapshot. */
+let publishDraftsMemory = false;
+
+function readPublishDraftsPref(): boolean {
+  try {
+    const raw = window.localStorage.getItem(PUBLISH_DRAFTS_STORAGE_KEY);
+    if (raw === "1") {
+      publishDraftsMemory = true;
+      return true;
+    }
+    if (raw === "0") {
+      publishDraftsMemory = false;
+      return false;
+    }
+  } catch {
+    // Private mode / quota.
+  }
+  return publishDraftsMemory;
+}
+
+function getPublishDraftsServerSnapshot(): boolean {
+  return false;
+}
+
+function writePublishDraftsPref(on: boolean) {
+  publishDraftsMemory = on;
+  try {
+    window.localStorage.setItem(PUBLISH_DRAFTS_STORAGE_KEY, on ? "1" : "0");
+  } catch {
+    // Keep the in-memory value for this session.
+  }
+  window.dispatchEvent(new Event(PUBLISH_DRAFTS_EVENT));
+}
+
+function subscribePublishDrafts(onStoreChange: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key && event.key !== PUBLISH_DRAFTS_STORAGE_KEY) return;
+    onStoreChange();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(PUBLISH_DRAFTS_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(PUBLISH_DRAFTS_EVENT, onStoreChange);
+  };
+}
+
+function approveActionLabel(publishDrafts: boolean, draft: boolean): string {
+  return publishDrafts && draft ? "Approve & publish" : "Approve";
+}
 
 type ProductLinkItem = Pick<
   BasicItem,
@@ -149,8 +206,17 @@ export function ThumbnailsReview({
   const stopRef = useRef(false);
   const [auto, setAuto] = useState({ running: false, done: 0, total: 0 });
   const [bulk, setBulk] = useState({ running: false, done: 0, total: 0, verb: "" });
+  const publishDraftsOnApprove = useSyncExternalStore(
+    subscribePublishDrafts,
+    readPublishDraftsPref,
+    getPublishDraftsServerSnapshot,
+  );
 
   const globalBusy = auto.running || bulk.running;
+
+  function setPublishDrafts(on: boolean) {
+    writePublishDraftsPref(on);
+  }
 
   function flash(result: ActionResult) {
     setToast(result);
@@ -200,6 +266,9 @@ export function ThumbnailsReview({
   const sel = useMemo(() => [...selected], [selected]);
   const regenIds = sel;
   const approveIds = sel.filter((id) => proposedIds.has(id));
+  const approveDraftCount = items.filter(
+    (i) => selected.has(i.productId) && isDraft(i),
+  ).length;
   const flagIds = sel.filter((id) => proposedIds.has(id) || flaggedIds.has(id));
   const skipIds = sel.filter((id) => proposedIds.has(id) || flaggedIds.has(id));
 
@@ -214,9 +283,12 @@ export function ThumbnailsReview({
     startTransition(async () => {
       try {
         const res = await fn();
-        flash(res);
+        flash(
+          res.ok && !res.message.trim()
+            ? { ok: true, message: `${label} complete.` }
+            : res,
+        );
         if (res.ok) {
-          setToast({ ok: true, message: `${label} complete.` });
           setTimeout(() => router.refresh(), 0);
         } else {
           router.refresh();
@@ -311,6 +383,7 @@ export function ThumbnailsReview({
     stopRef.current = false;
     setBulk({ running: true, done: 0, total: ids.length, verb });
     let done = 0;
+    let published = 0;
     // A chunk can succeed as a request while some of its products don't. Keep
     // the server's explanation so the closing toast says why, instead of a count
     // that quietly disagrees with the selection.
@@ -325,13 +398,20 @@ export function ThumbnailsReview({
         }
         if (res.processed < chunk.length) shortfall = res.message;
         done += res.processed;
+        published += res.published ?? 0;
         setBulk({ running: true, done, total: ids.length, verb });
         router.refresh();
       }
       flash(
         shortfall
           ? { ok: false, message: shortfall }
-          : { ok: true, message: `${verb} ${done}.` },
+          : {
+              ok: true,
+              message:
+                published > 0
+                  ? `${verb} ${done} · published ${published} draft${published === 1 ? "" : "s"}.`
+                  : `${verb} ${done}.`,
+            },
       );
     } catch (err) {
       flash({ ok: false, message: err instanceof Error ? err.message : "Bulk failed." });
@@ -409,10 +489,16 @@ export function ThumbnailsReview({
         <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--foreground)]/45">
           <Clock className="h-3.5 w-3.5" />
           Generated with Nano Banana Pro (~45s each, in parallel). Counts and
-          actions follow the selected scope. Nothing is published until you
-          approve it — and drafts can be reviewed before they go live. The AI
-          cleanup path also removes the small top-left physical tag when present.
+          actions follow the selected scope. Approving a thumbnail never
+          publishes a draft unless you turn on “Publish drafts on approve.” The
+          AI cleanup path also removes the small top-left physical tag when
+          present.
         </p>
+        <PublishDraftsToggle
+          checked={publishDraftsOnApprove}
+          onChange={setPublishDrafts}
+          disabled={globalBusy}
+        />
         {activeAction && (
           <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-[var(--primary)]/20 bg-[var(--primary)]/8 px-3 py-1.5 text-xs font-semibold text-[var(--primary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -459,8 +545,17 @@ export function ThumbnailsReview({
                 onSelect={() => toggleSelect(item.productId)}
                 selectDisabled={globalBusy}
                 onApprove={() =>
-                  run(item.productId, "Approve", () => approveThumbnailProposal(item.productId))
+                  run(
+                    item.productId,
+                    approveActionLabel(publishDraftsOnApprove, isDraft(item)),
+                    () =>
+                      approveThumbnailProposal(
+                        item.productId,
+                        publishDraftsOnApprove,
+                      ),
+                  )
                 }
+                publishDraftsOnApprove={publishDraftsOnApprove}
                 onCleanup={() =>
                   run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
                 }
@@ -624,14 +719,33 @@ export function ThumbnailsReview({
             ) : (
               <>
                 <span className="px-2 text-sm font-bold">{selected.size} selected</span>
+                {approveIds.length > 0 && (
+                  <label className="flex cursor-pointer items-center gap-1.5 px-1 text-xs font-semibold text-[var(--foreground)]/70">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5"
+                      checked={publishDraftsOnApprove}
+                      onChange={(e) => setPublishDrafts(e.target.checked)}
+                    />
+                    Publish drafts
+                  </label>
+                )}
                 <BulkButton
                   onClick={() =>
-                    runBulk(approveIds, (c) => bulkApproveThumbnails(c), 25, "Approved")
+                    runBulk(
+                      approveIds,
+                      (c) => bulkApproveThumbnails(c, publishDraftsOnApprove),
+                      25,
+                      "Approved",
+                    )
                   }
                   disabled={approveIds.length === 0}
                   tone="primary"
                 >
-                  <Check className="h-3.5 w-3.5" /> Approve ({approveIds.length})
+                  <Check className="h-3.5 w-3.5" />{" "}
+                  {publishDraftsOnApprove && approveDraftCount > 0
+                    ? `Approve & publish (${approveIds.length})`
+                    : `Approve (${approveIds.length})`}
                 </BulkButton>
                 <BulkButton
                   onClick={() =>
@@ -779,11 +893,49 @@ function ScopeTabs({
 function DraftChip({ className }: { className?: string }) {
   return (
     <span
-      title="Draft — not on the storefront yet. Its thumbnail goes live when you publish the product."
+      title="Draft — not on the storefront yet. Turn on “Publish drafts on approve” if you want Approve to go live."
       className={`shrink-0 rounded-full bg-[var(--foreground)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/55 ${className ?? ""}`}
     >
       Draft
     </span>
+  );
+}
+
+function PublishDraftsToggle({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  disabled: boolean;
+}) {
+  return (
+    <label
+      className={`mt-2.5 flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2 text-sm transition ${
+        checked
+          ? "border-[var(--primary)]/40 bg-[var(--primary)]/[0.06]"
+          : "border-[var(--border)] bg-[var(--muted)]/50"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+    >
+      <input
+        type="checkbox"
+        className="mt-0.5 h-4 w-4"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="min-w-0">
+        <span className="inline-flex items-center gap-1.5 font-bold">
+          <Globe className="h-3.5 w-3.5 text-[var(--primary)]" aria-hidden />
+          Publish drafts on approve
+        </span>
+        <span className="mt-0.5 block text-xs font-medium text-[var(--foreground)]/55">
+          Off by default. When on, Approve also sets draft listings live.
+          Already-active products only get a new thumbnail.
+        </span>
+      </span>
+    </label>
   );
 }
 
@@ -887,6 +1039,7 @@ function ProposalCard({
   onAdjust,
   onRemoveBg,
   onRemoveTag,
+  publishDraftsOnApprove,
 }: {
   item: Item;
   busy: boolean;
@@ -902,6 +1055,7 @@ function ProposalCard({
   onAdjust: () => void;
   onRemoveBg: () => void;
   onRemoveTag: () => void;
+  publishDraftsOnApprove: boolean;
 }) {
   return (
     <div
@@ -929,14 +1083,29 @@ function ProposalCard({
       </ProductIdentityLink>
 
       <div className="flex flex-col gap-2 p-3">
+        {isDraft(item) && (
+          <p className="text-[11px] font-semibold text-[var(--foreground)]/50">
+            {publishDraftsOnApprove
+              ? "Approve will also publish this listing."
+              : "Draft stays unpublished. Turn on “Publish drafts on approve” to go live."}
+          </p>
+        )}
         <div className="flex gap-2">
           <PrimaryButton
             onClick={onApprove}
             disabled={disabled}
             busy={busy}
             className="flex-1"
+            title={
+              isDraft(item)
+                ? publishDraftsOnApprove
+                  ? "Approves the thumbnail and publishes this draft to the storefront."
+                  : "Approves the thumbnail only. This draft stays unpublished."
+                : "Approves the thumbnail. This listing is already live."
+            }
           >
-            <Check className="h-3.5 w-3.5" /> Approve
+            <Check className="h-3.5 w-3.5" />{" "}
+            {approveActionLabel(publishDraftsOnApprove, isDraft(item))}
           </PrimaryButton>
           <GhostButton onClick={onCleanup} disabled={disabled} accent className="flex-1">
             <Wand2 className="h-3.5 w-3.5" /> Regenerate
@@ -1191,17 +1360,20 @@ function PrimaryButton({
   disabled,
   busy,
   className,
+  title,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled: boolean;
   busy?: boolean;
   className?: string;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--primary)] px-3 py-2 text-xs font-bold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50 ${className ?? ""}`}
     >
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : children}

@@ -35,8 +35,8 @@ export function MagicLinkEmail({ url, expiresInMinutes = 5 }: MagicLinkEmailProp
           <Section style={contentStyle}>
             <Text style={greetingStyle}>Sign in to Y2KASE ✨</Text>
             <Text style={paraStyle}>
-              Tap the button below to securely sign in. No password needed —
-              this magic link signs you in instantly. 🌸
+              Tap the button below to securely sign in. If you don&apos;t have
+              an account yet, this link creates one — no password needed. 🌸
             </Text>
 
             <Button href={url} style={ctaStyle}>

@@ -1,14 +1,12 @@
 import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
-import { BUNDLE } from "@/lib/promotions";
+import { bundleStorefrontOffer } from "@/lib/promotions";
 
 /**
  * Both offers are DERIVED from the pricing and promotions engines rather than
  * retyped, so the bar can never advertise a threshold or a bundle that
  * checkout does not actually honour.
  */
-const BUNDLE_OFFER = `Y2KASE Special: Buy ${BUNDLE.groupSize} Phone Cases—Pay For ${
-  BUNDLE.groupSize - BUNDLE.freePerGroup
-}`;
+const BUNDLE_OFFER = `Y2KASE Special: ${bundleStorefrontOffer()}`;
 
 const OFFER_TEXT =
   "text-[11px] font-semibold leading-5 text-[var(--foreground)] md:text-xs";

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { headers } from "next/headers";
 import { isDbConfigured } from "@/lib/db";
 import { getSession } from "@/lib/auth";
@@ -35,8 +36,15 @@ export default async function AdminMembersPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-black">Members</h1>
         <p className="mt-1 text-sm text-[var(--foreground)]/60">
-          Everyone with an account — customers, admins and guests who claimed an
-          account. Promote trusted teammates to admin to grant console access.
+          Website accounts only — customers, admins, and guests who claimed an
+          account. Newsletter club signups live on{" "}
+          <Link
+            href="/admin/subscribers"
+            className="font-semibold text-[var(--primary)] underline decoration-[var(--primary)]/40 underline-offset-2 hover:decoration-[var(--primary)]"
+          >
+            Subscribers
+          </Link>
+          ; joining the club does not create an account.
         </p>
       </div>
 

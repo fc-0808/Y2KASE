@@ -75,7 +75,12 @@ export const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         question: "Do AirPods 4 and AirPods 5 use the same case?",
-        answer: `Yes. ${AIRPODS_SHARED_FIT_NOTE} On an AirPods listing that mould is one option — ${AIRPODS_4_5}. AirPods Pro, AirPods 3 and AirPods 1 / 2 are different shells. Pick the model you own on the product page.`,
+        answer: `Yes. ${AIRPODS_SHARED_FIT_NOTE} On an AirPods listing that mould is one option — ${AIRPODS_4_5}. AirPods Pro, AirPods 3 and AirPods 1 / 2 are different shells. Pick the model you own on the product page. See AirPods cases.`,
+      },
+      {
+        question: "Are AirPods cases MagSafe?",
+        answer:
+          "No. MagSafe is a magnet ring on phone cases. AirPods cases do not snap to MagSafe chargers or wallets. See AirPods cases.",
       },
       {
         question: 'What is the "Case + Grip + Charm" option?',
@@ -116,6 +121,7 @@ const FAQ_PHRASES: { phrase: string; href: string }[] = [
   { phrase: "Shipping Policy", href: "/policies/shipping-policy" },
   { phrase: "Refund Policy", href: "/policies/refund-policy" },
   { phrase: "iPhone cases", href: "/devices/iphone" },
+  { phrase: "AirPods cases", href: "/products?device=airpods" },
   { phrase: "What's in the catalog", href: ROUTES.insights },
   { phrase: SUPPORT_EMAIL, href: `mailto:${SUPPORT_EMAIL}` },
 ].sort((a, b) => b.phrase.length - a.phrase.length);

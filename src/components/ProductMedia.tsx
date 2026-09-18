@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import type { ImageProps } from "next/image";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { canonicalizePublicR2Url } from "@/lib/catalog/r2-public";
 import { isStorefrontRenderableUrl } from "@/lib/catalog/storefront-media";
 
@@ -56,14 +56,10 @@ export function ProductMedia({
   const renderable = isStorefrontRenderableUrl(src)
     ? canonicalizePublicR2Url(src)
     : null;
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setFailed(false);
-  }, [renderable]);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
   const fitClass = fit === "contain" ? "object-contain" : "object-cover";
-  const showImage = Boolean(renderable) && !failed;
+  const showImage = Boolean(renderable) && failedSrc !== renderable;
 
   return (
     <div
@@ -85,7 +81,7 @@ export function ProductMedia({
           loading={loading}
           fetchPriority={fetchPriority}
           onError={() => {
-            setFailed(true);
+            setFailedSrc(renderable);
             onImageError?.(renderable);
           }}
           className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}

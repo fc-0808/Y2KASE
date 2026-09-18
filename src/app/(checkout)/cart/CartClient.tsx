@@ -40,6 +40,8 @@ import { computePromotions, BUNDLE } from "@/lib/promotions";
 import { formatPrice } from "@/lib/utils";
 import { trackCheckoutStart } from "@/lib/analytics/commerce";
 import { readUtmParams } from "@/lib/analytics/utm";
+import { useSession } from "@/lib/auth-client";
+import { isSignedInUser, signInHref } from "@/lib/auth-redirect";
 
 /** Ties the "?" toggle to the disclosure it reveals (`aria-controls`). */
 const BUNDLE_INFO_ID = "bundle-how-it-works";
@@ -417,6 +419,9 @@ export function CartClient() {
                 {checkingOut ? "Redirecting…" : "Proceed to secure checkout"}
               </button>
 
+              {/* better-auth's useSession cannot run during static prerender. */}
+              <CartAccountHint />
+
               {/* Reassurance strip — subtle inline text, never mistakable for
                   another set of buttons competing with the CTA above. */}
               <ul className="mt-3.5 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
@@ -451,6 +456,41 @@ export function CartClient() {
         </aside>
       </div>
     </div>
+  );
+}
+
+/**
+ * better-auth's `useSession` reads React internals that are null during
+ * static prerender. Keep the hook in a child that only mounts after the
+ * hydration gate above, matching Navbar's browser-only session pattern.
+ */
+function CartAccountHint() {
+  const { data: session, isPending } = useSession();
+  if (isPending) return null;
+  const signedIn = isSignedInUser(session?.user);
+
+  if (signedIn) {
+    return (
+      <p className="mt-3 text-center text-xs leading-relaxed text-[var(--foreground)]/50">
+        Signed in — this order will show up under My Orders.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-3 text-center text-xs leading-relaxed text-[var(--foreground)]/50">
+      Have an account?{" "}
+      <Link
+        href={signInHref({
+          callbackUrl: "/cart",
+          intent: "checkout",
+        })}
+        className="font-bold text-[var(--primary)] underline decoration-[var(--primary)]/40 underline-offset-2 hover:decoration-[var(--primary)]"
+      >
+        Sign in
+      </Link>{" "}
+      to attach this order after you pay. Guests are welcome too.
+    </p>
   );
 }
 

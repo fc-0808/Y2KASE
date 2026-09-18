@@ -9,6 +9,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePromoActions } from "@/lib/store/promo";
 import { WELCOME_COUPON } from "@/lib/promotions";
+import { CreateAccountInvite } from "@/components/auth/CreateAccountInvite";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -68,6 +69,10 @@ export function FooterSubscribe() {
           {WELCOME_COUPON.label} is saved to your bag — shop whenever you&apos;re
           ready.
         </p>
+        <CreateAccountInvite
+          email={email}
+          className="mt-3 text-xs leading-relaxed text-[var(--foreground)]/60"
+        />
       </div>
     );
   }

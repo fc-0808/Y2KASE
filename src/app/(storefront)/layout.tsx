@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { CartDrawerLoader } from "@/components/CartDrawerLoader";
 import { CartRecoveryPopLoader } from "@/components/CartRecoveryPopLoader";
 import { EmailCapturePopLoader } from "@/components/EmailCapturePopLoader";
@@ -5,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SupportWidgetLoader } from "@/components/support/SupportWidgetLoader";
 import { MarketingAnalytics } from "@/components/analytics/MarketingAnalytics";
+import { AuthConversionTracker } from "@/components/auth/AuthConversionTracker";
 
 /**
  * Shared chrome for shopper-facing routes.
@@ -28,6 +30,9 @@ export default function StorefrontLayout({
       <CartRecoveryPopLoader />
       <SupportWidgetLoader />
       <MarketingAnalytics />
+      <Suspense fallback={null}>
+        <AuthConversionTracker />
+      </Suspense>
     </>
   );
 }

@@ -3,10 +3,11 @@ import { eq } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import { LEGAL_DOCS, LEGAL_SLUGS } from "@/lib/legal";
-import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
+import { DEVICE_FAMILIES, deviceIsLive } from "@/lib/catalog/devices";
 import { listPublishedPosts } from "@/lib/blog";
 import { ROUTES } from "@/lib/routes";
 import { getCollectionTree, type CollectionNode } from "@/lib/collections";
+import { getDeviceFacetCounts } from "@/lib/products";
 import { absoluteUrl, SITE_URL } from "@/lib/site";
 
 // Refresh the sitemap hourly so new products/collections appear without a deploy.
@@ -22,10 +23,13 @@ function flattenCollections(nodes: CollectionNode[]): CollectionNode[] {
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Live (stocked) device landing pages — high-intent SEO category pages.
+  // comingSoon is not enough: clearing the AirPods flag with zero SKUs
+  // must not submit an empty `/devices/airpods`.
+  const deviceStock = await getDeviceFacetCounts().catch(() => undefined);
   const deviceRoutes: MetadataRoute.Sitemap = DEVICE_FAMILIES.flatMap((f) =>
     f.devices,
   )
-    .filter((d) => !d.comingSoon)
+    .filter((d) => deviceIsLive(d, deviceStock))
     .map((d) => ({
       url: `${SITE_URL}/devices/${d.id}`,
       changeFrequency: "weekly" as const,

@@ -44,6 +44,12 @@ export default function NotFound() {
             <Link href="/devices/iphone" className="hover:text-[var(--primary)]">
               iPhone Cases
             </Link>
+            <Link
+              href="/products?device=airpods"
+              className="hover:text-[var(--primary)]"
+            >
+              AirPods Cases
+            </Link>
             <Link href="/blog" className="hover:text-[var(--primary)]">
               Blog
             </Link>

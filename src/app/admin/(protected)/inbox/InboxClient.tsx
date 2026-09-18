@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Inbox,
   RefreshCw,
@@ -15,8 +15,12 @@ import {
   Reply,
   Send,
   X,
+  Paperclip,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { InboxAttachment } from "@/lib/inbox/attachments";
+import { EmailAttachments } from "./EmailAttachments";
+import { EmailBody } from "./EmailBody";
 
 interface EmailHeader {
   uid: number;
@@ -33,6 +37,7 @@ interface EmailDetail extends EmailHeader {
   html: string | null;
   text: string;
   toEmail: string;
+  attachments?: InboxAttachment[];
 }
 
 const dateFmt = new Intl.DateTimeFormat("en-US", {
@@ -128,36 +133,12 @@ function EmailPane({
   onMarkUnread: () => void;
   onClose: () => void;
 }) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [showReply, setShowReply] = useState(false);
   const [replyBody, setReplyBody] = useState("");
   const [quoteOriginal, setQuoteOriginal] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<"idle" | "ok" | "error">("idle");
-
-  // Reset composer when a different email is opened. Resetting on prop change
-  // is the intent here; the tidier fix is a `key` on this component, which is
-  // a behaviour change best made on its own.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShowReply(false);
-    setReplyBody("");
-    setSendStatus("idle");
-  }, [email.uid]);
-
-  // Auto-resize iframe to content height.
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !email.html) return;
-    const handler = () => {
-      if (iframe.contentDocument?.body) {
-        iframe.style.height =
-          iframe.contentDocument.body.scrollHeight + 32 + "px";
-      }
-    };
-    iframe.addEventListener("load", handler);
-    return () => iframe.removeEventListener("load", handler);
-  }, [email.html]);
+  const attachmentCount = email.attachments?.length ?? 0;
 
   async function handleSend() {
     if (!replyBody.trim()) return;
@@ -215,6 +196,12 @@ function EmailPane({
               <Clock className="h-3.5 w-3.5" />
               {dateFmt.format(new Date(email.date))}
             </span>
+            {attachmentCount > 0 && (
+              <span className="flex items-center gap-1">
+                <Paperclip className="h-3.5 w-3.5" />
+                {attachmentCount}
+              </span>
+            )}
           </div>
           {email.isSpam && (
             <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
@@ -256,20 +243,11 @@ function EmailPane({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-5">
-        {email.html ? (
-          <iframe
-            ref={iframeRef}
-            sandbox="allow-same-origin"
-            srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;word-break:break-word;}</style></head><body>${email.html}</body></html>`}
-            className="w-full rounded-lg border border-[var(--border)] bg-white"
-            style={{ minHeight: 200 }}
-            title="Email content"
-          />
-        ) : (
-          <pre className="whitespace-pre-wrap rounded-xl bg-[var(--muted)] p-4 font-sans text-sm leading-relaxed text-[var(--foreground)]">
-            {email.text || "(empty)"}
-          </pre>
-        )}
+        <EmailBody uid={email.uid} html={email.html} text={email.text} />
+        <EmailAttachments
+          uid={email.uid}
+          attachments={email.attachments ?? []}
+        />
       </div>
 
       {/* Reply composer */}
@@ -512,6 +490,7 @@ export function InboxClient() {
               </div>
             ) : selected ? (
               <EmailPane
+                key={selected.uid}
                 email={selected}
                 onDelete={() => handleDelete(selected.uid)}
                 onMarkUnread={() => handleMarkUnread(selected.uid)}

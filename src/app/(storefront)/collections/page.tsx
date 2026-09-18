@@ -1,13 +1,24 @@
 import Link from "next/link";
 import Image from "next/image";
 import { getCollectionTree, type CollectionNode } from "@/lib/collections";
-import { getMagsafeFacetCounts } from "@/lib/products";
+import { getDeviceFacetCounts, getMagsafeFacetCounts } from "@/lib/products";
 import { MAGSAFE_FACETS, magsafeFacetHref } from "@/lib/catalog/magsafe";
+import {
+  allDevices,
+  catalogHasMultipleDevices,
+  deviceBrowseHref,
+  deviceFilterLabel,
+} from "@/lib/catalog/devices";
 import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
+import {
+  parseDirectorySort,
+  sortDirectoryBrands,
+} from "@/lib/catalog/directory-sort";
 import {
   COLLECTION_CARD_ART_SLUGS,
   collectionCardArtSrc,
 } from "@/lib/brand/collection-card-art";
+import { CollectionsBrowseBar } from "@/components/collections/CollectionsBrowseBar";
 import { JsonLd } from "@/components/JsonLd";
 import {
   breadcrumbJsonLd,
@@ -62,11 +73,23 @@ const CARD_ART_SIZES =
  */
 const EAGER_CARDS = 5;
 
-export default async function CollectionsIndexPage() {
-  const [tree, magsafeCounts] = await Promise.all([
-    getCollectionTree(),
-    getMagsafeFacetCounts(),
-  ]);
+export default async function CollectionsIndexPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string | string[] }>;
+}) {
+  const [{ sort: sortParam }, tree, magsafeCounts, deviceCounts] =
+    await Promise.all([
+      searchParams,
+      getCollectionTree(),
+      getMagsafeFacetCounts(),
+      getDeviceFacetCounts(),
+    ]);
+  const sort = parseDirectorySort(sortParam);
+  const stockedDevices = allDevices().filter(
+    (device) => (deviceCounts[device.id] ?? 0) > 0,
+  );
+  const showDevicePills = catalogHasMultipleDevices(deviceCounts);
 
   // Stocked-or-featured mirrors the header's rule, so the index never links to
   // a collection page the mega-menu has already hidden.
@@ -83,11 +106,11 @@ export default async function CollectionsIndexPage() {
   const deep = brands.filter((b) => b.totalCount >= CARD_MIN_PRODUCTS);
   const shallow = brands.filter((b) => b.totalCount < CARD_MIN_PRODUCTS);
   const split = deep.length > 0;
-  const cards = split ? deep : brands;
-  const pills = split ? shallow : [];
+  const cards = sortDirectoryBrands(split ? deep : brands, sort);
+  const pills = sortDirectoryBrands(split ? shallow : [], sort);
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-3 sm:px-6 sm:py-8">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -108,82 +131,62 @@ export default async function CollectionsIndexPage() {
         ]}
       />
       {/*
-        One header block, not three. The page previously spent ~260px of the
-        fold on a title, a description, a second heading and a second
-        description that all said the same thing ("browse by MagSafe, then by
-        character"). The compatibility choice is the page's primary axis, so it
-        stays at the top — but as two pills directly under the sentence that
-        introduces them, not as a section of its own.
+        One header block. When the catalog spans more than one product line
+        (iPhone + AirPods), device is the first choice and MagSafe follows —
+        MagSafe is meaningless on an AirPods case. An iPhone-only catalog
+        keeps MagSafe as the opening axis, same as before.
       */}
-      <header className="mb-6 sm:mb-8">
-        <h1 className="text-2xl font-black sm:text-3xl lg:text-4xl">
+      <header className="mb-3 sm:mb-8">
+        <h1 className="text-xl font-black sm:text-3xl lg:text-4xl">
           {PAGE_COPY.collections.heading}
         </h1>
-        <p className="mt-1.5 max-w-2xl text-sm text-[var(--foreground)]/65 sm:text-base">
-          Start with the fit — MagSafe or not — then browse characters, original
-          designs, and brands. Live SKU counts (not a survey) are on{" "}
+        <p className="mt-1.5 hidden max-w-2xl text-sm text-[var(--foreground)]/65 lg:mt-2 lg:block lg:text-base">
+          {showDevicePills
+            ? `Start with the device — ${stockedDevices.map((d) => d.label).join(" or ")} — then MagSafe for phone cases, then browse characters, original designs, and brands. Live SKU counts (not a survey) are on `
+            : "Start with the fit — MagSafe or not — then browse characters, original designs, and brands. Live SKU counts (not a survey) are on "}
           <Link href="/insights" className="font-semibold text-[var(--primary)]">
             What&apos;s in the catalog
           </Link>
           .
         </p>
-        {/* Labelled landmark in place of the heading these pills used to sit
-            under: the group is still announced and jumpable, without a heading
-            whose only job was to caption two links. */}
-        <nav
-          aria-label="Shop by MagSafe compatibility"
-          className="mt-3 flex flex-wrap gap-2"
-        >
-          {MAGSAFE_FACETS.map((facet) => {
-            const count = facet.magsafe
+        <CollectionsBrowseBar
+          devices={
+            showDevicePills
+              ? stockedDevices.map((device) => ({
+                  id: device.id,
+                  href: deviceBrowseHref(device, deviceCounts),
+                  label: deviceFilterLabel(device.id),
+                  icon: device.icon,
+                  count: deviceCounts[device.id] ?? 0,
+                }))
+              : []
+          }
+          magsafe={MAGSAFE_FACETS.map((facet) => ({
+            id: facet.id,
+            href: magsafeFacetHref(facet.magsafe),
+            label: facet.label,
+            accentColor: facet.accentColor,
+            count: facet.magsafe
               ? magsafeCounts.magsafe
-              : magsafeCounts.nonMagsafe;
-            return (
-              <Link
-                key={facet.id}
-                href={magsafeFacetHref(facet.magsafe)}
-                // The bare count reads as "MagSafe 128" to a screen reader, so
-                // the accessible name spells the unit out.
-                aria-label={
-                  count > 0 ? `${facet.label} — ${count} products` : facet.label
+              : magsafeCounts.nonMagsafe,
+          }))}
+          originals={
+            originals && originals.totalCount > 0
+              ? {
+                  href: `/collections/${ORIGINALS_SLUG}`,
+                  name: originals.name,
+                  icon: originals.icon ?? "✨",
+                  count: originals.totalCount,
                 }
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
-              >
-                <span
-                  aria-hidden
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ background: facet.accentColor }}
-                />
-                {facet.label}
-                {count > 0 && (
-                  <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/45">
-                    {count}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-          {originals && originals.totalCount > 0 && (
-            <Link
-              href={`/collections/${ORIGINALS_SLUG}`}
-              aria-label={`${originals.name} — ${originals.totalCount} products`}
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
-            >
-              <span aria-hidden className="text-sm">
-                {originals.icon ?? "✨"}
-              </span>
-              {originals.name}
-              <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/45">
-                {originals.totalCount}
-              </span>
-            </Link>
-          )}
-        </nav>
+              : undefined
+          }
+          sort={sort}
+        />
       </header>
 
       {/* Characters & brands */}
       <section aria-labelledby="brands-heading">
-        <h2 id="brands-heading" className="mb-3 text-base font-black sm:text-lg">
+        <h2 id="brands-heading" className="mb-3 text-sm font-black sm:text-lg">
           Characters &amp; brands
         </h2>
         {cards.length > 0 ? (
@@ -208,10 +211,10 @@ export default async function CollectionsIndexPage() {
         crawlable — they just stop pretending to be flagships.
       */}
       {pills.length > 0 && (
-        <section aria-labelledby="more-brands-heading" className="mt-8 sm:mt-10">
+        <section aria-labelledby="more-brands-heading" className="mt-6 sm:mt-10">
           <h2
             id="more-brands-heading"
-            className="mb-3 text-base font-black sm:text-lg"
+            className="mb-3 text-sm font-black sm:text-lg"
           >
             More brands
           </h2>
@@ -351,17 +354,9 @@ function BrandCard({
         </>
       )}
       {/*
-        Only three collections have generated artwork, and a fixed-ratio tile
-        makes that gap obvious in a way a content-height card did not: the rest
-        were reading as blank boxes. This is the same accent wash the homepage
-        `CategoryRail` falls back to when a cover is missing — the brand colour
-        the top rule already declares, bled a little way into the tile.
-
-        `color-mix` rather than an appended hex alpha because `accentColor` is
-        nullable — `taxonomy-sync` writes `?? null` for any seed that omits one
-        — and the fallback that resolves to is `var(--primary)`, which no
-        appended alpha can express. `var(--primary)2e` is invalid, and one
-        invalid stop drops the entire gradient.
+        A collection whose art file is missing simply takes the accent wash
+        instead, so the manifest going stale is a style difference rather than a
+        404. Generated backgrounds live in `public/brand/collection-cards`.
       */}
       {!hasArt && (
         <span

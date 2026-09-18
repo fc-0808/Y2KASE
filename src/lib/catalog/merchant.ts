@@ -1,18 +1,21 @@
 /**
  * Merchant-channel taxonomy.
  *
- * Google category 267 is specifically "Mobile Phone Cases". It must not be
- * stamped onto AirPods, tablet, laptop or watch products as those lines launch.
- * Omitting an optional category is safer than publishing a false one.
+ * Phone cases keep Google category 267 (the id this catalogue has always
+ * published). AirPods cases use 505797 — Headphone & Headset Accessories —
+ * so a live AirPods SKU is not stamped as a mobile phone case. Omitting an
+ * optional category is safer than publishing a false one; unknown types
+ * return null.
  */
-const MOBILE_PHONE_CASE_TYPES = new Set([
-  "iphone_case",
-  "samsung_case",
-  "pixel_case",
-]);
+const GOOGLE_PRODUCT_CATEGORY: Record<string, string> = {
+  iphone_case: "267",
+  samsung_case: "267",
+  pixel_case: "267",
+  airpod_case: "505797",
+};
 
 export function googleProductCategoryId(
   productType: string,
 ): string | null {
-  return MOBILE_PHONE_CASE_TYPES.has(productType) ? "267" : null;
+  return GOOGLE_PRODUCT_CATEGORY[productType] ?? null;
 }

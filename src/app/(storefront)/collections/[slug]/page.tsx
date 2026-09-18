@@ -11,7 +11,7 @@ import {
 import { getCatalogPage, type ProductQuery } from "@/lib/products";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
-import { ProductCard } from "@/components/ProductCard";
+import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
 import { JsonLd } from "@/components/JsonLd";
 import {
   breadcrumbJsonLd,
@@ -21,7 +21,7 @@ import {
   FACET_PAGE_ROBOTS,
   isIndexableCatalogPage,
 } from "@/lib/seo";
-import { collectionSeo } from "@/lib/seo/copy";
+import { collectionSeo, collectionBrowseTagline, collectionFilteredTitle } from "@/lib/seo/copy";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
 import {
   CatalogSummary,
@@ -33,11 +33,16 @@ import { CollectionEditorialBlock } from "@/components/CollectionEditorialBlock"
 import { collectionEditorial } from "@/lib/seo/collection-editorial";
 import {
   buildCatalogHref,
+  dropIncompatibleFacets,
   hasActiveFilters,
   parseCatalogParams,
   type CatalogParams,
   type CatalogSearchParams,
 } from "@/lib/catalog/params";
+import {
+  catalogHasMultipleDevices,
+  stockedDeviceIds,
+} from "@/lib/catalog/devices";
 
 export const revalidate = 3600;
 
@@ -55,11 +60,27 @@ export async function generateMetadata({
     searchParams,
   ]);
   if (!collection) return { title: "Collection not found" };
-  const copy = collectionSeo(collection);
+  const catalogParams = parseCatalogParams(
+    rawSearchParams,
+    `/collections/${slug}`,
+  );
+  let stocked: string[] = [];
+  try {
+    const { facetCounts } = await getCatalogPage({
+      collection: slug,
+      page: 1,
+      sort: "newest",
+    });
+    stocked = stockedDeviceIds(facetCounts.devices);
+  } catch {
+    stocked = [];
+  }
+  const seoInput = { ...collection, stockedDeviceIds: stocked };
+  const copy = collectionSeo(seoInput);
   const catalogMetadata = catalogPageMetadata({
-    title: copy.title,
+    title: collectionFilteredTitle(seoInput, catalogParams.device),
     description: copy.description,
-    params: parseCatalogParams(rawSearchParams, `/collections/${slug}`),
+    params: catalogParams,
     openGraphImage: null,
   });
   const node = findNode(tree, slug);
@@ -137,11 +158,15 @@ export default async function CollectionPage({
   const indexable = isIndexableCatalogPage(requested);
   const canonical = catalogCanonicalHref(requested);
   const offered = new Set(children.map((child) => child.slug));
-  const catalogParams: CatalogParams = {
+  const scoped: CatalogParams = {
     ...requested,
     collection: undefined,
     brands: requested.brands.filter((s) => offered.has(s)),
   };
+  const catalogParams = dropIncompatibleFacets(scoped);
+  if (catalogParams !== scoped) {
+    redirect(buildCatalogHref(catalogParams));
+  }
 
   const query: ProductQuery = {
     search: catalogParams.q,
@@ -174,7 +199,12 @@ export default async function CollectionPage({
   const rangeEnd = Math.min(catalogParams.page * pageSize, total);
   const filtered = hasActiveFilters(catalogParams);
   const chips = buildCatalogChips(catalogParams, { brands: children });
-  const copy = collectionSeo(collection);
+  const stocked = stockedDeviceIds(facetCounts.devices);
+  const seoInput = { ...collection, stockedDeviceIds: stocked };
+  const copy = collectionSeo(seoInput);
+  const tagline = collectionBrowseTagline(seoInput, stocked);
+  const showDeviceBadge =
+    catalogHasMultipleDevices(facetCounts.devices) && !catalogParams.device;
   const parent =
     breadcrumb.length >= 2 ? breadcrumb[breadcrumb.length - 2] : null;
   const editorial = collectionEditorial({
@@ -182,6 +212,7 @@ export default async function CollectionPage({
     name: collection.name,
     kind: collection.kind,
     parent,
+    stockedDeviceIds: stocked,
   });
 
   return (
@@ -219,7 +250,7 @@ export default async function CollectionPage({
           on-page content, not hidden metadata, is what shoppers and answer
           engines can evaluate and quote. */}
       <header
-        className="mb-4 overflow-hidden rounded-2xl border border-[var(--border)] px-4 py-3.5 sm:rounded-3xl sm:px-6 sm:py-4"
+        className="mb-3 overflow-hidden rounded-2xl border border-[var(--border)] px-3 py-3 sm:mb-4 sm:rounded-3xl sm:px-6 sm:py-4"
         style={{
           // `color-mix`, not `${accent}1f`: `accentColor` is nullable
           // (`taxonomy-sync` writes `?? null`), so this can resolve to
@@ -259,11 +290,11 @@ export default async function CollectionPage({
             );
           })}
         </nav>
-        <h1 className="mt-1.5 text-2xl font-black sm:text-3xl">
+        <h1 className="mt-1.5 text-xl font-black sm:text-3xl">
           {copy.heading}
         </h1>
-        <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:text-base">
-          {copy.tagline}
+        <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:mt-1.5 sm:line-clamp-none sm:text-base">
+          {tagline}
         </p>
       </header>
 
@@ -274,6 +305,8 @@ export default async function CollectionPage({
         brandsLabel={facetLabel(children[0]?.kind)}
         searchPlaceholder={`Search ${collection.name}…`}
         searchLabel={`Search ${collection.name} products`}
+        resultCount={total}
+        resetHref={filtered ? basePath : undefined}
       />
 
       <CatalogSummary
@@ -286,13 +319,14 @@ export default async function CollectionPage({
 
       {items.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className={PRODUCT_MOSAIC}>
             {items.map((product, index) => (
               <ProductCard
                 key={product.id}
                 product={product}
                 imagePriority={index === 0}
                 headingLevel={2}
+                showDeviceBadge={showDeviceBadge}
               />
             ))}
           </div>

@@ -60,7 +60,8 @@ assert.match(
   /^Free standard shipping for orders over \S+/,
 );
 assert.equal(googleProductCategoryId("iphone_case"), "267");
-assert.equal(googleProductCategoryId("airpod_case"), null);
+assert.equal(googleProductCategoryId("airpod_case"), "505797");
+assert.equal(googleProductCategoryId("watch_band"), null);
 assert.equal(magsafeFacetHref(true), "/collections/magsafe");
 assert.equal(magsafeFacetHref(false), "/products?magsafe=false");
 assert.equal(
@@ -366,6 +367,17 @@ assert.ok(
     (segment) =>
       segment.type === "link" &&
       segment.href === "/blog/how-we-verify-magsafe",
+  ),
+);
+
+const airpodsMagSafeFaq = FAQ_ITEMS.find((item) =>
+  item.question.includes("Are AirPods cases MagSafe"),
+);
+assert.ok(airpodsMagSafeFaq);
+assert.ok(
+  faqAnswerSegments(airpodsMagSafeFaq.answer).some(
+    (segment) =>
+      segment.type === "link" && segment.href === "/products?device=airpods",
   ),
 );
 

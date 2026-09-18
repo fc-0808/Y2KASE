@@ -24,6 +24,10 @@ const IPHONE: EditorialLink = {
   href: "/devices/iphone",
   label: "iPhone cases",
 };
+const AIRPODS: EditorialLink = {
+  href: "/devices/airpods",
+  label: "AirPods cases",
+};
 const MAGSAFE: EditorialLink = {
   href: "/collections/magsafe",
   label: "MagSafe phone cases",
@@ -206,27 +210,42 @@ export function collectionEditorial(input: {
   name: string;
   kind?: string | null;
   parent?: { slug: string; name: string } | null;
+  stockedDeviceIds?: string[];
 }): CollectionEditorial {
   const curated = BODIES[input.slug];
-  if (curated) {
-    const parentLink =
-      input.parent &&
-      !curated.related.some(
-        (link) => link.href === `/collections/${input.parent!.slug}`,
-      )
-        ? [
-            {
-              href: `/collections/${input.parent.slug}`,
-              label: `${input.parent.name} phone cases`,
-            },
-          ]
-        : [];
-    return {
-      paragraphs: curated.paragraphs,
-      related: uniqueRelated([...parentLink, ...curated.related]),
-    };
-  }
+  const base = curated
+    ? editorialFromCurated(curated, input.parent)
+    : editorialFallback(input);
 
+  return withDeviceRelated(base, input.stockedDeviceIds, input.slug);
+}
+
+function editorialFromCurated(
+  curated: CollectionEditorial,
+  parent?: { slug: string; name: string } | null,
+): CollectionEditorial {
+  const parentLink =
+    parent &&
+    !curated.related.some((link) => link.href === `/collections/${parent.slug}`)
+      ? [
+          {
+            href: `/collections/${parent.slug}`,
+            label: `${parent.name} phone cases`,
+          },
+        ]
+      : [];
+  return {
+    paragraphs: curated.paragraphs,
+    related: uniqueRelated([...parentLink, ...curated.related]),
+  };
+}
+
+function editorialFallback(input: {
+  slug: string;
+  name: string;
+  kind?: string | null;
+  parent?: { slug: string; name: string } | null;
+}): CollectionEditorial {
   const parent = input.parent;
   const paragraphs = [
     parent
@@ -243,4 +262,26 @@ export function collectionEditorial(input: {
   }
   related.push(...KIND_FALLBACK_RELATED);
   return { paragraphs, related: uniqueRelated(related) };
+}
+
+/**
+ * Related links follow the stocked mix: AirPods-only pages must not point
+ * shoppers at MagSafe, and a collection that actually sells AirPods should
+ * name `/devices/airpods` — the URL that owns that query.
+ */
+function withDeviceRelated(
+  editorial: CollectionEditorial,
+  stockedDeviceIds: string[] | undefined,
+  slug: string,
+): CollectionEditorial {
+  const ids = stockedDeviceIds ?? [];
+  const airpodsOnly = ids.length === 1 && ids[0] === "airpods";
+  let related = editorial.related;
+  if (airpodsOnly) {
+    related = related.filter((link) => link.href !== MAGSAFE.href);
+  }
+  if (ids.includes("airpods") && slug !== "magsafe") {
+    related = uniqueRelated([AIRPODS, ...related]);
+  }
+  return { paragraphs: editorial.paragraphs, related };
 }

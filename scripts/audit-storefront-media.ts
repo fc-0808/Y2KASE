@@ -14,7 +14,7 @@ import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { neon } from "@neondatabase/serverless";
 
 import { mapWithConcurrency } from "../src/lib/catalog/concurrency";
-import { DEVICE_FAMILIES } from "../src/lib/catalog/devices";
+import { DEVICE_FAMILIES, deviceIsLive, rollupDeviceCounts } from "../src/lib/catalog/devices";
 import { makeR2Client, r2KeyFromUrl } from "../src/lib/catalog/r2";
 import {
   isStorefrontRenderableUrl,
@@ -324,7 +324,18 @@ async function main() {
     ORDER BY c.slug
   `) as { slug: string; n: number }[];
   try {
-    await crawlRenderedPages(origin, slugs, collectionRows);
+    const typeRows = (await sql`
+      SELECT product_type AS "productType", COUNT(*)::int AS count
+      FROM products
+      WHERE status = 'active'
+      GROUP BY product_type
+    `) as { productType: string; count: number }[];
+    await crawlRenderedPages(
+      origin,
+      slugs,
+      collectionRows,
+      rollupDeviceCounts(typeRows),
+    );
   } catch (err) {
     console.error(
       `\nCould not crawl ${origin}: ${err instanceof Error ? err.message : err}`,
@@ -369,6 +380,7 @@ async function crawlRenderedPages(
   origin: string,
   slugs: string[],
   collections: { slug: string; n: number }[],
+  deviceStock: Record<string, number>,
 ): Promise<void> {
   const health = await fetch(origin, { redirect: "follow" });
   if (!health.ok) {
@@ -382,7 +394,7 @@ async function crawlRenderedPages(
     ...paginatedPaths("/products?magsafe=false", slugs.length),
     ...DEVICE_FAMILIES.flatMap((family) =>
       family.devices
-        .filter((device) => !device.comingSoon)
+        .filter((device) => deviceIsLive(device, deviceStock))
         .flatMap((device) =>
           paginatedPaths(`/devices/${device.id}`, slugs.length),
         ),

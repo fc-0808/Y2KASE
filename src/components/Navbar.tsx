@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ShoppingBag, Search, ChevronDown, Menu, X } from "lucide-react";
+import { ShoppingBag, Search, ChevronDown, Menu, X, ArrowRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
-import { DEVICE_FAMILIES } from "@/lib/catalog/devices";
+import { DEVICE_FAMILIES, deviceBrowseHref, deviceIsLive } from "@/lib/catalog/devices";
 import { MAGSAFE_FACETS, magsafeFacetHref } from "@/lib/catalog/magsafe";
 import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 import { Wordmark } from "@/components/brand/Decor";
+import { useSession } from "@/lib/auth-client";
+import { isSignedInUser } from "@/lib/auth-redirect";
 
 // Skip SSR — useSession from better-auth is browser-only.
 const UserButton = dynamic(
@@ -30,7 +32,13 @@ export type MenuCollection = {
 
 type Panel = "devices" | "collections" | null;
 
-export function Navbar({ collections }: { collections: MenuCollection[] }) {
+export function Navbar({
+  collections,
+  deviceCounts,
+}: {
+  collections: MenuCollection[];
+  deviceCounts?: Record<string, number>;
+}) {
   const items = useCart((s) => s.items);
   const openCart = useCart((s) => s.open);
   const [mounted, setMounted] = useState(false);
@@ -152,14 +160,17 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
               </span>
             )}
           </button>
-          <div className="hidden md:block">
-            <UserButton />
-          </div>
+          <UserButton />
         </div>
       </div>
 
       {/* Desktop mega-panel */}
-      {panel === "devices" && <DevicesPanel onNavigate={() => setPanel(null)} />}
+      {panel === "devices" && (
+        <DevicesPanel
+          onNavigate={() => setPanel(null)}
+          deviceCounts={deviceCounts}
+        />
+      )}
       {panel === "collections" && (
         <CollectionsPanel
           brands={brands}
@@ -173,6 +184,7 @@ export function Navbar({ collections }: { collections: MenuCollection[] }) {
         <MobileMenu
           brands={brands}
           originals={genres.find((genre) => genre.slug === ORIGINALS_SLUG)}
+          deviceCounts={deviceCounts}
         />
       )}
     </header>
@@ -208,16 +220,37 @@ function MenuTrigger({
 }
 
 /** Full-width dropdown shell shared by both panels. */
-function PanelShell({ children }: { children: React.ReactNode }) {
+function PanelShell({
+  children,
+  footer,
+}: {
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
   return (
     <div className="absolute inset-x-0 top-full hidden animate-float-up border-b border-[var(--border)] bg-[var(--background)]/95 shadow-2xl backdrop-blur-md md:block">
       <div className="h-1 w-full bg-holo-vivid" />
-      <div className="mx-auto max-w-[1800px] px-4 py-8 sm:px-6">{children}</div>
+      <div className="flex max-h-[min(70vh,40rem)] flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="mx-auto max-w-[1800px] px-4 py-8 sm:px-6">{children}</div>
+        </div>
+        {footer ? (
+          <div className="shrink-0 border-t border-[var(--border)] bg-[var(--background)]/90 backdrop-blur-md">
+            <div className="mx-auto max-w-[1800px] px-4 py-3.5 sm:px-6">{footer}</div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-function DevicesPanel({ onNavigate }: { onNavigate: () => void }) {
+function DevicesPanel({
+  onNavigate,
+  deviceCounts,
+}: {
+  onNavigate: () => void;
+  deviceCounts?: Record<string, number>;
+}) {
   return (
     <PanelShell>
       <div className="grid grid-cols-2 gap-x-10 gap-y-8 lg:grid-cols-4">
@@ -227,10 +260,12 @@ function DevicesPanel({ onNavigate }: { onNavigate: () => void }) {
               {family.label}
             </p>
             <ul>
-              {family.devices.map((device) => (
+              {family.devices.map((device) => {
+                const live = deviceIsLive(device, deviceCounts);
+                return (
                 <li key={device.id}>
                   <Link
-                    href={`/products?device=${device.id}`}
+                    href={deviceBrowseHref(device, deviceCounts)}
                     onClick={onNavigate}
                     className="group flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-[15px] font-bold text-[var(--foreground)]/75 transition hover:bg-[var(--muted)] hover:text-[var(--primary)]"
                   >
@@ -243,14 +278,15 @@ function DevicesPanel({ onNavigate }: { onNavigate: () => void }) {
                         {device.label}
                       </span>
                     </span>
-                    {device.comingSoon && (
+                    {!live && (
                       <span className="shrink-0 rounded-full bg-[var(--muted)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/45 transition group-hover:bg-white">
                         Soon
                       </span>
                     )}
                   </Link>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         ))}
@@ -269,85 +305,119 @@ function CollectionsPanel({
   onNavigate: () => void;
 }) {
   const empty = brands.length === 0 && genres.length === 0;
+  const originals = genres.find((genre) => genre.slug === ORIGINALS_SLUG);
+
   return (
-    <PanelShell>
+    <PanelShell
+      footer={
+        empty ? undefined : (
+          <CollectionsFooter originals={originals} onNavigate={onNavigate} />
+        )
+      }
+    >
       {empty ? (
         <p className="text-sm text-[var(--foreground)]/60">
           Collections are being curated — check back soon.
         </p>
       ) : (
         <div>
-          <div>
-            <p className="mb-4 border-b border-[var(--border)] pb-2.5 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
-              Characters &amp; Brands
-            </p>
-            <div className="grid grid-cols-2 gap-x-8 gap-y-6 sm:grid-cols-3">
-              {brands.map((brand) => (
-                <div key={brand.slug}>
-                  <Link
-                    href={`/collections/${brand.slug}`}
-                    onClick={onNavigate}
-                    className="group inline-flex items-baseline gap-2 text-[15px] font-extrabold text-[var(--foreground)] transition hover:text-[var(--primary)]"
-                  >
-                    <span className="transition-transform duration-200 group-hover:translate-x-0.5">
-                      {brand.name}
+          <p className="mb-4 border-b border-[var(--border)] pb-2.5 font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
+            Characters &amp; Brands
+          </p>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-6 sm:grid-cols-3">
+            {brands.map((brand) => (
+              <div key={brand.slug}>
+                <Link
+                  href={`/collections/${brand.slug}`}
+                  onClick={onNavigate}
+                  className="group inline-flex items-baseline gap-2 text-[15px] font-extrabold text-[var(--foreground)] transition hover:text-[var(--primary)]"
+                >
+                  <span className="transition-transform duration-200 group-hover:translate-x-0.5">
+                    {brand.name}
+                  </span>
+                  {brand.count > 0 && (
+                    <span className="text-[11px] font-bold tabular-nums text-[var(--foreground)]/35">
+                      {brand.count}
                     </span>
-                    {brand.count > 0 && (
-                      <span className="text-[11px] font-bold tabular-nums text-[var(--foreground)]/35">
-                        {brand.count}
-                      </span>
-                    )}
-                  </Link>
-                  {brand.children.length > 0 && (
-                    <ul className="mt-2.5 space-y-0.5">
-                      {brand.children.slice(0, 6).map((child) => (
-                        <li key={child.slug}>
-                          <Link
-                            href={`/collections/${child.slug}`}
-                            onClick={onNavigate}
-                            className="group flex items-center gap-2 rounded-lg py-1 text-sm font-semibold text-[var(--foreground)]/65 transition hover:text-[var(--primary)]"
-                          >
-                            <span
-                              aria-hidden
-                              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--primary)] opacity-0 transition duration-200 group-hover:opacity-100"
-                            />
-                            <span className="transition-transform duration-200 group-hover:translate-x-0.5">
-                              {child.name}
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
                   )}
-                </div>
-              ))}
-            </div>
+                </Link>
+                {brand.children.length > 0 && (
+                  <ul className="mt-2.5 space-y-0.5">
+                    {brand.children.slice(0, 6).map((child) => (
+                      <li key={child.slug}>
+                        <Link
+                          href={`/collections/${child.slug}`}
+                          onClick={onNavigate}
+                          className="group flex items-center gap-2 rounded-lg py-1 text-sm font-semibold text-[var(--foreground)]/65 transition hover:text-[var(--primary)]"
+                        >
+                          <span
+                            aria-hidden
+                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--primary)] opacity-0 transition duration-200 group-hover:opacity-100"
+                          />
+                          <span className="transition-transform duration-200 group-hover:translate-x-0.5">
+                            {child.name}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
           </div>
-
-          {genres.some((genre) => genre.slug === ORIGINALS_SLUG && genre.count > 0) && (
-            <Link
-              href={`/collections/${ORIGINALS_SLUG}`}
-              onClick={onNavigate}
-              className="mt-6 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-            >
-              <span aria-hidden>✨</span>
-              Original designs
-              <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/35">
-                {genres.find((genre) => genre.slug === ORIGINALS_SLUG)?.count}
-              </span>
-            </Link>
-          )}
-
-          <Link
-            href="/collections"
-            onClick={onNavigate}
-            className="mt-6 inline-flex items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
-          >
-            Browse all collections →
-          </Link>
         </div>
       )}
     </PanelShell>
+  );
+}
+
+/**
+ * Featured originals + catalog index. Lives in the pinned panel chrome so
+ * the two destinations keep matching hit targets and never collide.
+ */
+function CollectionsFooter({
+  originals,
+  onNavigate,
+}: {
+  originals?: MenuCollection;
+  onNavigate: () => void;
+}) {
+  const showOriginals = (originals?.count ?? 0) > 0;
+  const focusRing =
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]";
+
+  return (
+    <nav
+      aria-label="More collections"
+      className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3"
+    >
+      {showOriginals && originals && (
+        <Link
+          href={`/collections/${ORIGINALS_SLUG}`}
+          onClick={onNavigate}
+          aria-label={`Original designs, ${originals.count} products`}
+          className={`group inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold whitespace-nowrap shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:text-[var(--primary)] ${focusRing}`}
+        >
+          <span aria-hidden>{originals.icon ?? "✨"}</span>
+          Original designs
+          <span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[var(--foreground)]/45">
+            {originals.count}
+          </span>
+        </Link>
+      )}
+
+      <Link
+        href="/collections"
+        onClick={onNavigate}
+        className={`group inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-sm font-bold whitespace-nowrap text-[var(--primary)] transition hover:bg-[var(--muted)] ${focusRing}`}
+      >
+        Browse all collections
+        <ArrowRight
+          aria-hidden
+          className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
+        />
+      </Link>
+    </nav>
   );
 }
 
@@ -356,9 +426,11 @@ type MobileSectionId = "devices" | "brands" | "compat";
 function MobileMenu({
   brands,
   originals,
+  deviceCounts,
 }: {
   brands: MenuCollection[];
   originals?: MenuCollection;
+  deviceCounts?: Record<string, number>;
 }) {
   // Sections are collapsed by default and expand one at a time — dumping every
   // device, brand and character into one continuous scroll (the old drawer)
@@ -368,6 +440,7 @@ function MobileMenu({
   const [openBrand, setOpenBrand] = useState<string | null>(null);
   const toggleSection = (id: MobileSectionId) =>
     setOpenSection((current) => (current === id ? null : id));
+  const showOriginals = (originals?.count ?? 0) > 0;
 
   return (
     <div
@@ -381,42 +454,44 @@ function MobileMenu({
           onToggle={() => toggleSection("devices")}
         >
           <div className="grid grid-cols-2 gap-1.5 pb-4">
-            {DEVICE_FAMILIES.flatMap((f) => f.devices).map((d) => (
+            {DEVICE_FAMILIES.flatMap((f) => f.devices).map((d) => {
+              const live = deviceIsLive(d, deviceCounts);
+              return (
               <Link
                 key={d.id}
-                href={`/products?device=${d.id}`}
+                href={deviceBrowseHref(d, deviceCounts)}
                 className="flex items-center justify-between gap-2 rounded-xl bg-[var(--card)] px-3.5 py-2.5 text-sm font-bold"
               >
                 {d.label}
-                {d.comingSoon && (
+                {!live && (
                   <span className="rounded-full bg-[var(--muted)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
                     Soon
                   </span>
                 )}
               </Link>
-            ))}
+              );
+            })}
           </div>
         </MobileAccordion>
 
-        {originals && originals.count > 0 && (
-          <Link
-            href={`/collections/${ORIGINALS_SLUG}`}
-            className="flex items-center gap-2.5 py-3 text-[15px] font-bold"
-          >
-            <span aria-hidden>✨</span>
-            Original designs
-            <span className="text-xs font-semibold text-[var(--foreground)]/35">
-              {originals.count}
-            </span>
-          </Link>
-        )}
-
-        {brands.length > 0 && (
+        {(brands.length > 0 || showOriginals) && (
           <MobileAccordion
             title="Characters & Brands"
             open={openSection === "brands"}
             onToggle={() => toggleSection("brands")}
           >
+            {showOriginals && originals && (
+              <Link
+                href={`/collections/${ORIGINALS_SLUG}`}
+                className="mb-1 flex items-center gap-2.5 rounded-xl bg-[var(--card)] px-3.5 py-2.5 text-[15px] font-bold"
+              >
+                <span aria-hidden>{originals.icon ?? "✨"}</span>
+                Original designs
+                <span className="text-xs font-semibold text-[var(--foreground)]/35">
+                  {originals.count}
+                </span>
+              </Link>
+            )}
             <ul className="pb-2">
               {brands.map((brand) => {
                 const children = brand.children.filter((c) => c.count > 0);
@@ -424,7 +499,9 @@ function MobileMenu({
                 return (
                   <li
                     key={brand.slug}
-                    className="border-t border-[var(--border)]/60 first:border-t-0"
+                    className={`border-t border-[var(--border)]/60 ${
+                      showOriginals ? "" : "first:border-t-0"
+                    }`}
                   >
                     <div className="flex items-center gap-1">
                       <Link
@@ -512,6 +589,7 @@ function MobileMenu({
         >
           Blog
         </Link>
+        <MobileAccountLink />
       </div>
 
       <Link
@@ -521,6 +599,20 @@ function MobileMenu({
         Shop All Products
       </Link>
     </div>
+  );
+}
+
+function MobileAccountLink() {
+  const { data: session, isPending } = useSession();
+  if (isPending) return null;
+  const signedIn = isSignedInUser(session?.user);
+  return (
+    <Link
+      href={signedIn ? "/account/orders" : "/sign-in"}
+      className="flex items-center justify-between py-3 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55"
+    >
+      {signedIn ? "My orders" : "Sign in / Create account"}
+    </Link>
   );
 }
 

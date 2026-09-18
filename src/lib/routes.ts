@@ -29,6 +29,8 @@ export const ROUTES = {
   welcomeGift: "/welcome-gift",
   /** Live first-party catalog snapshot (original data, not a blog post). */
   insights: "/insights",
+  /** Customer passwordless sign-in / account creation. */
+  signIn: "/sign-in",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +75,12 @@ export const REDIRECTS: readonly RouteRedirect[] = [
   // page, and "/welcome" is the short form worth having on print and socials.
   { source: "/welcome", destination: ROUTES.welcomeGift, permanent: false },
   { source: "/welcome-page", destination: ROUTES.welcomeGift, permanent: false },
+
+  // People type /sign-up and /login. There is no password registration —
+  // the storefront page is passwordless and lives at /sign-in.
+  { source: "/sign-up", destination: ROUTES.signIn, permanent: false },
+  { source: "/signup", destination: ROUTES.signIn, permanent: false },
+  { source: "/login", destination: ROUTES.signIn, permanent: false },
 
   // Former standalone Club calendar. Cadence now lives as a tab inside Email
   // (`/admin/campaigns?view=cadence`). 307 so a browser never caches the alias

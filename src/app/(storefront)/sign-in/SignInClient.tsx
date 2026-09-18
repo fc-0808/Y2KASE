@@ -2,9 +2,16 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { signIn } from "@/lib/auth-client";
 import { Wordmark, Sparkle } from "@/components/brand/Decor";
+import { gaEvent } from "@/lib/analytics/gtag";
+import {
+  SIGN_IN_PATH,
+  guestContinueHref,
+  withNewAccountWelcome,
+  type SignInIntent,
+} from "@/lib/auth-redirect";
+import { normalizeEmail } from "@/lib/email-address";
 
 /** Google-branded SVG icon — inline to avoid an extra request. */
 function GoogleIcon() {
@@ -30,48 +37,97 @@ function GoogleIcon() {
   );
 }
 
+function AppleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+      <path d="M16.37 12.62c.03-2.16 1.77-3.2 1.85-3.25-1.01-1.48-2.58-1.68-3.14-1.7-1.34-.14-2.61.79-3.29.79-.68 0-1.73-.77-2.85-.75-1.47.02-2.82.85-3.57 2.17-1.52 2.64-.39 6.54 1.09 8.68.72 1.05 1.59 2.22 2.72 2.18 1.09-.04 1.5-.71 2.82-.71 1.31 0 1.68.71 2.84.69 1.17-.02 1.91-1.07 2.63-2.12.83-1.21 1.17-2.39 1.19-2.45-.03-.01-2.28-.87-2.3-3.53zM14.5 6.9c.6-.73 1-1.74.89-2.75-.86.03-1.9.57-2.52 1.3-.55.64-1.04 1.67-.91 2.65.96.07 1.94-.49 2.54-1.2z" />
+    </svg>
+  );
+}
+
+function pitchFor(intent: SignInIntent | null): string {
+  switch (intent) {
+    case "club":
+      return "Club emails and your account are separate. Create a free account (no password) to track orders.";
+    case "orders":
+    case "checkout":
+      return "We'll email a one-tap sign-in link so this order lives in your account. No password to remember.";
+    default:
+      return "Sign in or create an account to track orders. No password — we'll email you a one-tap link.";
+  }
+}
+
 interface SignInClientProps {
   googleEnabled: boolean;
+  appleEnabled: boolean;
   magicLinkEnabled: boolean;
   callbackUrl: string;
+  initialEmail: string;
+  intent: SignInIntent | null;
+  authError: string | null;
 }
 
 export function SignInClient({
   googleEnabled,
+  appleEnabled,
   magicLinkEnabled,
   callbackUrl,
+  initialEmail,
+  intent,
+  authError,
 }: SignInClientProps) {
-  const router = useRouter();
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [email, setEmail] = useState("");
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [email, setEmail] = useState(initialEmail);
   const [emailLoading, setEmailLoading] = useState(false);
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(authError ?? "");
 
-  async function handleGoogle() {
+  const errorCallbackURL = `${SIGN_IN_PATH}?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  const newUserCallbackURL = withNewAccountWelcome(callbackUrl);
+  const guestHref = guestContinueHref(callbackUrl);
+  const hasSocial = googleEnabled || appleEnabled;
+
+  async function handleSocial(provider: "google" | "apple") {
     setError("");
-    setGoogleLoading(true);
+    if (provider === "google") setGoogleLoading(true);
+    else setAppleLoading(true);
     try {
-      await signIn.social({ provider: "google", callbackURL: callbackUrl });
+      await signIn.social({
+        provider,
+        callbackURL: callbackUrl,
+        newUserCallbackURL,
+        errorCallbackURL,
+      });
     } catch (err) {
       console.error(err);
-      setError("Google sign-in failed. Please try again.");
+      setError(
+        provider === "google"
+          ? "Google sign-in failed. Please try again."
+          : "Apple sign-in failed. Please try again.",
+      );
       setGoogleLoading(false);
+      setAppleLoading(false);
     }
   }
 
   async function handleMagicLink(e: FormEvent) {
     e.preventDefault();
+    const normalized = normalizeEmail(email);
     setError("");
     setEmailLoading(true);
     try {
       const { error: linkError } = await signIn.magicLink({
-        email: email.trim(),
+        email: normalized,
         callbackURL: callbackUrl,
+        newUserCallbackURL,
+        errorCallbackURL,
       });
       if (linkError) {
         setError(linkError.message ?? "Couldn't send the link. Try again.");
       } else {
+        gaEvent("login", { method: "magic_link" });
+        setEmail(normalized);
         setSent(true);
       }
     } catch (err) {
@@ -82,7 +138,6 @@ export function SignInClient({
     }
   }
 
-  // ── "Check your email" success state ──────────────────────────────────────
   if (sent) {
     return (
       <div className="card-cute w-full max-w-sm overflow-hidden">
@@ -100,7 +155,8 @@ export function SignInClient({
           <p className="mt-2 text-sm text-[var(--foreground)]/70">
             We sent a magic sign-in link to{" "}
             <span className="font-bold text-[var(--foreground)]">{email}</span>.
-            Tap it to sign in — it expires in 10 minutes.
+            Tap it to sign in — new emails create an account automatically. The
+            link expires in 10 minutes.
           </p>
           <button
             type="button"
@@ -119,11 +175,9 @@ export function SignInClient({
 
   return (
     <div className="card-cute w-full max-w-sm overflow-hidden">
-      {/* Holo stripe */}
       <div className="h-1.5 bg-holo-vivid" />
 
       <div className="px-8 py-10 text-center">
-        {/* Brand */}
         <div className="mb-6 flex flex-col items-center gap-2">
           <div className="relative">
             <Sparkle className="absolute -right-5 -top-2 h-5 w-5 text-[var(--accent)] opacity-80 animate-twinkle" />
@@ -135,17 +189,14 @@ export function SignInClient({
           >
             Welcome ✨
           </h1>
-          <p className="text-sm text-[var(--foreground)]/60">
-            Sign in or create an account to track orders and save your faves.
-          </p>
+          <p className="text-sm text-[var(--foreground)]/60">{pitchFor(intent)}</p>
         </div>
 
-        {/* Google button (only when configured) */}
         {googleEnabled && (
           <button
             type="button"
-            onClick={handleGoogle}
-            disabled={googleLoading}
+            onClick={() => handleSocial("google")}
+            disabled={googleLoading || appleLoading}
             className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-[var(--border)] bg-white px-5 py-3 text-sm font-bold text-[var(--foreground)] shadow-sm transition hover:border-[var(--primary)]/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
           >
             <GoogleIcon />
@@ -153,7 +204,19 @@ export function SignInClient({
           </button>
         )}
 
-        {googleEnabled && magicLinkEnabled && (
+        {appleEnabled && (
+          <button
+            type="button"
+            onClick={() => handleSocial("apple")}
+            disabled={googleLoading || appleLoading}
+            className={`flex w-full items-center justify-center gap-3 rounded-2xl bg-black px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${googleEnabled ? "mt-3" : ""}`}
+          >
+            <AppleIcon />
+            {appleLoading ? "Redirecting…" : "Continue with Apple"}
+          </button>
+        )}
+
+        {hasSocial && magicLinkEnabled && (
           <div className="my-5 flex items-center gap-3">
             <div className="h-px flex-1 bg-[var(--border)]" />
             <span className="text-xs font-semibold text-[var(--foreground)]/40">
@@ -163,7 +226,6 @@ export function SignInClient({
           </div>
         )}
 
-        {/* Magic link email form */}
         {magicLinkEnabled && (
           <form onSubmit={handleMagicLink} className="space-y-3 text-left">
             <div>
@@ -191,14 +253,16 @@ export function SignInClient({
           </form>
         )}
 
-        {!googleEnabled && !magicLinkEnabled && (
+        {!googleEnabled && !appleEnabled && !magicLinkEnabled && (
           <p className="rounded-2xl bg-[var(--muted)] px-4 py-3 text-sm text-[var(--foreground)]/60">
             Sign-in is being set up. Please check back soon!
           </p>
         )}
 
         {error && (
-          <p className="mt-3 text-xs font-semibold text-red-500">{error}</p>
+          <p className="mt-3 text-xs font-semibold text-red-500" role="alert">
+            {error}
+          </p>
         )}
 
         <div className="my-5 flex items-center gap-3">
@@ -209,14 +273,12 @@ export function SignInClient({
           <div className="h-px flex-1 bg-[var(--border)]" />
         </div>
 
-        {/* Guest / back to shop */}
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="w-full text-sm font-semibold text-[var(--foreground)]/60 transition hover:text-[var(--primary)]"
+        <Link
+          href={guestHref}
+          className="inline-block w-full text-sm font-semibold text-[var(--foreground)]/60 transition hover:text-[var(--primary)]"
         >
           Continue as guest →
-        </button>
+        </Link>
 
         <p className="mt-6 text-xs leading-relaxed text-[var(--foreground)]/40">
           By signing in you agree to our{" "}
@@ -233,7 +295,7 @@ export function SignInClient({
           >
             Privacy Policy
           </Link>
-          .
+          . Joining the email club is separate and optional.
         </p>
       </div>
     </div>

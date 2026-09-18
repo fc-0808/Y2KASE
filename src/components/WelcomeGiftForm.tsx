@@ -19,6 +19,7 @@ import { Sparkles, ArrowRight } from "lucide-react";
 import { PromoCodeBlock } from "@/components/PromoCodeBlock";
 import { WELCOME_COUPON } from "@/lib/promotions";
 import { usePromoActions } from "@/lib/store/promo";
+import { CreateAccountInvite } from "@/components/auth/CreateAccountInvite";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -104,6 +105,7 @@ export function WelcomeGiftForm() {
           Shop Now ({WELCOME_COUPON.percentOff}% Off Applied){" "}
           <ArrowRight className="h-4 w-4" />
         </Link>
+        <CreateAccountInvite email={email} className="mt-4 text-center text-[13px] leading-snug text-[var(--foreground)]/65" />
       </div>
     );
   }

@@ -9,6 +9,10 @@
  * FAQ rich-result display to authoritative government and health sites.
  */
 import { FREE_SHIPPING_OFFER, IPHONE_FIT, IPHONE_MODELS } from "@/lib/pricing";
+import {
+  AIRPODS_MODELS,
+  AIRPODS_SHARED_FIT_NOTE,
+} from "@/lib/catalog/airpods";
 
 export type DeviceSeo = {
   /** <title> + H1 base, e.g. "iPhone Cases". */
@@ -59,6 +63,32 @@ const DEVICE_SEO: Record<string, DeviceSeo> = {
         question: "Can I add a phone charm or grip?",
         answer:
           "Many designs offer a Case + Grip + Charm bundle. Choose your combination from the style selector on the product page.",
+      },
+    ],
+  },
+  airpods: {
+    heading: "AirPods Cases",
+    tagline: `Kawaii and Y2K designs for AirPods and AirPods Pro — ${AIRPODS_SHARED_FIT_NOTE}`,
+    intro: `Shop kawaii and Y2K AirPods cases at Y2KASE — holographic, glittery and character-themed designs for ${AIRPODS_MODELS.join(", ")}. ${AIRPODS_SHARED_FIT_NOTE} Pick Case Only, Case + Charm or Charm Only on each product page. ${FREE_SHIPPING_OFFER}.`,
+    models: AIRPODS_MODELS,
+    faqs: [
+      {
+        question: "Which AirPods models do your cases fit?",
+        answer: `Our AirPods cases are available for ${AIRPODS_MODELS.join(", ")}. ${AIRPODS_SHARED_FIT_NOTE} Pick your exact model on each product page.`,
+      },
+      {
+        question: "Do AirPods cases come with a charm?",
+        answer:
+          "Many designs offer Case Only, Case + Charm, or Charm Only. Choose the combination on the product page — there is no grip option on AirPods cases.",
+      },
+      {
+        question: "Are AirPods cases MagSafe?",
+        answer:
+          "No — MagSafe is an iPhone charging standard. AirPods cases protect the charging case itself and do not attach to MagSafe chargers or wallets.",
+      },
+      {
+        question: "Will one case fit both AirPods 4 and AirPods 5?",
+        answer: `Yes. ${AIRPODS_SHARED_FIT_NOTE} Selecting that fit on the product page covers both generations.`,
       },
     ],
   },

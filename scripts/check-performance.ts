@@ -62,6 +62,10 @@ const productDetail = readFileSync(
   "src/components/ProductDetailClient.tsx",
   "utf8",
 );
+const productGallery = readFileSync(
+  "src/components/product/ProductGallery.tsx",
+  "utf8",
+);
 assert.match(proxySource, /matcher:\s*\["\/admin\/:path\*"\]/);
 assert.doesNotMatch(proxySource, /_next\/static/);
 assert.match(storefrontLayout, /CartDrawerLoader/);
@@ -72,6 +76,11 @@ assert.match(heroSource, /autoPlayArmed/);
 // must keep serving the stored R2 WebP directly even if someone opts back in.
 assert.match(nextConfig, /NEXT_IMAGE_OPTIMIZED !== "true"/);
 assert.match(productMedia, /unoptimized/);
-assert.match(productDetail, /from "@\/components\/ProductMedia"/);
+assert.match(productDetail, /from "@\/components\/product\/ProductGallery"/);
+assert.match(productGallery, /from "@\/components\/ProductMedia"/);
+// Long listings cannot regress to 8px pagination dots as the image picker —
+// those fail WCAG 2.5.8 and Baymard's page-control guidance past ~7 slides.
+assert.doesNotMatch(productGallery, /h-2 rounded-full/);
+assert.match(productGallery, /aria-roledescription="carousel"/);
 
 console.log("✓ storefront performance invariants passed");

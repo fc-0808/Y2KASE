@@ -85,7 +85,7 @@ export function ShipmentEmail({
               </a>
               .
             </Text>
-            <Button href={`${siteUrl}/account/orders`} style={secondaryCtaStyle}>
+            <Button href={`${siteUrl}/sign-in?callbackUrl=${encodeURIComponent("/account/orders")}&intent=orders`} style={secondaryCtaStyle}>
               View your orders
             </Button>
           </Section>

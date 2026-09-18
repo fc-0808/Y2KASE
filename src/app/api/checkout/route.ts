@@ -23,6 +23,8 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { priceCart, CheckoutError, type CheckoutLineInput } from "@/lib/checkout";
 import { computePromotions } from "@/lib/promotions";
 import { getSession } from "@/lib/auth";
+import { isSignedInUser } from "@/lib/auth-redirect";
+import { normalizeEmail } from "@/lib/email-address";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 import {
@@ -89,8 +91,11 @@ export async function POST(request: NextRequest) {
     );
 
     // Tie the order to a logged-in user if there is one (guests are fine too).
+    // Anonymous Better Auth sessions are treated as guests — they are not an
+    // account the shopper can recover.
     const session = await getSession(await headers());
-    const userId = session?.user?.id ?? null;
+    const signedIn = isSignedInUser(session?.user);
+    const userId = signedIn ? session!.user.id : null;
 
     // Coarse country from the edge geo header (Vercel populates this). Gives
     // even abandoned guest orders a location signal without storing raw IPs.
@@ -112,7 +117,9 @@ export async function POST(request: NextRequest) {
       .insert(orders)
       .values({
         userId,
-        email: session?.user?.email ?? "",
+        email: signedIn && session!.user.email
+          ? normalizeEmail(session!.user.email)
+          : "",
         status: "pending",
         subtotalCents: cart.subtotalCents,
         shippingCents: cart.shippingCents,

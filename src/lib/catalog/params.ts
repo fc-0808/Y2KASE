@@ -22,6 +22,7 @@
  */
 
 import { COLOR_FAMILY_SLUGS, isColorFamilySlug } from "./colors";
+import { deviceOffersMagSafe, isDeviceId } from "./devices";
 import { MOTIF_FAMILY_SLUGS, isMotifFamilySlug } from "./motifs";
 
 /** Canonical path of the unscoped catalog. */
@@ -30,6 +31,24 @@ export const CATALOG_PATH = "/products";
 export const SORT_VALUES = ["newest", "price-asc", "price-desc"] as const;
 export type SortValue = (typeof SORT_VALUES)[number];
 export const DEFAULT_SORT: SortValue = "newest";
+
+/** Full labels — the sort sheet, desktop menu, and accessible names. */
+export const SORT_LABELS: Record<SortValue, string> = {
+  newest: "Newest",
+  "price-asc": "Price: Low to High",
+  "price-desc": "Price: High to Low",
+};
+
+/**
+ * Compact trigger copy for the mobile refine bar. "Price: Low to High" does
+ * not fit a half-width 44px control next to Filters; the sheet still speaks
+ * the full phrase.
+ */
+export const SORT_TRIGGER_LABELS: Record<SortValue, string> = {
+  newest: "Newest",
+  "price-asc": "Low to high",
+  "price-desc": "High to low",
+};
 
 /** Upper bound on selected brands, so a hand-edited URL can't fan out the query. */
 const MAX_BRANDS = 24;
@@ -77,7 +96,7 @@ export type CatalogParams = {
   q?: string;
   /** Single product tag, e.g. `phone_charm`. Kept for deep links (PDP, footer, blog). */
   tag?: string;
-  /** Device taxonomy id, e.g. `iphone`. */
+  /** Device taxonomy id, e.g. `iphone` or `airpods`. Closed vocabulary. */
   device?: string;
   /**
    * Collection slug — the browse context a shopper arrived from. Only ever set
@@ -188,6 +207,17 @@ function parseColors(value: string | string[] | undefined): string[] {
   );
 }
 
+/**
+ * Closed device vocabulary — unknown slugs are dropped the same way a typo
+ * `?color=chartreuse` is. Coming-soon lines (AirPods) remain selectable so a
+ * shopper can filter a collection the day the first SKU is filed, without
+ * waiting for the `/devices/airpods` landing to go live.
+ */
+function parseDevice(value: string | string[] | undefined): string | undefined {
+  const slug = parseSlug(value);
+  return slug && isDeviceId(slug) ? slug : undefined;
+}
+
 function parseMotifs(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
   const raw = Array.isArray(value) ? value : [value];
@@ -224,7 +254,7 @@ export function parseCatalogParams(
     basePath,
     q: parseSearch(sp.q),
     tag: parseSlug(sp.tag, TAG_PATTERN),
-    device: parseSlug(sp.device),
+    device: parseDevice(sp.device),
     collection: parseSlug(sp.collection),
     brands: parseBrands(sp.brand),
     colors: parseColors(sp.color),
@@ -266,16 +296,43 @@ export function buildCatalogHref(
   return query ? `${next.basePath}?${query}` : next.basePath;
 }
 
+/**
+ * How many faceted narrowings are on the URL — the number the Filter badge
+ * speaks. Search is a sibling control on the refine bar (and a removable
+ * chip), so it is not counted here; {@link hasActiveFilters} still treats it
+ * as an active narrowing.
+ */
+export function activeFilterCount(params: CatalogParams): number {
+  return (
+    (params.tag ? 1 : 0) +
+    (params.device ? 1 : 0) +
+    (params.collection ? 1 : 0) +
+    (params.magsafe !== undefined ? 1 : 0) +
+    params.brands.length +
+    params.colors.length +
+    params.motifs.length
+  );
+}
+
 /** True when the shopper has narrowed the catalog in any way. */
 export function hasActiveFilters(params: CatalogParams): boolean {
-  return Boolean(
-    params.q ||
-      params.tag ||
-      params.device ||
-      params.collection ||
-      params.magsafe !== undefined ||
-      params.brands.length > 0 ||
-      params.colors.length > 0 ||
-      params.motifs.length > 0,
-  );
+  return Boolean(params.q) || activeFilterCount(params) > 0;
+}
+
+/**
+ * Drop facet combinations that cannot return products.
+ *
+ * MagSafe is a phone-case attribute. `?device=airpods&magsafe=true` is a
+ * stale or hand-edited URL, not a view — callers compare the result to the
+ * input (by reference, or by href) and redirect to the cleaned state.
+ */
+export function dropIncompatibleFacets(params: CatalogParams): CatalogParams {
+  if (
+    params.device &&
+    !deviceOffersMagSafe(params.device) &&
+    params.magsafe !== undefined
+  ) {
+    return { ...params, magsafe: undefined };
+  }
+  return params;
 }

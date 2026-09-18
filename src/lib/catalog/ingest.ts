@@ -14,6 +14,10 @@ import {
 } from "@/lib/db/schema";
 import { matchCollectionSlugs } from "@/lib/catalog/collections-config";
 import {
+  filterMagSafeCollectionSlugs,
+  productTypeOffersMagSafe,
+} from "@/lib/catalog/devices";
+import {
   generateProductCopy,
   classifyImageStyles,
   copyModelName,
@@ -161,15 +165,19 @@ async function assignCollections(
     tags: string[];
     title: string;
     sourceFolder: string | null;
+    productType: string;
     explicitSlugs?: string[];
     log: (msg: string) => void;
   },
 ): Promise<void> {
-  const slugs = Array.from(
-    new Set([
-      ...matchCollectionSlugs(signals),
-      ...(signals.explicitSlugs ?? []),
-    ]),
+  const slugs = filterMagSafeCollectionSlugs(
+    Array.from(
+      new Set([
+        ...matchCollectionSlugs(signals),
+        ...(signals.explicitSlugs ?? []),
+      ]),
+    ),
+    signals.productType,
   );
   if (slugs.length === 0) return;
 
@@ -288,13 +296,19 @@ export async function ingestProductFolder(
   // strict temperature-0 verifier, which is the signal that can actually
   // confirm. Nothing model-authored is ever read back as corroboration — see
   // the note in ./magsafe on the circular-signal bug this replaced.
+  //
+  // AirPods (and Watch, Kindle, …) cannot offer MagSafe. Skip the pipeline
+  // entirely so a human tag, a folder named "MagSafe", or a confused copy
+  // pass cannot stamp a magnet ring onto a shell that does not have one.
+  const magSafeEligible = productTypeOffersMagSafe(type.id);
   const humanMagsafe =
-    hasTextualMagSafe(overrides.title, folder.folderPath) ||
-    (overrides.tags ?? []).includes(MAGSAFE_TAG);
-  const provisionalMagsafe = copy?.magsafe === true;
+    magSafeEligible &&
+    (hasTextualMagSafe(overrides.title, folder.folderPath) ||
+      (overrides.tags ?? []).includes(MAGSAFE_TAG));
+  const provisionalMagsafe = magSafeEligible && copy?.magsafe === true;
 
   let verifier: MagSafeVerdict | null = null;
-  if (!humanMagsafe && provisionalMagsafe) {
+  if (magSafeEligible && !humanMagsafe && provisionalMagsafe) {
     log(
       `MagSafe candidate (${copy?.magsafeEvidence}, ${copy?.magsafeConfidence}) → verifying`,
     );
@@ -304,6 +318,8 @@ export async function ingestProductFolder(
         ? `MagSafe verifier: ${verifier.magsafe ? `yes (${verifier.evidence}, ${verifier.confidence})` : "no"}`
         : "MagSafe verifier unavailable",
     );
+  } else if (!magSafeEligible) {
+    log("MagSafe skipped — product type cannot offer MagSafe");
   }
 
   const magDecision = decideMagSafe({
@@ -449,7 +465,11 @@ export async function ingestProductFolder(
         ...(overrides.tags ?? []),
         collectionTag,
         ...(confirmMagsafe ? [MAGSAFE_TAG] : []),
-      ].filter(Boolean) as string[],
+      ]
+        .filter(Boolean)
+        .filter(
+          (tag) => magSafeEligible || tag !== MAGSAFE_TAG,
+        ) as string[],
     ),
   );
   const price =
@@ -554,6 +574,7 @@ export async function ingestProductFolder(
     tags,
     title,
     sourceFolder: folder.folderPath,
+    productType: type.id,
     explicitSlugs: overrides.collections,
     log,
   });

@@ -48,6 +48,14 @@
    */
   --bottom-bar-h: 0px;
 
+  /*
+   * Sticky catalog refine bar sits just under the storefront chrome
+   * (announcement + nav). Mobile announcement is a fixed `h-7` slot; from
+   * `md` the same bar is an auto-height line — both land within a pixel of
+   * 5.75rem once the 1px border is counted, so one token is enough.
+   */
+  --storefront-header-h: 5.75rem;
+
   /* Iridescent gradients reused across hero, badges and accents. */
   --holo: linear-gradient(
     120deg,
@@ -397,6 +405,15 @@ h1, h2, h3, .font-display {
 }
 .animate-float-up { animation: float-up 0.45s ease both; }
 
+/* Bottom-sheet enter — snappier than float-up, matches iOS/Material sheets. */
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-sheet-up {
+  animation: sheet-up 0.32s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
 @keyframes bob {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
@@ -442,6 +459,7 @@ h1, h2, h3, .font-display {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-float-up,
+  .animate-sheet-up,
   .animate-bob,
   .animate-twinkle,
   .bg-holo-shimmer,
@@ -449,7 +467,8 @@ h1, h2, h3, .font-display {
   .announce-rotate__b {
     animation: none !important;
   }
-  .animate-float-up {
+  .animate-float-up,
+  .animate-sheet-up {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;

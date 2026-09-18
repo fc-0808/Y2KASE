@@ -74,6 +74,7 @@ function revalidateProduct(productId: number) {
   // The PDP is ISR-cached (`export const revalidate`). Without invalidating the
   // dynamic route, edits stay stale for up to an hour.
   revalidatePath("/products/[slug]", "page");
+  revalidatePath("/devices/[slug]", "page");
   revalidatePath("/");
   revalidateStorefrontCatalog();
 }

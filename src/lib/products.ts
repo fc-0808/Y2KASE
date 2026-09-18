@@ -23,7 +23,10 @@ import {
   offeredPriceValues,
 } from "@/lib/catalog/offered-options";
 import { MAGSAFE_TAG } from "@/lib/catalog/magsafe";
-import { deviceProductTypes } from "@/lib/catalog/devices";
+import {
+  deviceProductTypes,
+  rollupDeviceCounts,
+} from "@/lib/catalog/devices";
 import {
   COLOR_FAMILY_SLUGS,
   isColorFamilySlug,
@@ -78,6 +81,11 @@ export type ProductListItem = {
   tags: string[];
   featured: boolean;
   imageUrl: string | null;
+  /**
+   * Product type id (`iphone_case`, `airpod_case`, …). Optional so stale
+   * client caches (recently viewed) still render a card.
+   */
+  productType?: string;
   /** Published-review summary, attached for listing-card star ratings. */
   rating?: { count: number; average: number };
 };
@@ -200,7 +208,7 @@ async function collectionMembership(slugs: string[]): Promise<SQL> {
  */
 async function catalogFilters(
   query: ProductQuery,
-  omit?: "magsafe" | "brands" | "colors" | "motifs",
+  omit?: "magsafe" | "brands" | "colors" | "motifs" | "device",
 ): Promise<SQL[]> {
   const filters: SQL[] = [eq(products.status, "active")];
 
@@ -227,7 +235,7 @@ async function catalogFilters(
   }
 
   // Device filter → restrict to the device's product type(s).
-  if (query.device) {
+  if (omit !== "device" && query.device) {
     const types = deviceProductTypes(query.device);
     if (types && types.length > 0) {
       filters.push(inArray(products.productType, types));
@@ -362,6 +370,8 @@ export type CatalogFacetCounts = {
   colors: Record<string, number>;
   /** Motif family slug → count, with every filter EXCEPT the motif facet. */
   motifs: Record<string, number>;
+  /** Device id → count, with every filter EXCEPT the device facet. */
+  devices: Record<string, number>;
 };
 
 const EMPTY_FACET_COUNTS: CatalogFacetCounts = {
@@ -369,6 +379,7 @@ const EMPTY_FACET_COUNTS: CatalogFacetCounts = {
   brands: {},
   colors: {},
   motifs: {},
+  devices: {},
 };
 
 /**
@@ -434,7 +445,7 @@ export function getCatalogPage(
 const getCatalogPageCached = cachedCatalogRead(
   computeCatalogPage,
   // v2: see getProductsCached — same default-sort change, same reason to bump.
-  ["catalog-page-with-facets-v5"],
+  ["catalog-page-with-facets-v6"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
     revalidate: 300,
@@ -458,7 +469,7 @@ async function computeCatalogFacetCounts(
   facetSlugs?: string[],
   alsoCountSlugs?: string[],
 ): Promise<CatalogFacetCounts> {
-  const [magsafe, brands, extras, colors, motifs] = await Promise.all([
+  const [magsafe, brands, extras, colors, motifs, devices] = await Promise.all([
     countCompatibilityFacet(query),
     facetSlugs
       ? countCollectionFacet(query, facetSlugs)
@@ -468,8 +479,9 @@ async function computeCatalogFacetCounts(
       : Promise.resolve({} as Record<string, number>),
     countColorFacet(query),
     countMotifFacet(query),
+    countDeviceFacet(query),
   ]);
-  return { magsafe, brands: { ...brands, ...extras }, colors, motifs };
+  return { magsafe, brands: { ...brands, ...extras }, colors, motifs, devices };
 }
 
 /** Both halves of the compatibility facet from one aggregate scan. */
@@ -529,6 +541,22 @@ async function countMotifFacet(
     counts[slug] = row?.[slug] ?? 0;
   }
   return counts;
+}
+
+/** Per-device counts from one grouped scan, ignoring the device facet itself. */
+async function countDeviceFacet(
+  query: ProductQuery,
+): Promise<Record<string, number>> {
+  const rows = await db
+    .select({
+      productType: products.productType,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(products)
+    .where(and(...(await catalogFilters(query, "device"))))
+    .groupBy(products.productType);
+
+  return rollupDeviceCounts(rows);
 }
 
 /**
@@ -655,6 +683,34 @@ async function computeMagsafeFacetCounts(): Promise<MagsafeFacetCounts> {
     .where(eq(products.status, "active"));
 
   return { magsafe: row?.magsafe ?? 0, nonMagsafe: row?.nonMagsafe ?? 0 };
+}
+
+/**
+ * Live product counts per device, for surfaces that need the mix without the
+ * rest of the catalog facets (the /collections index device pills).
+ */
+export function getDeviceFacetCounts(): Promise<Record<string, number>> {
+  if (!isDbConfigured()) return Promise.resolve({});
+  return getDeviceFacetCountsCached();
+}
+
+const getDeviceFacetCountsCached = cachedCatalogRead(
+  computeDeviceFacetCounts,
+  ["device-facet-counts-v1"],
+  { tags: [CACHE_TAGS.products], revalidate: 3600 },
+);
+
+async function computeDeviceFacetCounts(): Promise<Record<string, number>> {
+  const rows = await db
+    .select({
+      productType: products.productType,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(products)
+    .where(eq(products.status, "active"))
+    .groupBy(products.productType);
+
+  return rollupDeviceCounts(rows);
 }
 
 /**
@@ -1194,6 +1250,7 @@ function toListItem(p: {
     currency: p.currency,
     tags: p.tags,
     featured: p.featured,
+    productType: p.productType,
     imageUrl: p.images[0]?.url
       ? canonicalizePublicR2Url(p.images[0].url)
       : null,

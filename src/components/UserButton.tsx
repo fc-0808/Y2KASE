@@ -3,9 +3,8 @@
 /**
  * UserButton — avatar / sign-in entry-point in the Navbar.
  *
- * - Signed out → shows a user icon that links to /sign-in.
- * - Signed in  → shows the user's avatar (or initials fallback) with a
- *   dropdown: My Orders | Sign Out.
+ * - Signed out (or anonymous guest session) → labelled "Sign in" control.
+ * - Signed in → avatar (or initials) with a dropdown: My Orders | Sign Out.
  *
  * Uses Better Auth's `useSession` hook. Mount guard prevents SSR hydration
  * mismatch because the session lives in a cookie that is read client-side.
@@ -16,6 +15,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { User, LogOut, Package } from "lucide-react";
+import { isSignedInUser } from "@/lib/auth-redirect";
 
 export function UserButton() {
   const router = useRouter();
@@ -27,36 +27,40 @@ export function UserButton() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
 
-  // Close dropdown on outside click.
   useEffect(() => {
     if (!open) return;
     function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   if (!mounted || isPending) {
-    // Placeholder to prevent layout shift.
-    return <span className="h-10 w-10 rounded-full" />;
+    return <span className="inline-block h-10 w-10 rounded-full sm:w-[5.5rem]" />;
   }
 
-  // ── Signed OUT ──────────────────────────────────────────────────────────────
-  if (!session?.user) {
+  if (!isSignedInUser(session?.user)) {
     return (
       <Link
         href="/sign-in"
         aria-label="Sign in"
-        className="grid h-10 w-10 place-items-center rounded-full hover:bg-[var(--muted)] transition"
+        className="flex h-10 items-center gap-1.5 rounded-full px-2 transition hover:bg-[var(--muted)] sm:px-3"
       >
         <User className="h-5 w-5" />
+        <span className="hidden text-sm font-bold sm:inline">Sign in</span>
       </Link>
     );
   }
 
-  // ── Signed IN ───────────────────────────────────────────────────────────────
-  const user = session.user;
+  const user = session!.user;
   const initials = (user.name ?? user.email ?? "?")
     .split(" ")
     .slice(0, 2)
@@ -70,8 +74,9 @@ export function UserButton() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label="Account menu"
+        aria-haspopup="menu"
         aria-expanded={open}
-        className="flex h-10 w-10 items-center justify-center rounded-full ring-2 ring-[var(--border)] hover:ring-[var(--primary)] transition overflow-hidden"
+        className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full ring-2 ring-[var(--border)] transition hover:ring-[var(--primary)]"
       >
         {user.image ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -84,16 +89,20 @@ export function UserButton() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-48 rounded-2xl border border-[var(--border)] bg-[var(--card)] py-1.5 shadow-2xl animate-float-up z-50">
-          <div className="px-4 py-2.5 border-b border-[var(--border)]">
-            <p className="text-xs font-bold truncate">{user.name ?? "My Account"}</p>
-            <p className="text-xs text-[var(--foreground)]/50 truncate">{user.email}</p>
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-2 w-48 animate-float-up rounded-2xl border border-[var(--border)] bg-[var(--card)] py-1.5 shadow-2xl"
+        >
+          <div className="border-b border-[var(--border)] px-4 py-2.5">
+            <p className="truncate text-xs font-bold">{user.name ?? "My Account"}</p>
+            <p className="truncate text-xs text-[var(--foreground)]/50">{user.email}</p>
           </div>
 
           <Link
             href="/account/orders"
+            role="menuitem"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-semibold hover:bg-[var(--muted)] hover:text-[var(--primary)] transition"
+            className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-semibold transition hover:bg-[var(--muted)] hover:text-[var(--primary)]"
           >
             <Package className="h-4 w-4" />
             My Orders
@@ -101,13 +110,14 @@ export function UserButton() {
 
           <button
             type="button"
+            role="menuitem"
             onClick={async () => {
               setOpen(false);
               await signOut();
               router.push("/");
               router.refresh();
             }}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 transition"
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm font-semibold text-red-500 transition hover:bg-red-50"
           >
             <LogOut className="h-4 w-4" />
             Sign Out

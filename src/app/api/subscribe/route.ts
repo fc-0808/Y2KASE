@@ -23,6 +23,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { listUnsubscribeHeaders, unsubscribeUrl } from "@/lib/unsubscribe";
 import { WELCOME_COUPON, resolveLocalCoupon } from "@/lib/promotions";
 import { SCRATCH_COOKIE, decodeScratchCookie, prizeCoupon } from "@/lib/scratch";
+import { SITE_URL } from "@/lib/site";
 // The shared client and sender, NOT a local copy. This route used to construct
 // its own and default to `onboarding@resend.dev`, so it quietly sent from a
 // different identity than the rest of the app — and Resend 403s that sandbox
@@ -286,9 +287,10 @@ export async function POST(request: NextRequest) {
             wonByScratch,
             unsubscribeUrl: unsubUrl,
             postalAddress,
+            siteUrl: SITE_URL,
           }),
         );
-        const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\n${wonByScratch ? `You scratched your way to ${issued.percentOff}% off` : `Here is your ${issued.percentOff}% off code`} for your first order:\n\n${issued.code}\n\nEnter it at checkout at https://y2kase.com\n\nShop now: https://y2kase.com/products\n\n${postalAddress}\n\nUnsubscribe: ${unsubUrl}`;
+        const text = `Welcome to Y2KASE!${name ? ` Hey ${name}!` : ""}\n\nYou're on the Y2KASE Club email list.\n\n${wonByScratch ? `You scratched your way to ${issued.percentOff}% off` : `Here is your ${issued.percentOff}% off code`} for your first order:\n\n${issued.code}\n\nShop now: ${SITE_URL}/products\n\nWant to track orders? Create a free account (no password):\n${SITE_URL}/sign-in?callbackUrl=${encodeURIComponent("/account/orders")}&intent=club\n\n${postalAddress}\n\nUnsubscribe: ${unsubUrl}`;
 
         // The Resend SDK resolves rather than throws on an API error (a 403 for
         // an unverified sender, say), so the response has to be inspected —

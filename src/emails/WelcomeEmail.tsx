@@ -26,6 +26,8 @@ interface WelcomeEmailProps {
   unsubscribeUrl?: string;
   /** Legally required physical sender address for commercial email. */
   postalAddress: string;
+  /** Canonical storefront origin, no trailing slash. */
+  siteUrl: string;
 }
 
 export function WelcomeEmail({
@@ -35,8 +37,12 @@ export function WelcomeEmail({
   wonByScratch,
   unsubscribeUrl,
   postalAddress,
+  siteUrl,
 }: WelcomeEmailProps) {
   const greeting = name ? `Hey ${name}! ✨` : "Welcome, bestie! ✨";
+  const base = siteUrl.replace(/\/$/, "");
+  const shopUrl = `${base}/products`;
+  const accountUrl = `${base}/sign-in?callbackUrl=${encodeURIComponent("/account/orders")}&intent=club`;
 
   return (
     <Html lang="en">
@@ -59,9 +65,9 @@ export function WelcomeEmail({
           <Section style={contentStyle}>
             <Text style={greetingStyle}>{greeting}</Text>
             <Text style={paraStyle}>
-              You&apos;re officially part of the Y2KASE Club — the home of
-              kawaii phone cases, holographic charms, and all the Y2K energy
-              your phone deserves. 🌸✨
+              You&apos;re on the Y2KASE Club email list — kawaii phone cases,
+              holographic charms, and all the Y2K energy your phone deserves.
+              🌸✨
             </Text>
             <Text style={paraStyle}>
               {wonByScratch ? (
@@ -84,8 +90,16 @@ export function WelcomeEmail({
               <Text style={codeSubStyle}>Enter at checkout · One use · No minimum</Text>
             </Section>
 
-            <Button href="https://y2kase.com/products" style={ctaStyle}>
+            <Button href={shopUrl} style={ctaStyle}>
               Shop the Collection ✨
+            </Button>
+
+            <Text style={paraStyle}>
+              Want to track orders from any device? Create a free account — no
+              password, just a one-tap email link.
+            </Text>
+            <Button href={accountUrl} style={secondaryCtaStyle}>
+              Create your account →
             </Button>
 
             <Hr style={hrStyle} />
@@ -93,7 +107,7 @@ export function WelcomeEmail({
             <Text style={smallStyle}>
               You&apos;ll hear from the Club a couple of times a week — Tuesday
               drops, Thursday notes, plus this welcome series. No daily spam.
-              Leave anytime.
+              Leave anytime. Club emails are separate from a website account.
             </Text>
             <Text style={smallStyle}>
               Questions? Email us at{" "}
@@ -110,11 +124,11 @@ export function WelcomeEmail({
               © {new Date().getFullYear()} Y2KASE · All rights reserved
             </Text>
             <Text style={footerTextStyle}>
-              <a href="https://y2kase.com/policies/privacy-policy" style={footerLinkStyle}>
+              <a href={`${base}/policies/privacy-policy`} style={footerLinkStyle}>
                 Privacy Policy
               </a>{" "}
               ·{" "}
-              <a href="https://y2kase.com/policies/refund-policy" style={footerLinkStyle}>
+              <a href={`${base}/policies/refund-policy`} style={footerLinkStyle}>
                 Refund Policy
               </a>
               {unsubscribeUrl ? (
@@ -232,8 +246,22 @@ const ctaStyle: React.CSSProperties = {
   borderRadius: "9999px",
   padding: "14px 32px",
   textAlign: "center",
-  margin: "0 auto 28px",
+  margin: "0 auto 16px",
   boxShadow: "0 4px 0 #d62f88",
+};
+
+const secondaryCtaStyle: React.CSSProperties = {
+  display: "block",
+  background: "#ffffff",
+  color: "#ff3ea5",
+  fontWeight: "800",
+  fontSize: "15px",
+  textDecoration: "none",
+  borderRadius: "9999px",
+  padding: "14px 32px",
+  textAlign: "center",
+  margin: "0 auto 28px",
+  border: "2px solid #ff3ea5",
 };
 
 const hrStyle: React.CSSProperties = {

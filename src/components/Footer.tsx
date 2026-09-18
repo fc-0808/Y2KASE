@@ -2,6 +2,12 @@ import Link from "next/link";
 import { Globe } from "lucide-react";
 import { Wordmark, PixelHeart, Sparkle } from "@/components/brand/Decor";
 import { FooterSubscribe } from "@/components/FooterSubscribe";
+import { getDeviceFacetCounts } from "@/lib/products";
+import {
+  deviceBrowseHref,
+  deviceIsLive,
+  findDevice,
+} from "@/lib/catalog/devices";
 
 /** lucide v1 dropped brand glyphs (trademark), so we inline them. */
 function InstagramIcon() {
@@ -20,7 +26,33 @@ function FacebookIcon() {
   );
 }
 
-export function Footer() {
+export async function Footer() {
+  let deviceCounts: Record<string, number> | undefined;
+  try {
+    deviceCounts = await getDeviceFacetCounts();
+  } catch {
+    deviceCounts = undefined;
+  }
+  const iphone = findDevice("iphone");
+  const airpods = findDevice("airpods");
+  const shopLinks = [
+    { href: "/products", label: "All Products" },
+    ...(iphone
+      ? [{ href: deviceBrowseHref(iphone, deviceCounts), label: "iPhone Cases" }]
+      : []),
+    ...(airpods && deviceIsLive(airpods, deviceCounts ?? {})
+      ? [
+          {
+            href: deviceBrowseHref(airpods, deviceCounts),
+            label: "AirPods Cases",
+          },
+        ]
+      : []),
+    { href: "/collections/magsafe", label: "MagSafe" },
+    { href: "/collections", label: "Collections" },
+    { href: "/products?tag=phone_charm", label: "Charms" },
+  ];
+
   return (
     <footer className="relative mt-auto overflow-hidden border-t border-[var(--border)] bg-[var(--card)]/60">
       <div className="h-1 w-full bg-holo-vivid" />
@@ -28,7 +60,7 @@ export function Footer() {
         <div className="sm:col-span-2 lg:col-span-1">
           <Wordmark className="text-xl" />
           <p className="mt-3 max-w-xs text-sm text-[var(--foreground)]/65">
-            Kawaii & Y2K aesthetic phone cases, charms and accessories. Welcome
+            Kawaii & Y2K aesthetic cases, charms and accessories. Welcome
             to the Club, bestie. ✨
           </p>
           <div className="mt-4 flex gap-2">
@@ -48,16 +80,7 @@ export function Footer() {
           <FooterSubscribe />
         </div>
 
-        <FooterCol
-          title="Shop"
-          links={[
-            { href: "/products", label: "All Products" },
-            { href: "/devices/iphone", label: "iPhone Cases" },
-            { href: "/collections/magsafe", label: "MagSafe" },
-            { href: "/collections", label: "Collections" },
-            { href: "/products?tag=phone_charm", label: "Charms" },
-          ]}
-        />
+        <FooterCol title="Shop" links={shopLinks} />
         <FooterCol
           title="Characters"
           links={[
@@ -74,6 +97,8 @@ export function Footer() {
             { href: "/policies/refund-policy", label: "Returns" },
             { href: "/faq", label: "FAQ" },
             { href: "/contact", label: "Contact" },
+            { href: "/sign-in", label: "Sign in" },
+            { href: "/account/orders", label: "My orders" },
           ]}
         />
         <FooterCol
