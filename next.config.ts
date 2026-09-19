@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 // Relative, not "@/lib/routes": Next.js require()s this config before the app's
 // path aliases exist. The module is kept dependency-free for the same reason.
 import { REDIRECTS, assertRedirectsAreResolvable } from "./src/lib/routes";
-import { FACETED_CDN_CACHE_CONTROL, FEED_CDN_CACHE_CONTROL } from "./src/lib/cache-headers";
+import {
+  CANONICAL_CDN_CACHE_CONTROL,
+  FACETED_CDN_CACHE_CONTROL,
+  FEED_CDN_CACHE_CONTROL,
+} from "./src/lib/cache-headers";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,16 +73,30 @@ const nextConfig: NextConfig = {
     // Next.js force-dynamic pages emit Cache-Control: no-store. That would
     // bypass the CDN and burn Fluid CPU on every crawler hit. These targeted
     // headers cache the HTML at Vercel's edge only (free, ephemeral) without
-    // writing durable ISR units. https://vercel.com/docs/caching/cdn-cache
+    // writing durable ISR units — required while Hobby ISR writes are
+    // exhausted so new visitors still get a page. https://vercel.com/docs/caching/cdn-cache
     const facetedCdn = [
       { key: "CDN-Cache-Control", value: FACETED_CDN_CACHE_CONTROL },
       { key: "Vercel-CDN-Cache-Control", value: FACETED_CDN_CACHE_CONTROL },
+    ];
+    const canonicalCdn = [
+      { key: "CDN-Cache-Control", value: CANONICAL_CDN_CACHE_CONTROL },
+      { key: "Vercel-CDN-Cache-Control", value: CANONICAL_CDN_CACHE_CONTROL },
     ];
     const feedCdn = [
       { key: "CDN-Cache-Control", value: FEED_CDN_CACHE_CONTROL },
       { key: "Vercel-CDN-Cache-Control", value: FEED_CDN_CACHE_CONTROL },
     ];
     return [
+      { source: "/", headers: canonicalCdn },
+      { source: "/products/:slug", headers: canonicalCdn },
+      { source: "/collections", headers: canonicalCdn },
+      { source: "/insights", headers: canonicalCdn },
+      { source: "/blog/rss.xml", headers: feedCdn },
+      { source: "/blog", headers: canonicalCdn },
+      { source: "/blog/:slug", headers: canonicalCdn },
+      { source: "/sitemap.xml", headers: feedCdn },
+      { source: "/llms.txt", headers: feedCdn },
       { source: "/products", headers: facetedCdn },
       { source: "/collections/:slug", headers: facetedCdn },
       { source: "/devices/:slug", headers: facetedCdn },

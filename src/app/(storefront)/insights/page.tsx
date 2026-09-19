@@ -16,7 +16,8 @@ import { PAGE_COPY } from "@/lib/seo/copy";
 import { ROUTES } from "@/lib/routes";
 import { IPHONE_MODELS } from "@/lib/pricing";
 
-export const revalidate = 86400;
+/** Catalog insights: never durable ISR. CDN caches the HTML. */
+export const dynamic = "force-dynamic";
 
 const PATH = ROUTES.insights;
 

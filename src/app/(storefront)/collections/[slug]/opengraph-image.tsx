@@ -2,7 +2,7 @@ import { getCollectionBySlug } from "@/lib/collections";
 import { renderOgImage, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og";
 
 export const runtime = "nodejs";
-export const revalidate = 86400;
+export const dynamic = "force-dynamic";
 
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;

@@ -5,7 +5,7 @@
  */
 import { absoluteUrl, BRAND } from "@/lib/seo";
 
-export const revalidate = 86400;
+export const dynamic = "force-dynamic";
 
 export function GET() {
   const body = `# ${BRAND.name}

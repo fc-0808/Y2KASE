@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import {
   getPublishedPost,
-  listPublishedSlugs,
   getRelatedPosts,
   formatPostDate,
   readingMinutes,
@@ -21,15 +20,8 @@ import {
   truncateDescription,
 } from "@/lib/seo";
 
-// Allow posts published after build (AI-generated) to render on-demand, then be
-// cached via ISR. Editorial MDX posts are still prerendered at build time.
-export const dynamicParams = true;
-export const revalidate = 86400;
-
-export async function generateStaticParams() {
-  const slugs = await listPublishedSlugs();
-  return slugs.map((slug) => ({ slug }));
-}
+/** Posts published after a deploy (cron / admin) must render without ISR writes. */
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,

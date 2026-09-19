@@ -13,6 +13,7 @@
  *    impossible to break on a flaky font CDN.
  */
 import { ImageResponse } from "next/og";
+import { OG_CDN_CACHE_CONTROL } from "@/lib/cache-headers";
 
 export const OG_SIZE = { width: 1200, height: 630 };
 export const OG_CONTENT_TYPE = "image/png";
@@ -187,7 +188,14 @@ export function renderOgImage(opts: OgImageOptions): ImageResponse {
         </div>
       </div>
     ),
-    { ...OG_SIZE },
+    {
+      ...OG_SIZE,
+      headers: {
+        "Cache-Control": OG_CDN_CACHE_CONTROL,
+        "CDN-Cache-Control": OG_CDN_CACHE_CONTROL,
+        "Vercel-CDN-Cache-Control": OG_CDN_CACHE_CONTROL,
+      },
+    },
   );
 }
 

@@ -1,4 +1,4 @@
-import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 
 /**
  * Storefront cache policy.
@@ -7,30 +7,17 @@ import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
  * under the included allowance:
  *
  *  - **ISR Writes** are 8 KB units of *changed* output stored in durable ISR /
- *    Data Cache. Unchanged regenerations are free. Unique URLs, short timers,
- *    `new Date()` in cached HTML, and `revalidatePath('/products/[slug]')` of
- *    every PDP are what run the meter up.
+ *    Data Cache. Unique URLs, short timers, and `revalidatePath` of every PDP
+ *    run the meter up. The 200K Hobby write budget is exhausted this cycle, so
+ *    storefront routes must not `export const revalidate`. HTML is rendered on
+ *    demand and held at the CDN (`cache-headers.ts`). Data Cache is reserved
+ *    for bounded keys (one collection tree, one PDP slug, page-1 listings).
  *  - **Fluid Active CPU** is milliseconds of actual JS execution. Waiting on
  *    Neon does not count; rendering and serializing large RSC trees does.
  *
- * Catalog data is event-driven (admin saves, review publish). Time-based ISR
- * is only a safety net on canonical pages. Faceted listing URLs must not
- * create durable ISR entries — each `?color=&motif=&page=` combo is a new
- * cache key, and crawlers will fill the 200K write budget.
- *
  * @see https://vercel.com/docs/incremental-static-regeneration/limits-and-pricing
- * @see https://vercel.com/kb/guide/how-to-move-to-on-demand-revalidation
+ * @see https://vercel.com/docs/caching/cdn-cache
  */
-
-/**
- * Canonical storefront pages (home, PDP, blog, collection index, OG images).
- * One day is the safety net; admin mutations invalidate on demand.
- *
- * Next.js segment config cannot follow imports (`extractExportedConstValue`
- * only accepts numeric literals). Pages must write `export const revalidate
- * = 86400` — keep that literal in lockstep with this constant.
- */
-export const STOREFRONT_REVALIDATE = 86_400;
 
 /**
  * Data Cache for tagged catalog reads. `false` = keep until `revalidateTag`.
@@ -71,6 +58,34 @@ export const CACHE_TAGS = {
  * product links. Falling back to the uncached function keeps scripts correct;
  * they are one-shot processes, so losing the cache costs nothing.
  */
+function errorChain(err: unknown): Error[] {
+  const out: Error[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    out.push(current);
+    current = current.cause;
+  }
+  return out;
+}
+
+function isDurableCacheUnavailable(err: unknown): boolean {
+  return errorChain(err).some((error) => {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("incrementalcache missing") ||
+      message.includes("failed to update prerender cache") ||
+      message.includes("failed to set next.js data cache") ||
+      message.includes("isr write") ||
+      (message.includes("exceeded") && message.includes("isr")) ||
+      (message.includes("quota") && message.includes("cache"))
+    );
+  });
+}
+
+let warnedDurableCacheMiss = false;
+
 export function cachedCatalogRead<Args extends unknown[], Result>(
   fn: (...args: Args) => Promise<Result>,
   keyParts: string[],
@@ -84,10 +99,17 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
     try {
       return await memoized(...args);
     } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message.includes("incrementalCache missing")
-      ) {
+      // Scripts have no incremental cache. Production can also fail to persist
+      // Data Cache entries once Hobby ISR writes are exhausted. Shoppers still
+      // get a live Neon read instead of a 500.
+      if (isDurableCacheUnavailable(err)) {
+        if (!warnedDurableCacheMiss) {
+          warnedDurableCacheMiss = true;
+          console.warn(
+            "[catalog-cache] durable cache unavailable; serving live catalog reads",
+            err,
+          );
+        }
         return fn(...args);
       }
       throw err;
@@ -103,9 +125,13 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
  * (Admin-facing routes are still expired immediately via `revalidatePath`.)
  */
 export function revalidateStorefrontCatalog(): void {
-  revalidateTag(CACHE_TAGS.products, "max");
-  revalidateTag(CACHE_TAGS.collections, "max");
-  revalidateTag(CACHE_TAGS.reviews, "max");
+  try {
+    revalidateTag(CACHE_TAGS.products, "max");
+    revalidateTag(CACHE_TAGS.collections, "max");
+    revalidateTag(CACHE_TAGS.reviews, "max");
+  } catch (err) {
+    console.warn("[catalog-cache] tag revalidation skipped", err);
+  }
 }
 
 /**
@@ -114,22 +140,21 @@ export function revalidateStorefrontCatalog(): void {
  * Do not call `revalidatePath("/products/[slug]", "page")` from here. That
  * marks every PDP stale; the next crawl of 161 product URLs rewrites ISR
  * units for pages whose data did not change.
+ *
+ * Storefront HTML is force-dynamic + CDN while Hobby ISR writes are
+ * exhausted. `revalidatePath` on those routes would mark durable ISR stale,
+ * then fail to persist the replacement and 500 the next visitor. Tag
+ * invalidation still refreshes Data Cache for faceted listings.
  */
 export function revalidateStorefrontListings(): void {
-  revalidatePath("/");
-  revalidatePath("/products");
-  revalidatePath("/collections");
-  revalidatePath("/insights");
+  revalidateStorefrontCatalog();
 }
 
 /**
- * One product changed. Refresh that PDP and the shared listing caches.
- * Passing a slug avoids a DB round-trip; callers that only have an id should
- * resolve it first.
+ * One product changed. Refresh shared listing Data Cache tags.
+ * The slug is accepted for call-site compatibility; path ISR is not used
+ * while Hobby write quota is exhausted.
  */
-export function revalidateStorefrontProduct(slug: string): void {
-  const trimmed = slug.trim();
-  if (trimmed) revalidatePath(`/products/${trimmed}`);
-  revalidateStorefrontListings();
+export function revalidateStorefrontProduct(_slug: string): void {
   revalidateStorefrontCatalog();
 }

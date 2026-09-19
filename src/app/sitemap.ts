@@ -10,8 +10,8 @@ import { getCollectionTree, type CollectionNode } from "@/lib/collections";
 import { getDeviceFacetCounts } from "@/lib/products";
 import { absoluteUrl, SITE_URL } from "@/lib/site";
 
-// New products land via admin revalidation; this is only a 24h safety net.
-export const revalidate = 86400;
+/** Never durable ISR: a baked empty sitemap is worse than a CDN-cached live one. */
+export const dynamic = "force-dynamic";
 const SITEMAP_URL_LIMIT = 50_000;
 
 function flattenCollections(nodes: CollectionNode[]): CollectionNode[] {
@@ -126,9 +126,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     return complete;
   } catch (error) {
     console.error("[sitemap] product query failed:", error);
-    // Do not replace a previously complete ISR sitemap with a successful but
-    // product-less response. At build time this fails the deployment; during
-    // revalidation Next keeps serving the last good cached sitemap.
+    // Do not replace a previously complete sitemap with a successful but
+    // product-less response. Throw so the CDN keeps the last good payload.
     throw new Error("Unable to build the product sitemap.", { cause: error });
   }
 }

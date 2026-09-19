@@ -6,8 +6,8 @@
  * Failure modes this guards:
  *  - Faceted catalog URLs (`?color=&motif=&page=`) entering durable ISR. Each
  *    combo is a unique 8 KB write unit; crawlers filled Hobby's 200K budget.
- *  - `export const revalidate = STOREFRONT_REVALIDATE` — Next.js cannot follow
- *    imports, so the safety-net timer silently disappeared.
+ *  - Timed ISR (`export const revalidate = 86400`) trying to persist pages
+ *    after Hobby writes are exhausted — uncached URLs 500 for new visitors.
  *  - `revalidatePath("/products/[slug]", "page")` marking every PDP stale.
  *  - Timed Data Cache (`revalidate: 300|3600`) rewriting unchanged payloads.
  */
@@ -17,13 +17,16 @@ import { join } from "node:path";
 
 import {
   DATA_CACHE_REVALIDATE,
-  STOREFRONT_REVALIDATE,
 } from "../src/lib/cache";
 import {
+  CANONICAL_CDN_CACHE_CONTROL,
+  CANONICAL_CDN_MAX_AGE_SECONDS,
   FACETED_CDN_CACHE_CONTROL,
   FACETED_CDN_MAX_AGE_SECONDS,
   FEED_CDN_CACHE_CONTROL,
+  OG_CDN_CACHE_CONTROL,
 } from "../src/lib/cache-headers";
+import { isDurableCatalogQuery } from "../src/lib/products";
 
 let passed = 0;
 let failed = 0;
@@ -68,7 +71,7 @@ function liveLines(src: string, predicate: (line: string) => boolean): string[] 
   });
 }
 
-const CANONICAL_REVALIDATE_FILES = [
+const FORCE_DYNAMIC_STOREFRONT = [
   "src/app/(storefront)/page.tsx",
   "src/app/(storefront)/products/[slug]/page.tsx",
   "src/app/(storefront)/collections/page.tsx",
@@ -81,9 +84,6 @@ const CANONICAL_REVALIDATE_FILES = [
   "src/app/(storefront)/devices/[slug]/opengraph-image.tsx",
   "src/app/sitemap.ts",
   "src/app/llms.txt/route.ts",
-];
-
-const FACETED_PAGES = [
   "src/app/(storefront)/products/page.tsx",
   "src/app/(storefront)/collections/[slug]/page.tsx",
   "src/app/(storefront)/devices/[slug]/page.tsx",
@@ -95,33 +95,27 @@ const BLAST_PATHS = [
   "/collections/[slug]",
 ];
 
-test("canonical ISR window is 24h and Data Cache is event-driven", () => {
-  assert.equal(STOREFRONT_REVALIDATE, 86_400);
+test("Data Cache is event-driven and storefront HTML uses CDN not ISR", () => {
   assert.equal(DATA_CACHE_REVALIDATE, false);
   assert.equal(FACETED_CDN_MAX_AGE_SECONDS, 120);
+  assert.equal(CANONICAL_CDN_MAX_AGE_SECONDS, 3_600);
   assert.match(FACETED_CDN_CACHE_CONTROL, /s-maxage=120/);
+  assert.match(CANONICAL_CDN_CACHE_CONTROL, /s-maxage=3600/);
   assert.match(FEED_CDN_CACHE_CONTROL, /s-maxage=3600/);
+  assert.match(OG_CDN_CACHE_CONTROL, /s-maxage=86400/);
 });
 
-test("cachedCatalogRead defaults to event-driven Data Cache", () => {
+test("cachedCatalogRead defaults to event-driven Data Cache and survives ISR quota", () => {
   const src = read("src/lib/cache.ts");
   assert.match(
     src,
     /revalidate:\s*options\.revalidate\s*\?\?\s*DATA_CACHE_REVALIDATE/,
   );
   assert.match(src, /revalidateTag\(CACHE_TAGS\.products,\s*"max"\)/);
+  assert.match(src, /function isDurableCacheUnavailable/);
 });
 
-for (const file of CANONICAL_REVALIDATE_FILES) {
-  test(`${file} uses a numeric 86400 revalidate literal`, () => {
-    const src = read(file);
-    assert.match(src, /export const revalidate = 86400;/);
-    assert.doesNotMatch(src, /export const revalidate = STOREFRONT_REVALIDATE/);
-    assert.doesNotMatch(src, /export const dynamic = "force-dynamic"/);
-  });
-}
-
-for (const file of FACETED_PAGES) {
+for (const file of FORCE_DYNAMIC_STOREFRONT) {
   test(`${file} is force-dynamic and has no ISR timer`, () => {
     const src = read(file);
     assert.match(src, /export const dynamic = "force-dynamic"/);
@@ -129,16 +123,48 @@ for (const file of FACETED_PAGES) {
   });
 }
 
-test("next.config sets targeted CDN headers for faceted routes and feeds", () => {
+test("next.config sets targeted CDN headers for storefront routes and feeds", () => {
   const src = read("next.config.ts");
   assert.match(src, /FACETED_CDN_CACHE_CONTROL/);
+  assert.match(src, /CANONICAL_CDN_CACHE_CONTROL/);
   assert.match(src, /FEED_CDN_CACHE_CONTROL/);
   assert.match(src, /Vercel-CDN-Cache-Control/);
+  assert.match(src, /source:\s*"\/"/);
+  assert.match(src, /source:\s*"\/products\/:slug"/);
   assert.match(src, /source:\s*"\/products"/);
   assert.match(src, /source:\s*"\/collections\/:slug"/);
   assert.match(src, /source:\s*"\/devices\/:slug"/);
   assert.match(src, /source:\s*"\/feed\.xml"/);
   assert.match(src, /source:\s*"\/api\/feed\/pinterest"/);
+  assert.match(src, /source:\s*"\/sitemap\.xml"/);
+  const rssIdx = src.indexOf('source: "/blog/rss.xml"');
+  const slugIdx = src.indexOf('source: "/blog/:slug"');
+  assert.ok(rssIdx >= 0 && slugIdx >= 0 && rssIdx < slugIdx);
+});
+
+test("only canonical page-1 listings occupy durable catalog Data Cache", () => {
+  assert.equal(isDurableCatalogQuery({ page: 1, sort: "newest" }), true);
+  assert.equal(
+    isDurableCatalogQuery({ page: 1, sort: "newest", collection: "sanrio" }),
+    true,
+  );
+  assert.equal(
+    isDurableCatalogQuery({ page: 1, sort: "newest", device: "iphone" }),
+    true,
+  );
+  assert.equal(isDurableCatalogQuery({ page: 2, sort: "newest" }), false);
+  assert.equal(isDurableCatalogQuery({ page: 1, sort: "price-asc" }), false);
+  assert.equal(
+    isDurableCatalogQuery({ page: 1, sort: "newest", colors: ["pink"] }),
+    false,
+  );
+  assert.equal(
+    isDurableCatalogQuery({ page: 1, sort: "newest", search: "kitty" }),
+    false,
+  );
+  const products = read("src/lib/products.ts");
+  assert.match(products, /export function isDurableCatalogQuery/);
+  assert.match(products, /isDurableCatalogQuery\(normalized\)/);
 });
 
 test("proxy matcher stays admin-only so shoppers skip Node CPU", () => {
@@ -174,13 +200,12 @@ test("Data Cache wrappers do not use short time-based revalidate", () => {
   assert.deepEqual(hits, []);
 });
 
-test("no leftover hourly ISR segment config", () => {
+test("no leftover timed ISR segment config on app routes", () => {
   const hits: string[] = [];
   for (const file of [...walkTs("src/app"), "src/lib/cache.ts"]) {
     const src = read(file);
-    for (const line of liveLines(
-      src,
-      (l) => /export const revalidate = 3600/.test(l),
+    for (const line of liveLines(src, (l) =>
+      /export const revalidate = (3600|86400)/.test(l),
     )) {
       hits.push(`${file}: ${line.trim()}`);
     }
@@ -188,10 +213,12 @@ test("no leftover hourly ISR segment config", () => {
   assert.deepEqual(hits, []);
 });
 
-test("narrow PDP invalidation helpers exist", () => {
+test("storefront invalidation does not persist ISR paths", () => {
   const cache = read("src/lib/cache.ts");
   assert.match(cache, /export function revalidateStorefrontProduct/);
-  assert.match(cache, /revalidatePath\(`\/products\/\$\{trimmed\}`\)/);
+  assert.match(cache, /revalidateStorefrontCatalog\(\)/);
+  const pathWrites = liveLines(cache, (l) => /revalidatePath\(/.test(l));
+  assert.deepEqual(pathWrites, []);
   const blast = liveLines(cache, (l) =>
     /revalidatePath\(\s*["'`]\/products\/\[slug\]/.test(l),
   );

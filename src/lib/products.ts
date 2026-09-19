@@ -183,6 +183,25 @@ function normalizeProductQuery(query: ProductQuery): ProductQuery {
   };
 }
 
+/**
+ * Whether a listing query is allowed to occupy durable Data Cache (ISR writes).
+ *
+ * Canonical page-1 listings (`/products`, `/collections/{slug}`,
+ * `/devices/{id}`) are a finite key space. Color/motif/MagSafe/page/sort
+ * combos are crawler-generated and must stay ephemeral CDN-only.
+ */
+export function isDurableCatalogQuery(query: ProductQuery): boolean {
+  if (query.search) return false;
+  if ((query.page ?? 1) !== 1) return false;
+  if (query.sort && query.sort !== "newest") return false;
+  if (query.tag) return false;
+  if (query.magsafe !== undefined) return false;
+  if ((query.brands?.length ?? 0) > 0) return false;
+  if ((query.colors?.length ?? 0) > 0) return false;
+  if ((query.motifs?.length ?? 0) > 0) return false;
+  return [query.collection, query.device].filter(Boolean).length <= 1;
+}
+
 function normalizeSlugs(slugs: string[] | undefined): string[] | undefined {
   return slugs === undefined
     ? undefined
@@ -296,9 +315,9 @@ export function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
       pageSize: PAGE_SIZE,
     });
   }
-  return normalized.search
-    ? computeProducts(normalized)
-    : getProductsCached(normalized);
+  return isDurableCatalogQuery(normalized)
+    ? getProductsCached(normalized)
+    : computeProducts(normalized);
 }
 
 const getProductsCached = cachedCatalogRead(
@@ -415,10 +434,8 @@ export async function getCatalogFacetCounts(
 /**
  * Products and contextual facet counts share one cache entry so a warm catalog
  * navigation performs one Data Cache read instead of repeating Neon queries.
- * Free-text searches intentionally bypass this cache to keep user-controlled
- * terms from creating an unbounded key space. Time-based `revalidate` is
- * omitted on purpose: a 5–60 minute timer rewrote every unique filter combo
- * even when Neon did not change, which is billed as ISR writes.
+ * Only canonical page-1 listings occupy durable cache — see
+ * {@link isDurableCatalogQuery}. Facet combos stay on the free CDN layer.
  */
 export function getCatalogPage(
   query: ProductQuery = {},
@@ -439,13 +456,13 @@ export function getCatalogPage(
     });
   }
 
-  return normalized.search
-    ? computeCatalogPage(
+  return isDurableCatalogQuery(normalized)
+    ? getCatalogPageCached(
         normalized,
         normalizedFacetSlugs,
         normalizedAlsoCountSlugs,
       )
-    : getCatalogPageCached(
+    : computeCatalogPage(
         normalized,
         normalizedFacetSlugs,
         normalizedAlsoCountSlugs,

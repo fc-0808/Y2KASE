@@ -27,7 +27,8 @@ import {
 } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
 
-export const revalidate = 86400;
+/** Collection directory: never durable ISR. CDN caches the HTML. */
+export const dynamic = "force-dynamic";
 
 export const metadata = publicPageMetadata({
   title: PAGE_COPY.collections.title,

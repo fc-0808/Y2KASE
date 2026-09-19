@@ -32,11 +32,9 @@ export const metadata: Metadata = publicPageMetadata({
   absoluteTitle: true,
 });
 
-// Canonical homepage: durable ISR as a 24h safety net. Admin catalog edits
-// invalidate on demand via `revalidateStorefrontListings`. Faceted listing
-// URLs must not use this — each query string is a unique ISR write.
-// Numeric literal required: Next.js cannot follow imported segment config.
-export const revalidate = 86400;
+// Never durable ISR: Hobby writes are exhausted, so HTML is rendered on
+// demand and held at the CDN (see next.config canonical headers).
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   // Over-fetch each collection so cross-rail de-dupe (Hello Kitty reserved

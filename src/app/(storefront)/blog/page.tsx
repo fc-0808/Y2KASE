@@ -9,8 +9,8 @@ import {
 } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
 
-// Newly published posts invalidate on demand; this is only a 24h safety net.
-export const revalidate = 86400;
+/** Blog index: never durable ISR. Cron-published posts render without a write quota. */
+export const dynamic = "force-dynamic";
 
 export const metadata = publicPageMetadata({
   title: PAGE_COPY.blog.title,

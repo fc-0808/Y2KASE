@@ -8,7 +8,7 @@
 import { listPublishedPosts } from "@/lib/blog";
 import { absoluteUrl, BRAND } from "@/lib/seo";
 
-export const revalidate = 86400;
+export const dynamic = "force-dynamic";
 
 function xmlEscape(value: string): string {
   return value

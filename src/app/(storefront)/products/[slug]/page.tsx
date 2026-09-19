@@ -17,16 +17,8 @@ import {
   ProductPageView,
 } from "@/components/product/ProductPageView";
 
-export const revalidate = 86400;
-
-/**
- * Generate product pages on first request, then keep them in the Full Route
- * Cache. Next.js requires an array (including an empty one) for runtime ISR of
- * dynamic paths; without this, the existing `revalidate` never cached PDP HTML.
- */
-export function generateStaticParams(): { slug: string }[] {
-  return [];
-}
+/** Public PDP: never durable ISR. CDN caches the HTML for new and returning visitors. */
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
