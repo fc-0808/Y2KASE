@@ -6,12 +6,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth";
-import { revalidateStorefrontCatalog } from "@/lib/cache";
+import { revalidateStorefrontCatalog, revalidateStorefrontListings } from "@/lib/cache";
 
 function revalidateBestsellers() {
   revalidatePath("/admin/bestsellers");
-  revalidatePath("/");
-  // Drop the cached homepage "Bestsellers" data so the rail updates at once.
+  revalidateStorefrontListings();
   revalidateStorefrontCatalog();
 }
 

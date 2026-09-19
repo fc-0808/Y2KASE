@@ -58,15 +58,15 @@ async function activeMembership(): Promise<Map<number, Set<number>>> {
  * This runs in the shared `SiteHeader` (root layout) on *every* page, so its
  * cost is paid site-wide. It is therefore wrapped in two cache layers:
  *  - `cachedCatalogRead` — a cross-request Data Cache entry, tagged so admin edits
- *    invalidate it on demand (otherwise it refreshes hourly), turning a full
- *    `product_collections ⨝ products` scan into a single cached read.
+ *    invalidate it on demand, turning a full `product_collections ⨝ products`
+ *    scan into a single cached read.
  *  - React `cache` — request-level memoization so the layout and the page that
  *    both call this within one render share a single computation.
  */
 const getCollectionTreeCached = cachedCatalogRead(
   computeCollectionTree,
   ["collection-tree"],
-  { tags: [CACHE_TAGS.collections, CACHE_TAGS.products], revalidate: 3600 },
+  { tags: [CACHE_TAGS.collections, CACHE_TAGS.products] },
 );
 
 export const getCollectionTree = reactCache(
@@ -141,7 +141,6 @@ const getCollectionBySlugCached = cachedCatalogRead(
   ["active-collection-by-slug-v1"],
   {
     tags: [CACHE_TAGS.collections],
-    revalidate: 3600,
   },
 );
 
@@ -422,7 +421,7 @@ export async function getCollectionImagePools(): Promise<
 const getCollectionImagePoolEntries = cachedCatalogRead(
   computeCollectionImagePoolEntries,
   ["collection-image-pools-v2"],
-  { tags: [CACHE_TAGS.collections, CACHE_TAGS.products], revalidate: 3600 },
+  { tags: [CACHE_TAGS.collections, CACHE_TAGS.products] },
 );
 
 async function computeCollectionImagePoolEntries(): Promise<

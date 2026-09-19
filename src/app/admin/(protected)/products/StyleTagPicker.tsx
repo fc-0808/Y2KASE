@@ -20,7 +20,6 @@ import {
   imageStyleTag,
   styleTagsFor,
   normalizeImageStyleTags,
-  type Style,
 } from "@/lib/pricing";
 
 /** Stands in for `null` — a radio option needs a non-empty key. */
@@ -42,8 +41,8 @@ export function StyleTagPicker({
   styles: readonly string[];
   /** Currently stored tags. Normalized on read, so any legacy value is safe. */
   value: readonly string[];
-  /** Emits the canonical stored form: `[]` for universal, else one style. */
-  onChange: (styleTags: Style[]) => void;
+  /** Emits the stored form: `[]` for universal, else one style. */
+  onChange: (styleTags: string[]) => void;
   /** Identifies the image for screen readers, e.g. its filename. */
   label: string;
   size?: keyof typeof SIZES;
@@ -56,7 +55,7 @@ export function StyleTagPicker({
   const { pill, gap } = SIZES[size];
 
   function select(option: string) {
-    onChange(styleTagsFor(option === UNIVERSAL ? null : option));
+    onChange(styleTagsFor(option === UNIVERSAL ? null : option, styles));
   }
 
   /** Arrow keys move focus *and* selection, per the WAI-ARIA radio pattern. */

@@ -10,7 +10,13 @@ import {
   defaultStyleFor,
   defaultModelFor,
 } from "@/lib/pricing";
-import { getProductType, priceAxisFor } from "@/lib/catalog/product-types";
+import {
+  imageForStyleSelection,
+  listingUnitPrice,
+  normalizeCustomStyles,
+  variationImage,
+} from "@/lib/catalog/custom-styles";
+import { priceAxisFor } from "@/lib/catalog/product-types";
 import {
   AIRPODS_MODEL_OPTION_NAME,
   defaultAirpodsModelFor,
@@ -79,6 +85,7 @@ export function ProductDetailClient({
   videoPosition,
   images,
   options,
+  customStyles: customStylesInput,
   trackCommerce = true,
 }: {
   productId: number;
@@ -94,6 +101,7 @@ export function ProductDetailClient({
   videoPosition: number | null;
   images: Img[];
   options: Option[];
+  customStyles?: unknown;
   /**
    * Commerce pixels (view + add-to-cart). Off on unpublished admin previews
    * so draft inspections do not pollute storefront analytics.
@@ -102,6 +110,14 @@ export function ProductDetailClient({
 }) {
   const addItem = useCart((s) => s.addItem);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const customStyles = useMemo(
+    () =>
+      normalizeCustomStyles(
+        Array.isArray(customStylesInput) ? customStylesInput : [],
+        { productType },
+      ),
+    [customStylesInput, productType],
+  );
   const axes = useMemo(() => storefrontOptions(options), [options]);
   const [selected, setSelected] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -158,9 +174,12 @@ export function ProductDetailClient({
   // pattern (no effect).
   if (selectedStyle !== styleAtSlideReset) {
     setStyleAtSlideReset(selectedStyle);
-    const imgIdx = selectedStyle
-      ? gallery.findIndex((img) => img.styleTags.includes(selectedStyle))
-      : -1;
+    const match = imageForStyleSelection(
+      gallery,
+      selectedStyle,
+      customStyles,
+    );
+    const imgIdx = match ? gallery.findIndex((img) => img.id === match.id) : -1;
     if (imgIdx >= 0) setActiveSlide(imageIndexToSlideIndex(imgIdx));
   }
 
@@ -176,13 +195,17 @@ export function ProductDetailClient({
   // Price is driven by the selected Style when the type has a price axis.
   // Flat types fall back to the stored base price.
   const priceAxis = priceAxisFor(productType);
-  const currentPrice = useMemo(() => {
-    if (!priceAxis) return price;
-    return getProductType(productType).getPriceFromOptions(
-      selected,
-      currency,
-    );
-  }, [priceAxis, productType, selected, currency, price]);
+  const currentPrice = useMemo(
+    () =>
+      listingUnitPrice({
+        productType,
+        currency,
+        selected,
+        customStyles,
+        basePrice: price,
+      }),
+    [productType, currency, selected, customStyles, price],
+  );
   const onSale =
     compareAtPrice !== null &&
     compareAtPrice !== undefined &&
@@ -233,9 +256,7 @@ export function ProductDetailClient({
       // Cart thumbnail reflects the chosen Style (its first tagged photo),
       // falling back to the hero image when the style has no dedicated shot.
       imageUrl:
-        (selectedStyle
-          ? gallery.find((img) => img.styleTags.includes(selectedStyle))?.url
-          : undefined) ??
+        variationImage(gallery, selectedStyle, customStyles)?.url ??
         gallery[0]?.url ??
         null,
       options: selected,
@@ -307,12 +328,17 @@ export function ProductDetailClient({
           }
           currency={currency}
           priceForStyle={
-            priceAxis
+            priceAxis || customStyles.length > 0
               ? (style) =>
-                  getProductType(productType).getPriceFromOptions(
-                    { ...selected, [priceAxis.name]: style },
+                  listingUnitPrice({
+                    productType,
                     currency,
-                  )
+                    selected: priceAxis
+                      ? { ...selected, [priceAxis.name]: style }
+                      : { ...selected, [STYLE_OPTION_NAME]: style },
+                    customStyles,
+                    basePrice: price,
+                  })
               : undefined
           }
         />

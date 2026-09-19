@@ -3,7 +3,7 @@ import { formatPrice } from "@/lib/utils";
 import { renderOgImage, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og";
 
 export const runtime = "nodejs";
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;

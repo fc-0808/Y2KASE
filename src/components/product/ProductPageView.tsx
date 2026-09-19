@@ -139,6 +139,7 @@ export function ProductPageView({
           name: o.name,
           values: o.values,
         }))}
+        customStyles={product.customStyles}
         trackCommerce={!isPreview}
       />
 

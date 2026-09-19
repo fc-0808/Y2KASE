@@ -14,7 +14,12 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { isDbConfigured } from "@/lib/db";
-import { isPinterestConfigured } from "@/lib/social/pinterest";
+import { notePinDeletedByHygiene } from "@/lib/social/creatives";
+import {
+  deletePin,
+  isPinterestConfigured,
+  PinterestError,
+} from "@/lib/social/pinterest";
 import {
   isAutoPinEnabled,
   runAutoPin,
@@ -48,8 +53,41 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Secret-gated `?delete=<pinId>` removes a bad pin (DB row stays published
+  // so auto-pin does not dump that still again).
+  const deleteId = req.nextUrl.searchParams.get("delete");
+  let deleted: string | null = null;
+  if (deleteId) {
+    if (!/^\d{6,32}$/.test(deleteId)) {
+      return NextResponse.json({ error: "Invalid delete id." }, { status: 400 });
+    }
+    try {
+      await deletePin(deleteId);
+      await notePinDeletedByHygiene(deleteId);
+      deleted = deleteId;
+    } catch (err) {
+      const status = err instanceof PinterestError ? err.status : 0;
+      if (status === 404) {
+        await notePinDeletedByHygiene(deleteId);
+        deleted = deleteId;
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        return NextResponse.json(
+          { ok: false, deleted: null, error: message },
+          { status: 502 },
+        );
+      }
+    }
+  }
+
   // Each run posts up to AUTO_PIN_PER_RUN pins, but never more than the
-  // per-day pin cap across all runs combined.
-  const result = await runAutoPin({ dailyCap: AUTO_PIN_PER_DAY });
-  return NextResponse.json(result);
+  // per-day pin cap across all runs combined. `?max=` (secret-gated) lets
+  // ops post a single replacement without raising the daily firehose.
+  const rawMax = Number(req.nextUrl.searchParams.get("max"));
+  const max =
+    Number.isFinite(rawMax) && rawMax >= 1
+      ? Math.min(4, Math.floor(rawMax))
+      : undefined;
+  const result = await runAutoPin({ dailyCap: AUTO_PIN_PER_DAY, max });
+  return NextResponse.json({ ...result, deleted });
 }

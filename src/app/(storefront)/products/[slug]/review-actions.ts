@@ -1,11 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { getSession } from "@/lib/auth";
 import { hit } from "@/lib/rate-limit";
 import { submitReview, type SubmitReviewResult } from "@/lib/reviews";
-import { revalidateStorefrontCatalog } from "@/lib/cache";
+import { revalidateStorefrontProduct } from "@/lib/cache";
 
 export type { SubmitReviewResult };
 
@@ -51,8 +50,7 @@ export async function submitReviewAction(input: {
   });
 
   if (result.ok && result.status === "published") {
-    revalidatePath(`/products/${input.slug}`);
-    revalidateStorefrontCatalog();
+    revalidateStorefrontProduct(input.slug);
   }
   return result;
 }

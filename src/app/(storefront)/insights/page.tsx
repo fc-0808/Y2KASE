@@ -16,7 +16,7 @@ import { PAGE_COPY } from "@/lib/seo/copy";
 import { ROUTES } from "@/lib/routes";
 import { IPHONE_MODELS } from "@/lib/pricing";
 
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 const PATH = ROUTES.insights;
 

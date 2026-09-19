@@ -20,6 +20,7 @@ import {
   SquarePen,
   TriangleAlert,
   Sparkles,
+  Boxes,
 } from "lucide-react";
 import {
   STYLES,
@@ -45,12 +46,23 @@ import {
 import { StyleTagPicker, StyleCoverageHint } from "./StyleTagPicker";
 import { DeviceFitPicker } from "./DeviceFitPicker";
 import {
+  CustomVariationsEditor,
+  mediaTagStyles,
+} from "./CustomVariationsEditor";
+import {
   bulkUpdateProducts,
   getBulkEditProducts,
   bulkSaveProducts,
   type BulkEditProduct,
   type PerProductSave,
 } from "./actions";
+import {
+  setImageVariationTag,
+  syncCustomDraftMedia,
+  taggingStylesFor,
+  validateCustomStylesDraft,
+  type CustomStyle,
+} from "@/lib/catalog/custom-styles";
 import { detectProductImageStyles } from "./[id]/actions";
 
 type Mode = "all" | "each";
@@ -71,6 +83,8 @@ type Draft = {
   media: MediaItem[];
   styles: string[];
   models: string[];
+  containsMultipleProducts: boolean;
+  customStyles: CustomStyle[];
 };
 
 export function BulkEditor({
@@ -318,7 +332,108 @@ function IndividualWorkspace({
     setDrafts((prev) => ({ ...prev, [activeId]: { ...prev[activeId], ...patch } }));
   }
 
+  function syncMediaToCustom(
+    media: MediaItem[],
+    previous: CustomStyle[],
+    custom: CustomStyle[],
+    canonical: string[],
+  ): MediaItem[] {
+    const images = media.filter(
+      (m): m is Extract<MediaItem, { kind: "image" }> => m.kind === "image",
+    );
+    const tags = syncCustomDraftMedia({
+      imageIds: images.map((image) => image.id),
+      tagsByImageId: Object.fromEntries(
+        images.map((image) => [image.id, image.styleTags]),
+      ),
+      previous,
+      next: custom,
+      canonical,
+    });
+    return media.map((item) =>
+      item.kind === "image"
+        ? { ...item, styleTags: tags[item.id] ?? [] }
+        : item,
+    );
+  }
+
+  function handleCustomStyles(next: CustomStyle[], flagged = true) {
+    if (activeId == null) return;
+    const current = drafts[activeId];
+    if (!current) return;
+    const custom = flagged ? next : [];
+    updateActive({
+      containsMultipleProducts: flagged,
+      customStyles: custom,
+      media: syncMediaToCustom(
+        current.media,
+        current.customStyles,
+        custom,
+        current.styles,
+      ),
+    });
+  }
+
+  function handleMedia(media: MediaItem[]) {
+    if (activeId == null) return;
+    const current = drafts[activeId];
+    if (!current) return;
+    const prevTag = new Map(
+      current.media
+        .filter(
+          (item): item is Extract<MediaItem, { kind: "image" }> =>
+            item.kind === "image",
+        )
+        .map((item) => [item.id, item.styleTags[0] ?? null]),
+    );
+    const changed = media.find(
+      (item) =>
+        item.kind === "image" &&
+        (item.styleTags[0] ?? null) !== (prevTag.get(item.id) ?? null),
+    );
+    if (!changed || changed.kind !== "image") {
+      updateActive({ media });
+      return;
+    }
+    const images = media.filter(
+      (item): item is Extract<MediaItem, { kind: "image" }> =>
+        item.kind === "image",
+    );
+    const result = setImageVariationTag({
+      imageId: changed.id,
+      style: changed.styleTags[0] ?? null,
+      customStyles: current.customStyles,
+      imageIds: images.map((image) => image.id),
+      tagsByImageId: Object.fromEntries(
+        images.map((image) => [image.id, image.styleTags]),
+      ),
+      offered: taggingStylesFor(current.styles, current.customStyles),
+    });
+    updateActive({
+      media: media.map((item) =>
+        item.kind === "image"
+          ? { ...item, styleTags: result.tagsByImageId[item.id] ?? [] }
+          : item,
+      ),
+      customStyles: result.customStyles,
+    });
+  }
+
   function handleSaveAll() {
+    for (const id of order) {
+      if (!dirtyIds.has(id)) continue;
+      const draft = drafts[id];
+      const productType = meta[id]?.productType;
+      if (!draft?.containsMultipleProducts || !productType) continue;
+      const validated = validateCustomStylesDraft(draft.customStyles, {
+        productType,
+      });
+      if (!validated.ok) {
+        setActiveId(id);
+        onSaved({ ok: false, message: validated.message });
+        return;
+      }
+    }
     const items: PerProductSave[] = order
       .filter((id) => dirtyIds.has(id))
       .map((id) => toPerProductSave(id, drafts[id]));
@@ -398,6 +513,12 @@ function IndividualWorkspace({
                             : p.productTypeLabel}
                       </p>
                     </div>
+                    {d.containsMultipleProducts && (
+                      <Boxes
+                        className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]"
+                        aria-label="More than one product"
+                      />
+                    )}
                     {isDirty && (
                       <span
                         title="Unsaved changes"
@@ -443,6 +564,30 @@ function IndividualWorkspace({
                 </div>
               )}
 
+              <CustomVariationsEditor
+                flagged={active.containsMultipleProducts}
+                onFlagChange={(flagged) =>
+                  handleCustomStyles(
+                    flagged ? active.customStyles : [],
+                    flagged,
+                  )
+                }
+                customStyles={active.customStyles}
+                onCustomStylesChange={(next) => handleCustomStyles(next, true)}
+                images={active.media
+                  .filter(
+                    (item): item is Extract<MediaItem, { kind: "image" }> =>
+                      item.kind === "image",
+                  )
+                  .map((item) => ({
+                    id: item.id,
+                    url: item.url,
+                    filename: item.filename,
+                  }))}
+                productType={activeMeta.productType}
+                currency={activeMeta.currency}
+              />
+
               {activeMeta.productType === "iphone_case" ? (
                 <>
                   <div className="grid gap-3 lg:grid-cols-2">
@@ -454,10 +599,12 @@ function IndividualWorkspace({
                         styles={active.styles}
                         productType={activeMeta.productType}
                         currency={activeMeta.currency}
+                        requireCaseOnly={active.customStyles.length === 0}
                         onChange={(styles) => {
-                          // Re-normalize rather than filter: an image assigned
-                          // to a style that's no longer offered falls back to
-                          // universal instead of keeping a dangling tag.
+                          const offered = taggingStylesFor(
+                            styles,
+                            active.customStyles,
+                          );
                           updateActive({
                             styles,
                             media: active.media.map((m) =>
@@ -466,7 +613,7 @@ function IndividualWorkspace({
                                     ...m,
                                     styleTags: normalizeImageStyleTags(
                                       m.styleTags,
-                                      styles,
+                                      offered,
                                     ),
                                   }
                                 : m,
@@ -498,7 +645,12 @@ function IndividualWorkspace({
                         allowGrip={false}
                         productType={activeMeta.productType}
                         currency={activeMeta.currency}
+                        requireCaseOnly={active.customStyles.length === 0}
                         onChange={(styles) => {
+                          const offered = taggingStylesFor(
+                            styles,
+                            active.customStyles,
+                          );
                           updateActive({
                             styles,
                             media: active.media.map((m) =>
@@ -507,7 +659,7 @@ function IndividualWorkspace({
                                     ...m,
                                     styleTags: normalizeImageStyleTags(
                                       m.styleTags,
-                                      styles,
+                                      offered,
                                     ),
                                   }
                                 : m,
@@ -535,10 +687,12 @@ function IndividualWorkspace({
                       />
                     </div>
                   ) : (
-                    !hasPriceAxis(activeMeta.productType) && (
+                    !hasPriceAxis(activeMeta.productType) &&
+                    active.customStyles.length === 0 && (
                       <p className="rounded-xl bg-[var(--muted)] px-3 py-2 text-xs text-[var(--foreground)]/60">
                         This product has no style or device-fit axes — only media
-                        order can be edited here.
+                        order can be edited here, unless you flag it as more than
+                        one product and add named variations.
                       </p>
                     )
                   )}
@@ -549,10 +703,21 @@ function IndividualWorkspace({
                 <MediaOrderEditor
                   productId={activeId!}
                   media={active.media}
-                  styles={
-                    hasPriceAxis(activeMeta.productType) ? active.styles : []
+                  styles={mediaTagStyles(
+                    hasPriceAxis(activeMeta.productType) ? active.styles : [],
+                    active.customStyles,
+                  )}
+                  preserveLabels={new Set(
+                    active.customStyles.map((row) => row.label),
+                  )}
+                  preserveImageIds={
+                    new Set(
+                      active.customStyles
+                        .map((row) => row.imageId)
+                        .filter((id): id is number => id != null),
+                    )
                   }
-                  onChange={(media) => updateActive({ media })}
+                  onChange={handleMedia}
                 />
               </div>
             </div>
@@ -589,12 +754,15 @@ function StyleVariationPicker({
   allowGrip = true,
   productType,
   currency,
+  requireCaseOnly = true,
 }: {
   styles: string[];
   onChange: (styles: string[]) => void;
   allowGrip?: boolean;
   productType?: string;
   currency?: string;
+  /** When false, Case Only may be turned off (a custom variation carries the listing). */
+  requireCaseOnly?: boolean;
 }) {
   const addons = useMemo(() => addonsFromStyles(styles), [styles]);
   const manualStyles = allowGrip ? STYLES : AIRPODS_STYLES;
@@ -611,8 +779,12 @@ function StyleVariationPicker({
     const next = styles.includes(style)
       ? styles.filter((s) => s !== style)
       : [...styles, style];
-    const withCase = next.includes("Case Only") ? next : [...next, "Case Only"];
-    onChange(orderStyles(withCase));
+    if (requireCaseOnly) {
+      const withCase = next.includes("Case Only") ? next : [...next, "Case Only"];
+      onChange(orderStyles(withCase));
+      return;
+    }
+    onChange(orderStyles(next));
   }
 
   return (
@@ -680,7 +852,7 @@ function StyleVariationPicker({
               <input
                 type="checkbox"
                 checked={styles.includes(s)}
-                disabled={s === "Case Only"}
+                disabled={s === "Case Only" && requireCaseOnly}
                 onChange={() => toggleManual(s)}
               />
               {s}
@@ -823,11 +995,17 @@ function MediaOrderEditor({
   media,
   styles,
   onChange,
+  preserveLabels,
+  preserveImageIds,
 }: {
   productId: number;
   media: MediaItem[];
   styles: string[];
   onChange: (media: MediaItem[]) => void;
+  /** Style tags that Detect must not overwrite (linked custom variations). */
+  preserveLabels?: ReadonlySet<string>;
+  /** Photos a custom row already owns — Detect must not retag them. */
+  preserveImageIds?: ReadonlySet<number>;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -872,6 +1050,8 @@ function MediaOrderEditor({
       onChange(
         media.map((m) => {
           if (m.kind !== "image") return m;
+          if (preserveImageIds?.has(m.id)) return m;
+          if (m.styleTags[0] && preserveLabels?.has(m.styleTags[0])) return m;
           const tags = res.tags[m.id];
           if (!tags) return m;
           return {
@@ -1185,6 +1365,8 @@ function draftFromProduct(p: BulkEditProduct): Draft {
             : stylesForAddons({ hasGrip: false, hasCharm: true }),
       )
     : [];
+  const customStyles = p.customStyles;
+  const tagStyles = taggingStylesFor(styles, customStyles);
   // Legacy rows can carry several tags per image (the classifier used to tag
   // inclusively). Collapse on the way in so the control never renders two
   // active pills; the baseline is taken from the normalized draft below, so
@@ -1194,7 +1376,7 @@ function draftFromProduct(p: BulkEditProduct): Draft {
     id: i.id,
     url: i.url,
     filename: i.filename,
-    styleTags: normalizeImageStyleTags(i.styleTags, styles),
+    styleTags: normalizeImageStyleTags(i.styleTags, tagStyles),
   }));
   let media = imgs;
   if (p.videoUrl) {
@@ -1211,11 +1393,19 @@ function draftFromProduct(p: BulkEditProduct): Draft {
     media,
     styles,
     models: p.availableModels,
+    containsMultipleProducts: p.containsMultipleProducts,
+    customStyles: p.customStyles,
   };
 }
 
 function serializeDraft(d: Draft): string {
-  return JSON.stringify({ media: d.media, styles: d.styles, models: d.models });
+  return JSON.stringify({
+    media: d.media,
+    styles: d.styles,
+    models: d.models,
+    containsMultipleProducts: d.containsMultipleProducts,
+    customStyles: d.customStyles,
+  });
 }
 
 function toPerProductSave(productId: number, d: Draft): PerProductSave {
@@ -1238,5 +1428,7 @@ function toPerProductSave(productId: number, d: Draft): PerProductSave {
     styleTags,
     availableStyles: d.styles,
     availableModels: d.models,
+    containsMultipleProducts: d.containsMultipleProducts,
+    customStyles: d.customStyles,
   };
 }

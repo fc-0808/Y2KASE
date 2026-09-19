@@ -9,7 +9,7 @@ import {
   truncateDescription,
 } from "@/lib/seo";
 import { productSerpTitle } from "@/lib/seo/copy";
-import { getProductEntryPrice } from "@/lib/pricing";
+import { listingEntryPrice } from "@/lib/catalog/custom-styles";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 import { liveProductPageHref } from "@/lib/catalog/product-page";
 import {
@@ -17,7 +17,7 @@ import {
   ProductPageView,
 } from "@/components/product/ProductPageView";
 
-export const revalidate = 3600; // ISR: refresh product pages hourly.
+export const revalidate = 86400;
 
 /**
  * Generate product pages on first request, then keep them in the Full Route
@@ -82,11 +82,12 @@ export default async function ProductPage({
   const { relatedProducts, reviewSummary, reviews, collectionLinks } =
     await loadProductPageCompanionData(product);
   const currency = (product.currency || "USD").toUpperCase();
-  const entryPrice = getProductEntryPrice(
-    product.productType,
-    product.price,
+  const entryPrice = listingEntryPrice({
+    productType: product.productType,
+    storedPrice: product.price,
     currency,
-  );
+    customStyles: product.customStyles,
+  });
 
   return (
     <>

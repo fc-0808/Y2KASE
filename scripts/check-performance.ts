@@ -75,6 +75,8 @@ assert.match(heroSource, /autoPlayArmed/);
 // Vercel `/_next/image` is 402ing. Optimization stays opt-in; catalog photos
 // must keep serving the stored R2 WebP directly even if someone opts back in.
 assert.match(nextConfig, /NEXT_IMAGE_OPTIMIZED !== "true"/);
+assert.match(nextConfig, /Vercel-CDN-Cache-Control/);
+assert.match(nextConfig, /FACETED_CDN_CACHE_CONTROL/);
 assert.match(productMedia, /unoptimized/);
 assert.match(productDetail, /from "@\/components\/product\/ProductGallery"/);
 assert.match(productGallery, /from "@\/components\/ProductMedia"/);
@@ -82,5 +84,11 @@ assert.match(productGallery, /from "@\/components\/ProductMedia"/);
 // those fail WCAG 2.5.8 and Baymard's page-control guidance past ~7 slides.
 assert.doesNotMatch(productGallery, /h-2 rounded-full/);
 assert.match(productGallery, /aria-roledescription="carousel"/);
+
+const productCard = readFileSync("src/components/ProductCard.tsx", "utf8");
+assert.match(productCard, /h-full min-h-0 w-full flex-1 flex-col/);
+assert.match(productCard, /KICKER_SLOT/);
+assert.match(productCard, /min-h-\[2\.75em\]/);
+assert.match(productCard, /PRODUCT_RAIL_ITEM/);
 
 console.log("✓ storefront performance invariants passed");

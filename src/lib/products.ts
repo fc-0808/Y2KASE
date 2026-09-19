@@ -14,9 +14,10 @@ import { alias } from "drizzle-orm/pg-core";
 import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
-import { collections, products, productCollections } from "@/lib/db/schema";
+import { collections, products, productCollections, productImages } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
-import { getProductEntryPrice } from "@/lib/pricing";
+import { listingEntryPrice, normalizeCustomStyles } from "@/lib/catalog/custom-styles";
+import { merchandiseCollectionRail } from "@/lib/catalog/rail-mix";
 import { productTypeLabel } from "@/lib/catalog/product-types";
 import {
   offeredCompatibilityValues,
@@ -55,8 +56,14 @@ function listingPriceFor(
   productType: string,
   storedPrice: string,
   currency: string,
+  customStyles?: unknown,
 ): string {
-  return getProductEntryPrice(productType, storedPrice, currency).toFixed(2);
+  return listingEntryPrice({
+    productType,
+    storedPrice,
+    currency,
+    customStyles: Array.isArray(customStyles) ? customStyles : [],
+  }).toFixed(2);
 }
 
 /** Attach published-review summaries to a list of products for card star ratings. */
@@ -298,10 +305,11 @@ const getProductsCached = cachedCatalogRead(
   computeProducts,
   // v2: default sort now leads with curated bestsellers — bump so stale v1
   // entries (newest-only order) don't linger for the revalidate window.
-  ["catalog-product-page-v5"],
+  // v3: custom variation "from" prices on listing cards. Bump so a
+  // named-product listing cannot keep advertising Case Only from v2 cache.
+  ["catalog-product-page-v7"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
-    revalidate: 300,
   },
 );
 
@@ -408,7 +416,9 @@ export async function getCatalogFacetCounts(
  * Products and contextual facet counts share one cache entry so a warm catalog
  * navigation performs one Data Cache read instead of repeating Neon queries.
  * Free-text searches intentionally bypass this cache to keep user-controlled
- * terms from creating an unbounded key space.
+ * terms from creating an unbounded key space. Time-based `revalidate` is
+ * omitted on purpose: a 5–60 minute timer rewrote every unique filter combo
+ * even when Neon did not change, which is billed as ISR writes.
  */
 export function getCatalogPage(
   query: ProductQuery = {},
@@ -445,10 +455,9 @@ export function getCatalogPage(
 const getCatalogPageCached = cachedCatalogRead(
   computeCatalogPage,
   // v2: see getProductsCached — same default-sort change, same reason to bump.
-  ["catalog-page-with-facets-v6"],
+  ["catalog-page-with-facets-v7"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
-    revalidate: 300,
   },
 );
 
@@ -654,8 +663,8 @@ export type MagsafeFacetCounts = {
  * /collections index shows a live count beside each facet instead of sending
  * shoppers into a page whose size they can't predict. Both halves come back
  * from one aggregate scan rather than two round-trips, and the result is tagged
- * so an admin MagSafe decision surfaces immediately instead of waiting out the
- * page's hourly ISR window.
+ * so an admin MagSafe decision surfaces immediately instead of waiting out a
+ * time-based ISR window.
  */
 export function getMagsafeFacetCounts(): Promise<MagsafeFacetCounts> {
   if (!isDbConfigured()) return Promise.resolve({ magsafe: 0, nonMagsafe: 0 });
@@ -665,7 +674,7 @@ export function getMagsafeFacetCounts(): Promise<MagsafeFacetCounts> {
 const getMagsafeFacetCountsCached = cachedCatalogRead(
   computeMagsafeFacetCounts,
   ["magsafe-facet-counts"],
-  { tags: [CACHE_TAGS.products], revalidate: 3600 },
+  { tags: [CACHE_TAGS.products] },
 );
 
 async function computeMagsafeFacetCounts(): Promise<MagsafeFacetCounts> {
@@ -697,7 +706,7 @@ export function getDeviceFacetCounts(): Promise<Record<string, number>> {
 const getDeviceFacetCountsCached = cachedCatalogRead(
   computeDeviceFacetCounts,
   ["device-facet-counts-v1"],
-  { tags: [CACHE_TAGS.products], revalidate: 3600 },
+  { tags: [CACHE_TAGS.products] },
 );
 
 async function computeDeviceFacetCounts(): Promise<Record<string, number>> {
@@ -727,7 +736,7 @@ export function getFeaturedProducts(limit = 8): Promise<ProductListItem[]> {
 const getFeaturedProductsCached = cachedCatalogRead(
   computeFeaturedProducts,
   ["featured-products"],
-  { tags: [CACHE_TAGS.products, CACHE_TAGS.reviews], revalidate: 3600 },
+  { tags: [CACHE_TAGS.products, CACHE_TAGS.reviews] },
 );
 
 async function computeFeaturedProducts(
@@ -772,11 +781,12 @@ async function computeFeaturedProducts(
 /**
  * Products for a homepage collection rail (e.g. Sanrio, Hello Kitty).
  *
- * A purpose-built, cached read for the homepage's editorial rails. Unlike
- * {@link getProducts} it skips the `count(*)` total (rails never paginate) and
- * the collection-filter round-trip is folded into a single query, so each rail
- * costs one product query + one ratings query instead of four. Tagged so admin
- * catalog/membership edits invalidate it on demand.
+ * Editorial, not "newest arrivals". A purpose-built cached read that
+ * stratifies by `productType` so a bulk upload of AirPods (or any later line)
+ * cannot hide the other types that collection already sells — see
+ * {@link merchandiseCollectionRail}. Unlike {@link getProducts} it skips the
+ * `count(*)` total (rails never paginate). Tagged so admin catalog/membership
+ * edits invalidate it on demand.
  */
 export function getCollectionRail(
   slug: string,
@@ -788,10 +798,11 @@ export function getCollectionRail(
 
 const getCollectionRailCached = cachedCatalogRead(
   computeCollectionRail,
-  ["collection-rail"],
+  // v2: type-diverse merchandising. v1 ordered by createdAt and a Tuesday
+  // AirPods upload painted every homepage rail AirPods-only for the hour.
+  ["collection-rail-v2"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
-    revalidate: 3600,
   },
 );
 
@@ -802,25 +813,53 @@ async function computeCollectionRail(
   const collectionIds = await resolveCollectionFilterIds(slug);
   if (collectionIds.length === 0) return [];
 
-  const rows = await db.query.products.findMany({
-    where: and(
-      eq(products.status, "active"),
-      inArray(
-        products.id,
-        db
-          .select({ id: productCollections.productId })
-          .from(productCollections)
-          .where(inArray(productCollections.collectionId, collectionIds)),
+  const membership = db
+    .select({ id: productCollections.productId })
+    .from(productCollections)
+    .where(inArray(productCollections.collectionId, collectionIds));
+
+  // Skinny candidate set: every imaged active member, not the newest `limit`
+  // rows. The mixer needs true per-type counts to allocate fairly; a window
+  // of "latest 24" is exactly how one upload swallowed the rail.
+  const candidates = await db
+    .select({
+      id: products.id,
+      productType: products.productType,
+      featured: products.featured,
+      featuredPosition: products.featuredPosition,
+      createdAt: products.createdAt,
+    })
+    .from(products)
+    .where(
+      and(
+        eq(products.status, "active"),
+        inArray(products.id, membership),
+        sql`exists (select 1 from ${productImages} where ${productImages.productId} = ${products.id})`,
       ),
+    );
+
+  const picked = merchandiseCollectionRail(candidates, { limit });
+  if (picked.length === 0) return [];
+
+  const rows = await db.query.products.findMany({
+    where: inArray(
+      products.id,
+      picked.map((item) => item.id),
     ),
-    orderBy: desc(products.createdAt),
-    limit,
     with: {
       images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 },
     },
   });
 
-  return withRatings(rows.map(toListItem));
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const items: ProductListItem[] = [];
+  for (const pick of picked) {
+    const row = byId.get(pick.id);
+    if (!row) continue;
+    items.push(toListItem(row));
+  }
+
+  return withRatings(items);
 }
 
 /**
@@ -841,10 +880,9 @@ export function getRelatedProducts(opts: {
 
 const getRelatedProductsCached = cachedCatalogRead(
   computeRelatedProducts,
-  ["related-products-v2"],
+  ["related-products-v3"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
-    revalidate: 3600,
   },
 );
 
@@ -928,10 +966,11 @@ const getProductBySlugCached = cachedCatalogRead(
   computeProductBySlug,
   // v2: iPhone 18 Pro / Pro Max option values + repaired titles. Bump so the
   // previous hour-long entries cannot keep a 13–17 picker on the PDP.
-  ["storefront-product-by-slug-v2"],
+  // v3: iPhone 18 Pro / Pro Max option values + repaired titles.
+  // v4: custom variation prices and linked photos on the PDP.
+  ["storefront-product-by-slug-v4"],
   {
     tags: [CACHE_TAGS.products],
-    revalidate: 3600,
   },
 );
 
@@ -1013,10 +1052,9 @@ export function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
 
 const getCatalogFeedItemsCached = cachedCatalogRead(
   computeCatalogFeedItems,
-  ["catalog-feed-items-v3"],
+  ["catalog-feed-items-v5"],
   {
     tags: [CACHE_TAGS.products],
-    revalidate: 3600,
   },
 );
 
@@ -1039,7 +1077,7 @@ async function computeCatalogFeedItems(): Promise<CatalogFeedItem[]> {
     description: p.description,
     productType: p.productType,
     productTypeLabel: productTypeLabel(p.productType),
-    price: listingPriceFor(p.productType, p.price, p.currency),
+    price: listingPriceFor(p.productType, p.price, p.currency, p.customStyles),
     compareAtPrice: p.compareAtPrice,
     currency: p.currency,
     tags: p.tags ?? [],
@@ -1075,6 +1113,15 @@ export type AdminProductOverview = {
    * AirPods Model, Watch Size, …). Empty when the type has no fit axis.
    */
   availableModels: string[];
+  /** Photos depict more than one physical product. */
+  containsMultipleProducts: boolean;
+  /** Operator-defined Style values (name, price, linked photo). */
+  customStyles: {
+    id: string;
+    label: string;
+    price: number;
+    imageId: number | null;
+  }[];
   /** Collection ids this product is assigned to (for facet filtering). */
   collectionIds: number[];
   /** Closed motif vocabulary currently on the product. Empty until classified. */
@@ -1127,6 +1174,10 @@ export async function getAdminProductOverviews(): Promise<
       hasVideo: Boolean(p.videoUrl),
       availableStyles: offeredPriceValues(p.productType, p.options),
       availableModels: offeredCompatibilityValues(p.productType, p.options),
+      containsMultipleProducts: p.containsMultipleProducts,
+      customStyles: normalizeCustomStyles(p.customStyles, {
+        productType: p.productType,
+      }),
       collectionIds: p.collections.map((c) => c.collectionId),
       motifs: (p.motifs ?? []).filter(isMotifFamilySlug),
       isMagsafe: (p.tags ?? []).includes(MAGSAFE_TAG),
@@ -1229,6 +1280,19 @@ export async function getAllProductSlugs(): Promise<string[]> {
   return rows.map((r) => r.slug);
 }
 
+/** Resolve a storefront slug from a product id. Null if the row is gone. */
+export async function getProductSlugById(
+  productId: number,
+): Promise<string | null> {
+  if (!isDbConfigured() || !Number.isFinite(productId)) return null;
+  const [row] = await db
+    .select({ slug: products.slug })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+  return row?.slug ?? null;
+}
+
 function toListItem(p: {
   id: number;
   slug: string;
@@ -1240,12 +1304,18 @@ function toListItem(p: {
   tags: string[];
   featured: boolean;
   images: { url: string }[];
+  customStyles?: unknown;
 }): ProductListItem {
   return {
     id: p.id,
     slug: p.slug,
     title: p.title,
-    price: listingPriceFor(p.productType, p.price, p.currency),
+    price: listingPriceFor(
+      p.productType,
+      p.price,
+      p.currency,
+      p.customStyles,
+    ),
     compareAtPrice: p.compareAtPrice,
     currency: p.currency,
     tags: p.tags,

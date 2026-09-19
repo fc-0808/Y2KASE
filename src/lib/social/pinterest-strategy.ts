@@ -14,9 +14,10 @@
  * Hard rules (CASETiFY / Glossier / Brooklinen cadence, adapted for a small
  * catalog brand)
  * ──────────────────────────────────────────────────────────────────────────
- *   1. Cap by PIN, not by listing. Two to five fresh original pins/day is the
- *      current quality sweet spot. A hard ceiling of 8 stops an env typo from
- *      looking like a spam bot.
+ *   1. Cap by PIN, not by listing. Four fresh original pins/day (two to five
+ *      is the quality band) is the exposure max for a recovering shop. A hard
+ *      ceiling of 8 stops an env typo from looking like a spam bot. Dumping
+ *      8–14 stills of one SKU *reduces* reach — TransAct V2 trains on skip.
  *   2. One pin per product per run, and a multi-day cooldown before the same
  *      SKU appears again. Remaining gallery shots go out later as fresh pins,
  *      not as a same-day duplicate row.
@@ -431,4 +432,19 @@ export function promptWithAltText(altText: string | null | undefined): string {
   return alt
     ? `ALT:${alt}`
     : "(auto-pinned real product photo — no generation)";
+}
+
+/**
+ * Light seasonal search hint for pin titles. Pinterest indexes 45–90 days
+ * ahead; force-fitting a holiday onto the wrong product hurts save rate.
+ */
+export function seasonalSearchHint(now: Date = new Date()): string {
+  const month = now.getUTCMonth() + 1;
+  if (month === 9 || month === 10) {
+    return " If the design actually fits, the title may mention fall, Halloween, or a teen gift. Never force a holiday onto an unrelated product.";
+  }
+  if (month === 11 || month === 12) {
+    return " If the design actually fits, the title may mention a Christmas or holiday gift. Never force a holiday onto an unrelated product.";
+  }
+  return "";
 }

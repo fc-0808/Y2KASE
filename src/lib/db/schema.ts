@@ -300,6 +300,32 @@ export const products = pgTable(
      * as {@link products.colorsLocked}.
      */
     motifsLocked: boolean("motifs_locked").notNull().default(false),
+    /**
+     * Operator flag: this listing's photos depict more than one physical
+     * product (two cases, a case plus a separately named charm, …). Unlocks
+     * {@link products.customStyles} in the admin editors so each product can
+     * be a named, priced Style value linked to its photo.
+     */
+    containsMultipleProducts: boolean("contains_multiple_products")
+      .notNull()
+      .default(false),
+    /**
+     * Operator-defined priced-axis values offered alongside the canonical
+     * Style bundles. Empty unless {@link products.containsMultipleProducts}
+     * is set (or was set when the rows were written). See
+     * `src/lib/catalog/custom-styles.ts`.
+     */
+    customStyles: jsonb("custom_styles")
+      .$type<
+        {
+          id: string;
+          label: string;
+          price: number;
+          imageId: number | null;
+        }[]
+      >()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

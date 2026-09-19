@@ -8,7 +8,7 @@
 import { listPublishedPosts } from "@/lib/blog";
 import { absoluteUrl, BRAND } from "@/lib/seo";
 
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 function xmlEscape(value: string): string {
   return value
@@ -50,7 +50,7 @@ export async function GET() {
 
   const lastBuild = posts[0]
     ? new Date(`${posts[0].meta.date}T00:00:00Z`).toUTCString()
-    : new Date().toUTCString();
+    : "Thu, 01 Jan 1970 00:00:00 GMT";
 
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">

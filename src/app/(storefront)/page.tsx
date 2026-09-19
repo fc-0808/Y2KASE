@@ -8,6 +8,7 @@ import {
   getDeviceFacetCounts,
   type ProductListItem,
 } from "@/lib/products";
+import { selectDiverseRail } from "@/lib/catalog/rail-mix";
 import { getCollectionTree } from "@/lib/collections";
 import { DEVICE_FAMILIES, deviceBrowseHref, deviceIsLive } from "@/lib/catalog/devices";
 import { RAIL_HIDDEN_SLUGS } from "@/lib/catalog/collections-config";
@@ -15,7 +16,7 @@ import { BUNDLE } from "@/lib/promotions";
 import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 import { DEVICE_COVER_IDS, deviceCoverSrc } from "@/lib/brand/device-covers";
-import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
+import { ProductCard, PRODUCT_MOSAIC, PRODUCT_RAIL_ITEM } from "@/components/ProductCard";
 import { HeroCarousel } from "@/components/home/HeroCarousel";
 import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
@@ -31,15 +32,21 @@ export const metadata: Metadata = publicPageMetadata({
   absoluteTitle: true,
 });
 
-// ISR: pre-render the homepage and refresh it hourly (matching the catalog,
-// collection and PDP routes). Admin catalog edits invalidate it on demand via
-// `revalidateTag`/`revalidatePath`, so the ~20 DB round-trips this page makes
-// run at most once per hour instead of on every visit.
-export const revalidate = 3600;
+// Canonical homepage: durable ISR as a 24h safety net. Admin catalog edits
+// invalidate on demand via `revalidateStorefrontListings`. Faceted listing
+// URLs must not use this — each query string is a unique ISR write.
+// Numeric literal required: Next.js cannot follow imported segment config.
+export const revalidate = 86400;
 
 export default async function HomePage() {
+  // Over-fetch each collection so cross-rail de-dupe (Hello Kitty reserved
+  // before Sanrio; Bestsellers reserved before all three) still leaves a full
+  // 12-card mix. A pool of 24 was enough when every rail was newest-first;
+  // type-aware merchandising concentrates the same SKUs at the front of every
+  // parent/child pair, so Sanrio needs a deeper well.
+  const RAIL_POOL = 48;
   const col = (slug: string) =>
-    getCollectionRail(slug).catch(() => [] as ProductListItem[]);
+    getCollectionRail(slug, RAIL_POOL).catch(() => [] as ProductListItem[]);
 
   const [featured, tree, sanrioItems, helloKittyItems, originalsItems, deviceCounts] =
     await Promise.all([
@@ -51,19 +58,22 @@ export default async function HomePage() {
     getDeviceFacetCounts().catch(() => undefined),
   ]);
 
-  // ── Global product de-duplication ────────────────────────────────────────
+  // ── Global product de-duplication + type mix ─────────────────────────────
   // No product should appear in more than one rail on the page. We reserve the
   // Hello Kitty section's items first, then fill the Sanrio rail with whatever
   // is left (which naturally surfaces other characters for variety).
+  //
+  // `selectDiverseRail` re-weaves whatever remains after that reservation so
+  // skipping a few Hello Kitty iPhone cases (already in Bestsellers) cannot
+  // collapse Sanrio/Originals into a single product type.
   const usedIds = new Set<number>(featured.map((p) => p.id));
   const pickDistinct = (items: ProductListItem[], n: number) => {
-    const out: ProductListItem[] = [];
-    for (const p of items) {
-      if (out.length >= n) break;
-      if (usedIds.has(p.id) || !p.imageUrl) continue;
-      usedIds.add(p.id);
-      out.push(p);
-    }
+    const out = selectDiverseRail(items, {
+      limit: n,
+      usedIds,
+      requireImage: true,
+    });
+    for (const p of out) usedIds.add(p.id);
     return out;
   };
   const helloKittyPicks = pickDistinct(helloKittyItems, 12);
@@ -337,9 +347,9 @@ function CollectionShowcase({
   return (
     <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
       <SectionHeading eyebrow={eyebrow} title={title} href={href} accent={accent} />
-      <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
+      <div className="-mx-4 flex items-stretch gap-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
         {products.slice(0, 12).map((product) => (
-          <div key={product.id} className="w-40 shrink-0 sm:w-52">
+          <div key={product.id} className={PRODUCT_RAIL_ITEM}>
             <ProductCard product={product} />
           </div>
         ))}

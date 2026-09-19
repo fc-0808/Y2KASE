@@ -11,7 +11,7 @@
 
 import type { Metadata } from "next";
 import { SUPPORT_EMAIL } from "@/lib/legal";
-import { getProductEntryPrice } from "@/lib/pricing";
+import { listingEntryPrice } from "@/lib/catalog/custom-styles";
 import {
   buildCatalogHref,
   hasActiveFilters,
@@ -447,11 +447,12 @@ type SeoProduct = Omit<ProductWithRelations, "variants">;
 
 function offerFor(product: SeoProduct): JsonLdObject {
   const currency = (product.currency || "USD").toUpperCase();
-  const price = getProductEntryPrice(
-    product.productType,
-    product.price,
+  const price = listingEntryPrice({
+    productType: product.productType,
+    storedPrice: product.price,
     currency,
-  );
+    customStyles: product.customStyles,
+  });
 
   return {
     "@type": "Offer",

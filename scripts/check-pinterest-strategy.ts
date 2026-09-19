@@ -32,6 +32,7 @@ import {
   sanitizePinterestCaption,
   sanitizePinterestHashtags,
   sanitizePinterestTitle,
+  seasonalSearchHint,
   stripUnmentionedDevices,
 } from "../src/lib/social/pinterest-strategy";
 
@@ -263,5 +264,15 @@ assert.equal(altTextFromPrompt("ALT:held in a mirror selfie"), "held in a mirror
 assert.equal(altTextFromPrompt("(auto-pinned real product photo)"), null);
 assert.match(promptWithAltText("mirror selfie"), /^ALT:mirror selfie$/);
 assert.match(promptWithAltText(null), /auto-pinned/);
+
+assert.match(
+  seasonalSearchHint(new Date("2026-09-19T00:00:00Z")),
+  /Halloween/,
+);
+assert.match(
+  seasonalSearchHint(new Date("2026-12-01T00:00:00Z")),
+  /Christmas/,
+);
+assert.equal(seasonalSearchHint(new Date("2026-03-01T00:00:00Z")), "");
 
 console.log("pinterest-strategy: all assertions passed");

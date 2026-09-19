@@ -4,9 +4,14 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth";
-import { revalidateStorefrontCatalog } from "@/lib/cache";
+import {
+  revalidateStorefrontCatalog,
+  revalidateStorefrontListings,
+  revalidateStorefrontProduct,
+} from "@/lib/cache";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
+import { getProductSlugById } from "@/lib/products";
 import {
   saveProductVariations,
   type SaveVariationsResult,
@@ -56,27 +61,37 @@ export type SaveProductPayload = {
   videoSlot: number | null;
   /** imageId → applicable styles. `[]` means universal (shown for every style). */
   styleTags: Record<number, string[]>;
-  /** The styles this product offers (drives the Style option + price). */
+  /** Canonical styles this product offers (drives the Style option + price). */
   availableStyles: string[];
   /**
    * The devices this product is sold for (the type's compatibility axis).
    * Omit to leave that axis untouched.
    */
   availableModels?: string[];
+  /** Photos depict more than one physical product. */
+  containsMultipleProducts?: boolean;
+  /** Operator-defined Style values linked to photos. */
+  customStyles?: SaveProductPayloadCustomStyle[];
+};
+
+type SaveProductPayloadCustomStyle = {
+  id?: string;
+  label: string;
+  price: number | string;
+  imageId: number | null;
 };
 export type SaveResult = SaveVariationsResult;
 
-/** Re-prime every surface a product-level edit can affect. */
-function revalidateProduct(productId: number) {
+/** Re-prime listing caches and this product's PDP. */
+async function revalidateProduct(productId: number) {
   revalidatePath(`/admin/products/${productId}`);
   revalidatePath("/admin/products");
-  revalidatePath("/products");
-  // The PDP is ISR-cached (`export const revalidate`). Without invalidating the
-  // dynamic route, edits stay stale for up to an hour.
-  revalidatePath("/products/[slug]", "page");
-  revalidatePath("/devices/[slug]", "page");
-  revalidatePath("/");
-  revalidateStorefrontCatalog();
+  const slug = await getProductSlugById(productId);
+  if (slug) revalidateStorefrontProduct(slug);
+  else {
+    revalidateStorefrontListings();
+    revalidateStorefrontCatalog();
+  }
 }
 
 /**
@@ -92,7 +107,7 @@ export async function saveProduct(
   if (!session) return { ok: false, message: "Not authorized." };
 
   const result = await saveProductVariations(payload);
-  revalidateProduct(payload.productId);
+  await revalidateProduct(payload.productId);
   return result;
 }
 
@@ -198,7 +213,7 @@ export async function updateProductTitle(
     .where(eq(products.id, productId));
 
   const filing = await refileProduct(productId);
-  revalidateBrandSurfaces(productId);
+  await revalidateBrandSurfaces(productId);
 
   const fromTitle = classifyBrandContext([title]);
   const current = resolveBrandAssignment(
@@ -324,7 +339,7 @@ export async function applyTitleProposal(
     .where(eq(products.id, productId));
 
   const filing = await refileProduct(productId);
-  revalidateBrandSurfaces(productId);
+  await revalidateBrandSurfaces(productId);
 
   return {
     ok: true,
@@ -547,7 +562,7 @@ export async function updateProductBrand(
       confidence: "none",
       evidence: [],
     });
-    revalidateBrandSurfaces(productId);
+    await revalidateBrandSurfaces(productId);
     return {
       ok: true,
       message: "Brand cleared.",
@@ -585,7 +600,7 @@ export async function updateProductBrand(
     evidence,
   });
 
-  revalidateBrandSurfaces(productId);
+  await revalidateBrandSurfaces(productId);
 
   const label = `${resolved.brand.brand}${resolved.character ? ` · ${resolved.character.name}` : ""}`;
   const collectionNote =
@@ -606,10 +621,8 @@ export async function updateProductBrand(
 }
 
 /** Brand edits move products between collections, so the browse tree changes. */
-function revalidateBrandSurfaces(productId: number) {
-  revalidateProduct(productId);
-  revalidatePath("/collections");
-  revalidatePath("/collections/[slug]", "page");
+async function revalidateBrandSurfaces(productId: number) {
+  await revalidateProduct(productId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -657,7 +670,7 @@ export async function saveProductColors(
     })
     .where(eq(products.id, productId));
 
-  revalidateProduct(productId);
+  await revalidateProduct(productId);
   return {
     ok: true,
     message:
@@ -752,7 +765,7 @@ export async function saveProductMotifs(
     })
     .where(eq(products.id, productId));
 
-  revalidateProduct(productId);
+  await revalidateProduct(productId);
   return {
     ok: true,
     message:

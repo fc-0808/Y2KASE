@@ -29,6 +29,7 @@ import {
   hasPriceAxis,
   offeredPriceValues,
 } from "../src/lib/catalog/offered-options";
+import { taggingStylesFor, normalizeCustomStyles } from "../src/lib/catalog/custom-styles";
 import { resolveRunMode } from "./lib/cli";
 
 /** How a photo's tags read once collapsed, for the preview log. */
@@ -41,7 +42,7 @@ async function main() {
   const mode = resolveRunMode("normalize-style-tags");
 
   const all = await db.query.products.findMany({
-    columns: { id: true, title: true, productType: true },
+    columns: { id: true, title: true, productType: true, customStyles: true },
     with: {
       images: {
         columns: { id: true, styleTags: true, sourceFilename: true },
@@ -58,7 +59,12 @@ async function main() {
 
   for (const product of all) {
     const offered = hasPriceAxis(product.productType)
-      ? offeredPriceValues(product.productType, product.options)
+      ? taggingStylesFor(
+          offeredPriceValues(product.productType, product.options),
+          normalizeCustomStyles(product.customStyles, {
+            productType: product.productType,
+          }),
+        )
       : [];
 
     const stale = product.images.filter(

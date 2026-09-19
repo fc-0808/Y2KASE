@@ -26,6 +26,7 @@ import { absoluteUrl, BRAND } from "@/lib/seo";
 import { SITE_URL } from "@/lib/site";
 import { googleProductCategoryId } from "@/lib/catalog/merchant";
 import { merchantColorValue } from "@/lib/catalog/colors";
+import { FEED_CDN_CACHE_CONTROL } from "@/lib/cache-headers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -152,6 +153,8 @@ ${items}
     headers: {
       "Content-Type": "application/rss+xml; charset=utf-8",
       "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+      "CDN-Cache-Control": FEED_CDN_CACHE_CONTROL,
+      "Vercel-CDN-Cache-Control": FEED_CDN_CACHE_CONTROL,
       "X-Robots-Tag": "noindex, follow",
       "X-Catalog-Items-Omitted": String(omittedItems),
     },

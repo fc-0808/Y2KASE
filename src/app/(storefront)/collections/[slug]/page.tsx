@@ -44,7 +44,8 @@ import {
   stockedDeviceIds,
 } from "@/lib/catalog/devices";
 
-export const revalidate = 3600;
+/** Faceted collection landings: never durable ISR. */
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,

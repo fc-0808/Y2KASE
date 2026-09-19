@@ -10,13 +10,20 @@
 import { inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
-import { shippingQuote } from "@/lib/pricing";
-import { getProductType, priceAxisFor } from "@/lib/catalog/product-types";
+import { shippingQuote, STYLE_OPTION_NAME } from "@/lib/pricing";
+import { priceAxisFor } from "@/lib/catalog/product-types";
 import {
   AIRPODS_MODEL_OPTION_NAME,
   extendAirpodsSharedFits,
 } from "@/lib/catalog/airpods";
 import { canonicalizePublicR2Url } from "@/lib/catalog/r2-public";
+import {
+  customStyleByLabel,
+  isCanonicalPriceValue,
+  listingUnitPrice,
+  normalizeCustomStyles,
+  variationImage,
+} from "@/lib/catalog/custom-styles";
 
 /** What the browser is allowed to send us — note: NO price. */
 export type CheckoutLineInput = {
@@ -112,7 +119,10 @@ export async function priceCart(
   const rows = await db.query.products.findMany({
     where: inArray(products.id, ids),
     with: {
-      images: { orderBy: (img, { asc }) => [asc(img.position)], limit: 1 },
+      images: {
+        columns: { id: true, url: true, styleTags: true },
+        orderBy: (img, { asc }) => [asc(img.position)],
+      },
       options: { columns: { name: true, values: true } },
     },
   });
@@ -154,20 +164,37 @@ export async function priceCart(
     }
 
     const currency = product.currency ?? "USD";
-    // Price source of truth: the product type's own table. iPhone and AirPods
-    // are priced by Style; flat types use the stored base price.
-    const type = getProductType(product.productType);
-    const unit = priceAxisFor(product.productType)
-      ? type.getPriceFromOptions(c.options, currency)
-      : Number(product.price);
+    const customStyles = normalizeCustomStyles(product.customStyles, {
+      productType: product.productType,
+      ownedImageIds: new Set(product.images.map((image) => image.id)),
+    });
+    const priceAxis = priceAxisFor(product.productType);
+    const selectedStyle = priceAxis
+      ? c.options[priceAxis.name]
+      : c.options[STYLE_OPTION_NAME];
+    if (
+      selectedStyle &&
+      !isCanonicalPriceValue(product.productType, selectedStyle) &&
+      !customStyleByLabel(customStyles, selectedStyle)
+    ) {
+      throw new CheckoutError(
+        `A saved option for "${product.title}" is no longer available. Please update your bag.`,
+      );
+    }
+    const unit = listingUnitPrice({
+      productType: product.productType,
+      currency,
+      selected: c.options,
+      customStyles,
+      basePrice: product.price,
+    });
+    const image = variationImage(product.images, selectedStyle, customStyles);
 
     return {
       productId: product.id,
       slug: product.slug,
       title: product.title,
-      imageUrl: product.images?.[0]?.url
-        ? canonicalizePublicR2Url(product.images[0].url)
-        : null,
+      imageUrl: image?.url ? canonicalizePublicR2Url(image.url) : null,
       options: c.options,
       quantity: c.quantity,
       unitCents: toCents(unit),

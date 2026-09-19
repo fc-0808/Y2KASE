@@ -33,9 +33,10 @@ import {
   type CatalogSearchParams,
 } from "@/lib/catalog/params";
 
-export const revalidate = 3600;
-// Merchandised devices get a route; empty stock 404s at request time so we
-// never index a thin landing. Anything else 404s (no thin pages).
+/** Faceted device landings: never durable ISR. */
+export const dynamic = "force-dynamic";
+// generateStaticParams only enumerates the allow-list for `dynamicParams =
+// false`. Combined with force-dynamic it does not write ISR for each device.
 export const dynamicParams = false;
 
 /** Merchandised devices get a generated route; stock is checked at request. */

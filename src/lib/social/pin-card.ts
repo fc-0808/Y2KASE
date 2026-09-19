@@ -10,9 +10,15 @@
  *   - keeps the product as the hero so the Visit Site quality check still
  *     matches the PDP.
  *
+ * Overlay text is rasterized with next/og (bundled Latin font). Sharp's SVG
+ * `<text font-family="Arial">` has no Arial on Vercel, so every glyph became
+ * a tofu square (□□□) on production pins.
+ *
  * Failure is non-fatal: callers fall back to the original catalog URL.
  */
 
+import { createElement } from "react";
+import { ImageResponse } from "next/og";
 import sharp from "sharp";
 import { makeR2Client, uploadImageToR2 } from "@/lib/catalog/r2";
 import {
@@ -27,32 +33,63 @@ const ACCENT = "#E60023";
 const PANEL = "#FFFFFF";
 
 const PHOTO_BOX = { width: 880, height: 1040, top: 56, left: 60 };
-const BAND_TOP = 1220;
+const BAND = { left: 40, top: 1220, width: 920, height: 236 };
 
-function escapeSvg(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function overlaySvg(lines: string[]): Buffer {
-  const line1 = escapeSvg(lines[0] ?? "");
-  const line2 = escapeSvg(lines[1] ?? "");
-  const markup = `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${PINTEREST_PIN_WIDTH}" height="${PINTEREST_PIN_HEIGHT}" viewBox="0 0 ${PINTEREST_PIN_WIDTH} ${PINTEREST_PIN_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-  <rect x="40" y="${BAND_TOP}" width="920" height="236" rx="28" fill="${PANEL}"/>
-  <text x="80" y="${BAND_TOP + 78}" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700" fill="${INK}">${line1}</text>
-  ${
-    line2
-      ? `<text x="80" y="${BAND_TOP + 132}" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700" fill="${INK}">${line2}</text>`
-      : ""
-  }
-  <text x="80" y="${BAND_TOP + 196}" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="${ACCENT}" letter-spacing="3">Y2KASE</text>
-</svg>`;
-  return Buffer.from(markup);
+/**
+ * White caption band with real letters. next/og ships a font; do not hand SVG
+ * text to sharp/librsvg on the serverless image.
+ */
+async function overlayBandPng(lines: string[]): Promise<Buffer> {
+  const lineNodes = lines.slice(0, 2).map((line) =>
+    createElement(
+      "div",
+      {
+        style: {
+          display: "flex",
+          fontSize: 42,
+          fontWeight: 700,
+          color: INK,
+          lineHeight: 1.15,
+        },
+      },
+      line,
+    ),
+  );
+  const img = new ImageResponse(
+    createElement(
+      "div",
+      {
+        style: {
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          backgroundColor: PANEL,
+          borderRadius: 28,
+          paddingLeft: 40,
+          paddingRight: 28,
+        },
+      },
+      ...lineNodes,
+      createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            fontSize: 22,
+            fontWeight: 700,
+            color: ACCENT,
+            letterSpacing: 3,
+            marginTop: 12,
+          },
+        },
+        "Y2KASE",
+      ),
+    ),
+    { width: BAND.width, height: BAND.height },
+  );
+  return Buffer.from(await img.arrayBuffer());
 }
 
 export type ComposedPinCard = {
@@ -84,6 +121,7 @@ export async function composePinCard(opts: {
   const photoH = meta.height ?? PHOTO_BOX.height;
   const left = PHOTO_BOX.left + Math.round((PHOTO_BOX.width - photoW) / 2);
   const top = PHOTO_BOX.top + Math.round((PHOTO_BOX.height - photoH) / 2);
+  const band = await overlayBandPng(lines);
 
   const buffer = await sharp({
     create: {
@@ -95,7 +133,7 @@ export async function composePinCard(opts: {
   })
     .composite([
       { input: photo, left, top },
-      { input: overlaySvg(lines), left: 0, top: 0 },
+      { input: band, left: BAND.left, top: BAND.top },
     ])
     .jpeg({ quality: 85 })
     .toBuffer();

@@ -9,9 +9,8 @@ import {
 } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
 
-// Refresh hourly so newly published (incl. AI-generated) posts appear without a
-// deploy, while still serving a cached, instant response to shoppers.
-export const revalidate = 3600;
+// Newly published posts invalidate on demand; this is only a 24h safety net.
+export const revalidate = 86400;
 
 export const metadata = publicPageMetadata({
   title: PAGE_COPY.blog.title,

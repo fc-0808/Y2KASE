@@ -13,11 +13,25 @@ export const PRODUCT_MOSAIC =
   "grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5";
 
 /**
+ * Horizontal rail cell. `flex` + `h-full` lets {@link ProductCard} stretch to
+ * the tallest neighbour so a mixed iPhone / AirPods row shares one chrome
+ * height (CASETiFY, SSENSE, Farfetch).
+ */
+export const PRODUCT_RAIL_ITEM = "flex w-40 shrink-0 flex-col sm:w-52";
+
+/**
  * Shared listing-tile frame. Every card keeps this ratio so a mixed iPhone /
  * AirPods row still lines up (CASETiFY, SSENSE, Farfetch). How the *photo*
  * fills the frame is per-type — see {@link catalogCardMedia}.
  */
 export const PRODUCT_CARD_FRAME = "aspect-[2/3] md:aspect-[4/5]";
+
+/** Two title lines at `leading-snug` — reserved so 1-line titles don't shrink the card. */
+const TITLE_SLOT = "line-clamp-2 min-h-[2.75em] text-[13px] font-bold leading-snug md:text-sm";
+
+/** Device kicker row. Always this tall when the badge is enabled, even on iPhone. */
+const KICKER_SLOT =
+  "h-4 text-[10px] font-extrabold uppercase leading-4 tracking-wider text-[var(--primary)]";
 
 /**
  * Phone cases are tall and letterboxed inside the 4:5 master, so the mobile
@@ -79,7 +93,7 @@ export function ProductCard({
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_8px_24px_-20px_rgba(120,60,120,0.45)] transition duration-300 hover:-translate-y-1.5 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.55)] active:scale-[0.99] md:rounded-3xl md:shadow-[0_10px_30px_-22px_rgba(120,60,120,0.5)]"
+      className="group flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_8px_24px_-20px_rgba(120,60,120,0.45)] transition duration-300 hover:-translate-y-1.5 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.55)] active:scale-[0.99] md:rounded-3xl md:shadow-[0_10px_30px_-22px_rgba(120,60,120,0.5)]"
     >
       <ProductMedia
         src={product.imageUrl}
@@ -88,7 +102,7 @@ export function ProductCard({
         loading={imagePriority ? "eager" : "lazy"}
         fetchPriority={imagePriority ? "high" : "auto"}
         fit={media.fit}
-        className={PRODUCT_CARD_FRAME}
+        className={`${PRODUCT_CARD_FRAME} shrink-0`}
         imageClassName={media.imageClassName}
       >
         {onSale && (
@@ -103,14 +117,19 @@ export function ProductCard({
         two-column grid (Baymard: title and price must be visually distinct
         *and* comparable between neighbours). The kicker / title / price stack
         is now the same language as CASETiFY and the desktop cards.
+
+        Mixed-type rails (homepage Originals / Sanrio / Hello Kitty) must not
+        change chrome height when an AirPods kicker or a 1-line title appears.
+        The kicker slot is reserved whenever badges are on; the title slot is
+        always two lines; the price is pinned to the bottom with `mt-auto`.
       */}
-      <div className="flex flex-1 flex-col gap-1 p-2.5 text-left md:gap-2 md:p-4">
-        {deviceKicker && (
-          <p className="text-[10px] font-extrabold uppercase tracking-wider text-[var(--primary)]">
-            {deviceKicker}
+      <div className="flex min-h-0 flex-1 flex-col gap-1 p-2.5 text-left md:gap-2 md:p-4">
+        {showDeviceBadge && (
+          <p className={KICKER_SLOT} aria-hidden={!deviceKicker}>
+            {deviceKicker ?? "\u00a0"}
           </p>
         )}
-        <Heading className="line-clamp-2 text-[13px] font-bold leading-snug transition group-hover:text-[var(--primary)] md:text-sm">
+        <Heading className={`${TITLE_SLOT} transition group-hover:text-[var(--primary)]`}>
           {product.title}
         </Heading>
         {product.rating && product.rating.count > 0 && (
@@ -121,7 +140,7 @@ export function ProductCard({
             </span>
           </div>
         )}
-        <div className="mt-auto flex flex-wrap items-baseline gap-x-1.5">
+        <div className="mt-auto flex min-h-5 flex-wrap items-baseline gap-x-1.5">
           <span className="text-[15px] font-extrabold leading-none text-[var(--primary)] md:text-base">
             <span className="text-[10px] font-semibold text-[var(--foreground)]/45 md:text-xs">
               from{" "}

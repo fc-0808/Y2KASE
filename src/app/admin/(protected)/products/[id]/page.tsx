@@ -15,6 +15,7 @@ import { ProductEditor } from "./ProductEditor";
 import type { BrandState } from "./BrandReassignmentCard";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
+import { hydrateCustomStyles } from "@/lib/catalog/custom-styles";
 
 export const metadata: Metadata = { title: "Admin · Edit product" };
 export const dynamic = "force-dynamic";
@@ -80,6 +81,12 @@ export default async function AdminProductEditPage({
         availableModels={offeredCompatibilityValues(
           product.productType,
           product.options,
+        )}
+        containsMultipleProducts={product.containsMultipleProducts}
+        customStyles={hydrateCustomStyles(
+          product.customStyles,
+          product.images,
+          product.productType,
         )}
         colors={(product.colors ?? []).filter(isColorFamilySlug)}
         colorsLocked={product.colorsLocked}

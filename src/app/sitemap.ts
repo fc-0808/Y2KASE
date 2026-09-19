@@ -10,8 +10,8 @@ import { getCollectionTree, type CollectionNode } from "@/lib/collections";
 import { getDeviceFacetCounts } from "@/lib/products";
 import { absoluteUrl, SITE_URL } from "@/lib/site";
 
-// Refresh the sitemap hourly so new products/collections appear without a deploy.
-export const revalidate = 3600;
+// New products land via admin revalidation; this is only a 24h safety net.
+export const revalidate = 86400;
 const SITEMAP_URL_LIMIT = 50_000;
 
 function flattenCollections(nodes: CollectionNode[]): CollectionNode[] {

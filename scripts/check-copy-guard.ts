@@ -524,6 +524,20 @@ test("styleTagsFor turns a single-select choice into the stored form", () => {
   assert.deepEqual(styleTagsFor("Not A Style"), []);
 });
 
+test("a custom variation tag survives when it is in the offered set", () => {
+  assert.deepEqual(
+    normalizeImageStyleTags(["Hello Kitty + Charm"], [
+      "Case Only",
+      "Hello Kitty + Charm",
+    ]),
+    ["Hello Kitty + Charm"],
+  );
+  assert.deepEqual(
+    styleTagsFor("Hello Kitty + Charm", ["Hello Kitty + Charm"]),
+    ["Hello Kitty + Charm"],
+  );
+});
+
 test("the canonical check spots exactly the rows that need a write", () => {
   assert.equal(imageStyleTagsAreCanonical(["Case Only"]), true);
   assert.equal(imageStyleTagsAreCanonical([]), true);

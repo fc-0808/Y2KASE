@@ -82,7 +82,7 @@ async function computeBrandVocabulary(): Promise<BrandKnowledge[]> {
 const getBrandVocabularyCached = cachedCatalogRead(
   computeBrandVocabulary,
   ["brand-vocabulary"],
-  { tags: [CACHE_TAGS.collections], revalidate: 3600 },
+  { tags: [CACHE_TAGS.collections] },
 );
 
 /** The runtime vocabulary, memoized per request on top of the Data Cache. */

@@ -27,6 +27,10 @@ import type { BrandOption } from "@/lib/catalog/brands";
 import type { TitleIssue } from "@/lib/catalog/listing-title";
 import { StyleTagPicker, StyleCoverageHint } from "../StyleTagPicker";
 import { DeviceFitPicker } from "../DeviceFitPicker";
+import {
+  CustomVariationsEditor,
+  mediaTagStyles,
+} from "../CustomVariationsEditor";
 import { BrandReassignmentCard, type BrandState } from "./BrandReassignmentCard";
 import { ColorEditorCard } from "./ColorEditorCard";
 import { MotifEditorCard } from "./MotifEditorCard";
@@ -41,6 +45,14 @@ import {
   normalizeOfferedCompatibility,
   priceForOfferedStyle,
 } from "@/lib/catalog/offered-options";
+import {
+  mergeOfferedStyleValues,
+  setImageVariationTag,
+  syncCustomDraftMedia,
+  taggingStylesFor,
+  validateCustomStylesDraft,
+  type CustomStyle,
+} from "@/lib/catalog/custom-styles";
 import {
   PRODUCT_PAGE_LINK_ATTRS,
   isLiveProductStatus,
@@ -80,6 +92,8 @@ export function ProductEditor({
   images,
   availableStyles: initialStyles,
   availableModels: initialModels,
+  containsMultipleProducts: initialFlagged,
+  customStyles: initialCustomStyles,
   colors,
   colorsLocked,
   motifs,
@@ -101,6 +115,8 @@ export function ProductEditor({
   images: ImageInput[];
   availableStyles: string[];
   availableModels: string[];
+  containsMultipleProducts: boolean;
+  customStyles: CustomStyle[];
   colors: ColorFamilySlug[];
   colorsLocked: boolean;
   motifs: MotifFamilySlug[];
@@ -129,8 +145,11 @@ export function ProductEditor({
   const [models, setModels] = useState<string[]>(() =>
     normalizeOfferedCompatibility(productType, initialModels),
   );
+  const [flagged, setFlagged] = useState(initialFlagged);
+  const [customStyles, setCustomStyles] =
+    useState<CustomStyle[]>(initialCustomStyles);
   const addons = useMemo(() => addonsFromStyles(styles), [styles]);
-  const tagStyles = showStyles ? styles : [];
+  const tagStyles = mediaTagStyles(showStyles ? styles : [], customStyles);
 
   // ── Media list: images in saved order with the video spliced into its slot ──
   const [media, setMedia] = useState<MediaItem[]>(() => {
@@ -141,7 +160,10 @@ export function ProductEditor({
       id: i.id,
       url: i.url,
       filename: i.filename,
-      styleTags: normalizeImageStyleTags(i.styleTags, styles),
+      styleTags: normalizeImageStyleTags(
+        i.styleTags,
+        taggingStylesFor(styles, customStyles),
+      ),
     }));
     if (!videoUrl) return imgs;
     const slot = Math.max(0, Math.min(videoPosition ?? 1, imgs.length));
@@ -192,15 +214,6 @@ export function ProductEditor({
   }
 
   // ── Per-image style tagging ────────────────────────────────────────────────
-  /** Single-select: assigning a style replaces the image's previous one. */
-  function setImageStyle(imageId: number, styleTags: string[]) {
-    setMedia((prev) =>
-      prev.map((m) =>
-        m.kind === "image" && m.id === imageId ? { ...m, styleTags } : m,
-      ),
-    );
-  }
-
   async function detectStyles() {
     setDetecting(true);
     setDetectMessage(null);
@@ -208,14 +221,26 @@ export function ProductEditor({
       const res = await detectProductImageStyles(productId);
       setDetectMessage({ ok: res.ok, message: res.message });
       if (!res.ok) return;
+      const linkedIds = new Set(
+        customStyles
+          .map((row) => row.imageId)
+          .filter((id): id is number => id != null),
+      );
       setMedia((prev) =>
         prev.map((m) => {
           if (m.kind !== "image") return m;
+          if (linkedIds.has(m.id)) return m;
+          if (
+            m.styleTags[0] &&
+            customStyles.some((row) => row.label === m.styleTags[0])
+          ) {
+            return m;
+          }
           const tags = res.tags[m.id];
           if (!tags) return m;
           return {
             ...m,
-            styleTags: normalizeImageStyleTags(tags, styles),
+            styleTags: normalizeImageStyleTags(tags, tagStyles),
           };
         }),
       );
@@ -236,11 +261,61 @@ export function ProductEditor({
    */
   function applyStyles(nextStyles: string[]) {
     setStyles(nextStyles);
+    const offered = taggingStylesFor(nextStyles, customStyles);
     setMedia((prev) =>
       prev.map((m) =>
         m.kind === "image"
-          ? { ...m, styleTags: normalizeImageStyleTags(m.styleTags, nextStyles) }
+          ? { ...m, styleTags: normalizeImageStyleTags(m.styleTags, offered) }
           : m,
+      ),
+    );
+  }
+
+  function syncMediaToCustom(nextCustom: CustomStyle[], nextFlagged: boolean) {
+    const custom = nextFlagged ? nextCustom : [];
+    const images = media.filter(
+      (m): m is Extract<MediaItem, { kind: "image" }> => m.kind === "image",
+    );
+    const tags = syncCustomDraftMedia({
+      imageIds: images.map((image) => image.id),
+      tagsByImageId: Object.fromEntries(
+        images.map((image) => [image.id, image.styleTags]),
+      ),
+      previous: customStyles,
+      next: custom,
+      canonical: styles,
+    });
+    setFlagged(nextFlagged);
+    setCustomStyles(custom);
+    setMedia((prev) =>
+      prev.map((item) =>
+        item.kind === "image"
+          ? { ...item, styleTags: tags[item.id] ?? [] }
+          : item,
+      ),
+    );
+  }
+
+  function handleMediaStyle(imageId: number, styleTags: string[]) {
+    const images = media.filter(
+      (m): m is Extract<MediaItem, { kind: "image" }> => m.kind === "image",
+    );
+    const result = setImageVariationTag({
+      imageId,
+      style: styleTags[0] ?? null,
+      customStyles,
+      imageIds: images.map((image) => image.id),
+      tagsByImageId: Object.fromEntries(
+        images.map((image) => [image.id, image.styleTags]),
+      ),
+      offered: taggingStylesFor(styles, customStyles),
+    });
+    setCustomStyles(result.customStyles);
+    setMedia((prev) =>
+      prev.map((item) =>
+        item.kind === "image"
+          ? { ...item, styleTags: result.tagsByImageId[item.id] ?? [] }
+          : item,
       ),
     );
   }
@@ -254,14 +329,26 @@ export function ProductEditor({
     const next = styles.includes(style)
       ? styles.filter((s) => s !== style)
       : orderStyles([...styles, style]);
-    // "Case Only" is mandatory — every product has a bare case.
-    applyStyles(
-      next.includes("Case Only") ? next : orderStyles([...next, "Case Only"]),
-    );
+    if (customStyles.length === 0) {
+      applyStyles(
+        next.includes("Case Only") ? next : orderStyles([...next, "Case Only"]),
+      );
+      return;
+    }
+    applyStyles(orderStyles(next));
   }
 
   // ── Save ───────────────────────────────────────────────────────────────────
   function handleSave() {
+    if (flagged) {
+      const validated = validateCustomStylesDraft(customStyles, {
+        productType,
+      });
+      if (!validated.ok) {
+        setResult({ ok: false, message: validated.message });
+        return;
+      }
+    }
     const imageOrder = media
       .filter((m): m is Extract<MediaItem, { kind: "image" }> => m.kind === "image")
       .map((m) => m.id);
@@ -281,6 +368,8 @@ export function ProductEditor({
       videoSlot,
       styleTags,
       availableStyles: styles,
+      containsMultipleProducts: flagged,
+      customStyles,
       ...(showFit ? { availableModels: models } : {}),
     };
 
@@ -438,7 +527,7 @@ export function ProductEditor({
                             value={item.styleTags}
                             label={item.filename ?? `image #${item.id}`}
                             onChange={(styleTags) =>
-                              setImageStyle(item.id, styleTags)
+                              handleMediaStyle(item.id, styleTags)
                             }
                           />
                         </div>
@@ -500,6 +589,27 @@ export function ProductEditor({
           locked={motifsLocked}
         />
 
+        <CustomVariationsEditor
+          flagged={flagged}
+          onFlagChange={(next) =>
+            syncMediaToCustom(next ? customStyles : [], next)
+          }
+          customStyles={customStyles}
+          onCustomStylesChange={(next) => syncMediaToCustom(next, true)}
+          images={media
+            .filter(
+              (item): item is Extract<MediaItem, { kind: "image" }> =>
+                item.kind === "image",
+            )
+            .map((item) => ({
+              id: item.id,
+              url: item.url,
+              filename: item.filename,
+            }))}
+          productType={productType}
+          currency={currency}
+        />
+
         {showStyles && (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
             <h2 className="text-sm font-bold">Style variations</h2>
@@ -536,8 +646,13 @@ export function ProductEditor({
                 Offered styles
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {styles.map((s) => {
-                  const price = priceForOfferedStyle(productType, s, currency);
+                {mergeOfferedStyleValues(styles, customStyles).map((s) => {
+                  const price = priceForOfferedStyle(
+                    productType,
+                    s,
+                    currency,
+                    customStyles,
+                  );
                   return (
                     <span
                       key={s}
@@ -572,11 +687,11 @@ export function ProductEditor({
                     <input
                       type="checkbox"
                       checked={styles.includes(s)}
-                      disabled={s === "Case Only"}
+                      disabled={s === "Case Only" && customStyles.length === 0}
                       onChange={() => toggleStyleManual(s)}
                     />
                     {s}
-                    {s === "Case Only" && (
+                    {s === "Case Only" && customStyles.length === 0 && (
                       <span className="text-[11px] text-[var(--foreground)]/40">
                         (always)
                       </span>

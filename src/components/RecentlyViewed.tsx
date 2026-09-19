@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { ProductCard } from "@/components/ProductCard";
+import { ProductCard, PRODUCT_RAIL_ITEM } from "@/components/ProductCard";
 import type { ProductListItem } from "@/lib/products";
 
 const STORAGE_KEY = "y2k_recently_viewed";
@@ -56,9 +56,9 @@ export function RecentlyViewed({ current }: { current: StoredItem }) {
   return (
     <section className="mt-16">
       <h2 className="mb-5 text-xl font-black">Recently viewed</h2>
-      <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
+      <div className="-mx-4 flex items-stretch gap-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
         {items.map((item) => (
-          <div key={item.id} className="w-40 shrink-0 sm:w-52">
+          <div key={item.id} className={PRODUCT_RAIL_ITEM}>
             <ProductCard
               product={{
                 ...item,

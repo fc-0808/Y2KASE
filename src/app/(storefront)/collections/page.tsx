@@ -27,7 +27,7 @@ import {
 } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
 
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 export const metadata = publicPageMetadata({
   title: PAGE_COPY.collections.title,

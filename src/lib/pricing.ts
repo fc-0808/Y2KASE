@@ -331,37 +331,56 @@ export function defaultStyleFor(styles: readonly string[]): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Collapse arbitrary tag input to the canonical at-most-one-tag form.
+ * Collapse arbitrary tag input to the at-most-one-tag form.
  *
- * Unrecognized values are dropped, and when `offered` is supplied so are styles
- * the product no longer sells. If more than one valid tag survives, the most
- * complete wins — {@link STYLES} is ordered most → least complete, so for a
- * photo tagged `["Case + Grip + Charm", "Case + Grip"]` that picks the bundle
- * genuinely on camera rather than the subset it also happens to illustrate.
+ * Canonical bundles are ranked most → least complete ({@link STYLES}), so a
+ * photo tagged `["Case + Grip + Charm", "Case + Grip"]` keeps the bundle
+ * genuinely on camera. Unrecognized values are dropped unless they appear in
+ * `offered` — that is how an operator-defined custom variation ("Hello Kitty
+ * + Charm") survives on a photo without opening the door to typos.
+ *
+ * When `offered` is supplied, styles the product no longer sells are also
+ * dropped (the photo becomes universal rather than dangling).
  *
  * @returns `[]` (universal) or a single-element array. Never longer.
  */
 export function normalizeImageStyleTags(
   tags: readonly string[] | null | undefined,
   offered?: readonly string[],
-): Style[] {
+): string[] {
   if (!tags || tags.length === 0) return [];
   const allowed = offered ? new Set<string>(offered) : null;
   const ranked = orderStyles(tags).filter((s) => !allowed || allowed.has(s));
-  return ranked.length > 0 ? [ranked[0]] : [];
+  if (ranked.length > 0) return [ranked[0]];
+  if (!allowed) return [];
+  for (const raw of tags) {
+    if (typeof raw !== "string") continue;
+    const value = raw.trim();
+    if (!value || !allowed.has(value)) continue;
+    return [value];
+  }
+  return [];
 }
 
 /** The single style a photo represents, or `null` when it's universal. */
 export function imageStyleTag(
   tags: readonly string[] | null | undefined,
   offered?: readonly string[],
-): Style | null {
+): string | null {
   return normalizeImageStyleTags(tags, offered)[0] ?? null;
 }
 
-/** The canonical stored form for a single-select choice (`null` = universal). */
-export function styleTagsFor(style: string | null | undefined): Style[] {
-  return style ? normalizeImageStyleTags([style]) : [];
+/**
+ * The stored form for a single-select choice (`null` = universal).
+ *
+ * Pass `offered` when the choice may be a custom variation; without it only
+ * canonical bundles survive (so a typo cannot become a tag).
+ */
+export function styleTagsFor(
+  style: string | null | undefined,
+  offered?: readonly string[],
+): string[] {
+  return style ? normalizeImageStyleTags([style], offered) : [];
 }
 
 /**

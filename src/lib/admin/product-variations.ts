@@ -4,10 +4,10 @@
  * Both the single-product editor (`/admin/products/[id]`) and the bulk editor
  * (`/admin/products` → Edit individually) persist the exact same shape of
  * change: a curated media order, per-image style tags, the video slot, the
- * offered Style set (which drives the base price) and — optionally — the
- * offered compatibility set (iPhone Model, AirPods Model, …). Centralizing it
- * here guarantees both paths behave identically and stay correct as the rules
- * evolve.
+ * offered Style set (which drives the base price), optional custom variations
+ * for multi-product listings, and — optionally — the offered compatibility
+ * set (iPhone Model, AirPods Model, …). Centralizing it here guarantees both
+ * paths behave identically and stay correct as the rules evolve.
  *
  * This module is server-only (it imports the DB). It does NOT perform auth or
  * cache revalidation — callers (Server Actions) own those concerns so a bulk
@@ -17,19 +17,27 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products, productImages, productOptions } from "@/lib/db/schema";
 import {
+  STYLE_OPTION_NAME,
   orderStyles,
-  defaultStyleFor,
   normalizeImageStyleTags,
 } from "@/lib/pricing";
 import {
   compatibilityAxisFor,
-  getProductType,
   priceAxisFor,
 } from "@/lib/catalog/product-types";
 import {
   normalizeOfferedCompatibility,
   normalizeOfferedPriceValues,
 } from "@/lib/catalog/offered-options";
+import {
+  applyCustomImageTags,
+  mergeOfferedStyleValues,
+  minOfferedPrice,
+  recoverCustomImageLinks,
+  validateCustomStylesDraft,
+  type CustomStyle,
+  type CustomStyleInput,
+} from "@/lib/catalog/custom-styles";
 
 export type SaveVariationsInput = {
   productId: number;
@@ -43,13 +51,23 @@ export type SaveVariationsInput = {
    * photo that represents more than one variation.
    */
   styleTags: Record<number, string[]>;
-  /** The styles this product offers (drives the Style option + base price). */
+  /** Canonical styles this product offers (grip/charm bundles). */
   availableStyles: string[];
   /**
    * The devices this product is sold for (the type's compatibility axis).
    * Omit to leave that axis untouched.
    */
   availableModels?: string[];
+  /**
+   * Operator flag: photos depict more than one physical product. Omit to
+   * leave the stored flag untouched (e.g. a styles-only bulk apply).
+   */
+  containsMultipleProducts?: boolean;
+  /**
+   * Operator-defined Style values. Omit to leave stored custom rows
+   * untouched; send `[]` to clear them.
+   */
+  customStyles?: CustomStyleInput[];
 };
 
 export type SaveVariationsResult = { ok: boolean; message: string };
@@ -91,11 +109,40 @@ async function upsertOption(
   });
 }
 
+async function deleteNamedOption(productId: number, name: string) {
+  await db
+    .delete(productOptions)
+    .where(
+      and(
+        eq(productOptions.productId, productId),
+        eq(productOptions.name, name),
+      ),
+    );
+}
+
+function canonicalStylesFor(
+  productType: string,
+  availableStyles: string[],
+  hasCustom: boolean,
+): string[] {
+  const priceAxis = priceAxisFor(productType);
+  if (!priceAxis) return [];
+  let styles = normalizeOfferedPriceValues(productType, availableStyles);
+  if (styles.length === 0 && !hasCustom) {
+    styles =
+      productType === "iphone_case" ? ["Case Only"] : [...priceAxis.values];
+  }
+  if (productType === "iphone_case") {
+    styles = orderStyles(styles);
+  }
+  return styles;
+}
+
 /**
  * Persist media order, per-image style tags, the video slot, the offered Style
- * set (+ base price, phone cases) and optionally the offered compatibility
- * set for a single product. Returns a per-product result so bulk callers can
- * report partial failures without aborting the whole batch.
+ * set (+ base price), optional custom variations, and optionally the offered
+ * compatibility set for a single product. Returns a per-product result so bulk
+ * callers can report partial failures without aborting the whole batch.
  */
 export async function saveProductVariations(
   input: SaveVariationsInput,
@@ -104,12 +151,19 @@ export async function saveProductVariations(
 
   const product = await db.query.products.findFirst({
     where: eq(products.id, productId),
-    columns: { id: true, currency: true, videoUrl: true, productType: true },
+    columns: {
+      id: true,
+      currency: true,
+      videoUrl: true,
+      productType: true,
+      price: true,
+      containsMultipleProducts: true,
+      customStyles: true,
+    },
     with: { images: { columns: { id: true } } },
   });
   if (!product) return { ok: false, message: `#${productId}: not found.` };
 
-  const type = getProductType(product.productType);
   const priceAxis = priceAxisFor(product.productType);
 
   // ── Validate the image set matches what's on the product ──────────────────
@@ -122,59 +176,122 @@ export async function saveProductVariations(
     };
   }
 
-  // ── Normalize the offered styles to the type's price-axis canon ───────────
-  // Types without a price axis keep an empty set so per-image tags are not
-  // rewritten against a vocabulary the product never sells.
-  let styles: string[] = [];
-  if (priceAxis) {
-    styles = normalizeOfferedPriceValues(
-      product.productType,
-      input.availableStyles,
-    );
-    if (styles.length === 0) styles = [...priceAxis.values];
-    if (product.productType === "iphone_case") {
-      styles = styles.length > 0 ? orderStyles(styles) : ["Case Only"];
+  // ── Custom variations ─────────────────────────────────────────────────────
+  // Omit = leave stored rows alone (a styles-only write cannot wipe them).
+  // An explicit array is validated, then recovered against image tags so a
+  // photo tagged "Hello Kitty + Charm" still links if the picker id was lost.
+  let custom: CustomStyle[];
+  let flagged = product.containsMultipleProducts;
+  const writingCustom = input.customStyles !== undefined;
+  const writingFlag = input.containsMultipleProducts !== undefined;
+
+  if (writingCustom) {
+    const wantsFlag = writingFlag
+      ? Boolean(input.containsMultipleProducts)
+      : true;
+    if (!wantsFlag) {
+      custom = [];
+      flagged = false;
+    } else {
+      const validated = validateCustomStylesDraft(input.customStyles, {
+        ownedImageIds: ownedIds,
+        productType: product.productType,
+      });
+      if (!validated.ok) {
+        return { ok: false, message: `#${productId}: ${validated.message}` };
+      }
+      custom = recoverCustomImageLinks(validated.styles, input.styleTags);
+      flagged = writingFlag
+        ? Boolean(input.containsMultipleProducts) || custom.length > 0
+        : custom.length > 0 || product.containsMultipleProducts;
+    }
+  } else {
+    const kept = validateCustomStylesDraft(product.customStyles ?? [], {
+      ownedImageIds: ownedIds,
+      productType: product.productType,
+    });
+    custom = kept.ok ? kept.styles : [];
+    if (writingFlag) {
+      flagged = Boolean(input.containsMultipleProducts) || custom.length > 0;
+      if (!input.containsMultipleProducts && custom.length > 0) {
+        custom = [];
+        flagged = false;
+      }
     }
   }
 
+  const canonical = canonicalStylesFor(
+    product.productType,
+    input.availableStyles,
+    custom.length > 0,
+  );
+  if (canonical.length === 0 && custom.length === 0 && priceAxis) {
+    return {
+      ok: false,
+      message: `#${productId}: keep at least one style, or add a custom variation first.`,
+    };
+  }
+
+  const offered = mergeOfferedStyleValues(canonical, custom);
+  const tags = applyCustomImageTags(
+    input.styleTags,
+    custom,
+    offered,
+    orderIds,
+  );
+
   // ── 1. Image positions + style tags ───────────────────────────────────────
-  // Normalization is the enforcement point for "one photo, one variation": it
-  // drops unknown and no-longer-offered styles and caps the result at one, so
-  // every writer converges on the same shape regardless of what it sent.
   await Promise.all(
     orderIds.map((id, index) =>
       db
         .update(productImages)
         .set({
           position: index,
-          styleTags: normalizeImageStyleTags(input.styleTags[id], styles),
+          styleTags: normalizeImageStyleTags(tags[id], offered),
         })
         .where(eq(productImages.id, id)),
     ),
   );
 
-  // ── 2. Video slot (+ base "from" price for phone cases) ───────────────────
+  // ── 2. Video slot + listing "from" price + multi-product fields ───────────
   const videoSlot = product.videoUrl
     ? clamp(input.videoSlot ?? 1, 0, orderIds.length)
     : null;
   const productUpdate: {
     videoPosition: number | null;
     price?: string;
+    containsMultipleProducts?: boolean;
+    customStyles?: CustomStyle[];
     updatedAt: Date;
   } = { videoPosition: videoSlot, updatedAt: new Date() };
-  if (priceAxis) {
+
+  if (offered.length > 0) {
     productUpdate.price = String(
-      type.getPriceFromOptions(
-        { [priceAxis.name]: defaultStyleFor(styles) },
-        product.currency,
-      ),
+      minOfferedPrice({
+        productType: product.productType,
+        currency: product.currency,
+        canonicalStyles: canonical,
+        customStyles: custom,
+        basePrice: product.price,
+      }),
     );
   }
+
+  if (writingCustom || writingFlag) {
+    productUpdate.containsMultipleProducts = flagged;
+    productUpdate.customStyles = custom;
+  }
+
   await db.update(products).set(productUpdate).where(eq(products.id, productId));
 
   // ── 3. Variation axes ─────────────────────────────────────────────────────
-  if (priceAxis && styles.length > 0) {
-    await upsertOption(productId, priceAxis.name, styles);
+  const styleAxisName = priceAxis?.name ?? STYLE_OPTION_NAME;
+  if (offered.length > 0) {
+    await upsertOption(productId, styleAxisName, offered);
+  } else if (!priceAxis) {
+    // A flat type that no longer has custom values should not keep an empty
+    // Style picker on the PDP.
+    await deleteNamedOption(productId, STYLE_OPTION_NAME);
   }
 
   if (input.availableModels) {

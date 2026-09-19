@@ -24,7 +24,7 @@ import {
 // Allow posts published after build (AI-generated) to render on-demand, then be
 // cached via ISR. Editorial MDX posts are still prerendered at build time.
 export const dynamicParams = true;
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 export async function generateStaticParams() {
   const slugs = await listPublishedSlugs();

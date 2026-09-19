@@ -14,7 +14,6 @@ import {
   STYLES,
   normalizeImageStyleTags,
   orderStyles,
-  type Style,
 } from "../pricing";
 import { normalizeOfferedPriceValues } from "./offered-options";
 import { priceAxisFor } from "./product-types";
@@ -160,7 +159,7 @@ function extractStyleStrings(raw: unknown): string[] {
 export function coerceClassifiedStyle(
   raw: unknown,
   offered: readonly string[],
-): Style[] {
+): string[] {
   const candidates = extractStyleStrings(raw)
     .map((tag) => matchOfferedStyle(tag, offered))
     .filter((tag): tag is string => tag != null);

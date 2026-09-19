@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/auth";
-import { revalidateStorefrontCatalog } from "@/lib/cache";
-import { setReviewStatus, REVIEW_STATUSES, type ReviewStatus } from "@/lib/reviews";
+import { revalidateStorefrontProduct } from "@/lib/cache";
+import {
+  setReviewStatus,
+  getReviewProductRef,
+  REVIEW_STATUSES,
+  type ReviewStatus,
+} from "@/lib/reviews";
 
 export type ReviewActionResult = { ok: boolean; message: string };
 
@@ -24,11 +29,7 @@ export async function moderateReview(
 
   await setReviewStatus(id, status as ReviewStatus);
   revalidatePath("/admin/reviews");
-  // Publishing/unpublishing a review changes the star summaries baked into
-  // cached product cards (homepage + listings); drop those cache entries.
-  revalidatePath("/products/[slug]", "page");
-  revalidatePath("/products");
-  revalidatePath("/");
-  revalidateStorefrontCatalog();
+  const ref = await getReviewProductRef(id);
+  if (ref) revalidateStorefrontProduct(ref.slug);
   return { ok: true, message: `Review ${status}.` };
 }

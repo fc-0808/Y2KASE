@@ -6,8 +6,9 @@
  * the bulk of paid traffic for accessory brands like CASETiFY. We generate it
  * straight from the live catalog so it never drifts from the storefront.
  *
- * Resubmit cadence is controlled by Merchant Center; we revalidate hourly so a
- * newly published product appears without a deploy.
+ * Resubmit cadence is controlled by Merchant Center. The route stays
+ * force-dynamic so a database-less build cannot bake an empty catalog; the
+ * CDN then holds a successful response for an hour (free, not ISR).
  */
 import { isDbConfigured } from "@/lib/db";
 import {
@@ -17,6 +18,7 @@ import {
 import { absoluteUrl, BRAND } from "@/lib/seo";
 import { googleProductCategoryId } from "@/lib/catalog/merchant";
 import { merchantColorValue } from "@/lib/catalog/colors";
+import { FEED_CDN_CACHE_CONTROL } from "@/lib/cache-headers";
 
 // Never bake an empty catalog into a deployment when the build environment
 // lacks database access. The CDN caches successful responses for one hour.
@@ -117,6 +119,8 @@ ${renderedItems.join("\n")}
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+      "CDN-Cache-Control": FEED_CDN_CACHE_CONTROL,
+      "Vercel-CDN-Cache-Control": FEED_CDN_CACHE_CONTROL,
       "X-Robots-Tag": "noindex, follow",
       "X-Catalog-Items-Omitted": String(omittedItems),
     },

@@ -28,6 +28,7 @@ import {
   Tags,
   Eraser,
   Image as ImageIcon,
+  Boxes,
 } from "lucide-react";
 import { IPHONE_GENERATIONS, summarizeModels } from "@/lib/pricing";
 import type { AdminProductOverview } from "@/lib/products";
@@ -42,6 +43,7 @@ import {
   summarizeCompatibility,
 } from "@/lib/catalog/offered-options";
 import { compatibilityAxisFor } from "@/lib/catalog/product-types";
+import { mergeOfferedStyleValues } from "@/lib/catalog/custom-styles";
 import type { TitleHealth } from "@/lib/catalog/listing-title-service";
 import type { BrandOption } from "@/lib/catalog/brands";
 import {
@@ -120,6 +122,7 @@ export function ProductsConsole({
   );
   const [titleIssuesOnly, setTitleIssuesOnly] = useState(false);
   const [brandIssuesOnly, setBrandIssuesOnly] = useState(false);
+  const [multiProductOnly, setMultiProductOnly] = useState(false);
   const [brandManagerOpen, setBrandManagerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
@@ -204,6 +207,7 @@ export function ProductsConsole({
     return products.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
       if (titleIssuesOnly && !titleHealth[p.id]) return false;
+      if (multiProductOnly && !p.containsMultipleProducts) return false;
       if (brandIssuesOnly) {
         const state = classification[p.id]?.state;
         if (!state || !classificationNeedsAction(state)) return false;
@@ -220,6 +224,7 @@ export function ProductsConsole({
     statusFilter,
     titleIssuesOnly,
     titleHealth,
+    multiProductOnly,
     brandIssuesOnly,
     classification,
     query,
@@ -268,6 +273,11 @@ export function ProductsConsole({
     () =>
       products.filter((p) => titleHealth[p.id]?.severity === "error").length,
     [products, titleHealth],
+  );
+
+  const multiProductCount = useMemo(
+    () => products.filter((p) => p.containsMultipleProducts).length,
+    [products],
   );
 
   // Brand/character counts scoped to the current view, hierarchy-aware (a brand
@@ -533,7 +543,8 @@ export function ProductsConsole({
     deviceFilter !== "all" ||
     collectionFilter !== "all" ||
     titleIssuesOnly ||
-    brandIssuesOnly;
+    brandIssuesOnly ||
+    multiProductOnly;
 
   function resetFilters() {
     setQuery("");
@@ -542,6 +553,7 @@ export function ProductsConsole({
     setCollectionFilter("all");
     setTitleIssuesOnly(false);
     setBrandIssuesOnly(false);
+    setMultiProductOnly(false);
   }
 
   return (
@@ -633,6 +645,30 @@ export function ProductsConsole({
                 }`}
               >
                 {brandErrorCount}
+              </span>
+            </button>
+          )}
+          {multiProductCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setMultiProductOnly((on) => !on)}
+              aria-pressed={multiProductOnly}
+              title="Listings whose photos depict more than one physical product"
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                multiProductOnly
+                  ? "border-fuchsia-400 bg-fuchsia-100 text-fuchsia-800"
+                  : "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100"
+              }`}
+            >
+              <Boxes className="h-4 w-4" /> Multi-product
+              <span
+                className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] ${
+                  multiProductOnly
+                    ? "bg-fuchsia-700 text-white"
+                    : "bg-fuchsia-600 text-white"
+                }`}
+              >
+                {multiProductCount}
               </span>
             </button>
           )}
@@ -1256,6 +1292,15 @@ function ProductRow({
                 Review
               </ClassBadge>
             )}
+            {product.containsMultipleProducts && (
+              <ClassBadge
+                tone="fuchsia"
+                title="Photos depict more than one physical product — custom variations"
+                icon={<Boxes className="h-3 w-3" />}
+              >
+                Multi-product
+              </ClassBadge>
+            )}
           </p>
           {classification && (
             <ClassificationCell
@@ -1274,24 +1319,31 @@ function ProductRow({
         <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-foreground/40 xl:hidden">
           Variations
         </p>
-        {!showStyles ? (
+        {!showStyles && product.customStyles.length === 0 ? (
           <span
             className="text-xs italic text-foreground/40"
             title="No style bundles — one flat price"
           >
             Flat price
           </span>
-        ) : product.availableStyles.length === 0 ? (
+        ) : mergeOfferedStyleValues(
+            product.availableStyles,
+            product.customStyles,
+          ).length === 0 ? (
           <span className="text-xs italic text-foreground/40">
             not set
           </span>
         ) : (
           <ul className="space-y-0.5">
-            {product.availableStyles.map((s) => {
+            {mergeOfferedStyleValues(
+              product.availableStyles,
+              product.customStyles,
+            ).map((s) => {
               const price = priceForOfferedStyle(
                 product.productType,
                 s,
                 product.currency,
+                product.customStyles,
               );
               return (
                 <li
@@ -1565,7 +1617,7 @@ function ClassBadge({
   title,
 }: {
   children: React.ReactNode;
-  tone?: "neutral" | "indigo" | "amber";
+  tone?: "neutral" | "indigo" | "amber" | "fuchsia";
   icon?: React.ReactNode;
   title?: string;
 }) {
@@ -1573,6 +1625,7 @@ function ClassBadge({
     neutral: "bg-[var(--muted)] text-[var(--foreground)]/65 ring-black/5",
     indigo: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
     amber: "bg-amber-50 text-amber-700 ring-amber-600/20",
+    fuchsia: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-600/20",
   };
   return (
     <span

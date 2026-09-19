@@ -1,4 +1,43 @@
-import { revalidateTag, unstable_cache } from "next/cache";
+import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
+
+/**
+ * Storefront cache policy.
+ *
+ * Vercel Hobby meters two different resources this file is designed to keep
+ * under the included allowance:
+ *
+ *  - **ISR Writes** are 8 KB units of *changed* output stored in durable ISR /
+ *    Data Cache. Unchanged regenerations are free. Unique URLs, short timers,
+ *    `new Date()` in cached HTML, and `revalidatePath('/products/[slug]')` of
+ *    every PDP are what run the meter up.
+ *  - **Fluid Active CPU** is milliseconds of actual JS execution. Waiting on
+ *    Neon does not count; rendering and serializing large RSC trees does.
+ *
+ * Catalog data is event-driven (admin saves, review publish). Time-based ISR
+ * is only a safety net on canonical pages. Faceted listing URLs must not
+ * create durable ISR entries — each `?color=&motif=&page=` combo is a new
+ * cache key, and crawlers will fill the 200K write budget.
+ *
+ * @see https://vercel.com/docs/incremental-static-regeneration/limits-and-pricing
+ * @see https://vercel.com/kb/guide/how-to-move-to-on-demand-revalidation
+ */
+
+/**
+ * Canonical storefront pages (home, PDP, blog, collection index, OG images).
+ * One day is the safety net; admin mutations invalidate on demand.
+ *
+ * Next.js segment config cannot follow imports (`extractExportedConstValue`
+ * only accepts numeric literals). Pages must write `export const revalidate
+ * = 86400` — keep that literal in lockstep with this constant.
+ */
+export const STOREFRONT_REVALIDATE = 86_400;
+
+/**
+ * Data Cache for tagged catalog reads. `false` = keep until `revalidateTag`.
+ * A 5-minute timer here rewrote every unique filter combo even when nothing
+ * in Neon changed.
+ */
+export const DATA_CACHE_REVALIDATE = false;
 
 /**
  * Stable cache tags for the storefront Data Cache.
@@ -35,9 +74,12 @@ export const CACHE_TAGS = {
 export function cachedCatalogRead<Args extends unknown[], Result>(
   fn: (...args: Args) => Promise<Result>,
   keyParts: string[],
-  options: { tags?: string[]; revalidate?: number | false },
+  options: { tags?: string[]; revalidate?: number | false } = {},
 ): (...args: Args) => Promise<Result> {
-  const memoized = unstable_cache(fn, keyParts, options);
+  const memoized = unstable_cache(fn, keyParts, {
+    tags: options.tags,
+    revalidate: options.revalidate ?? DATA_CACHE_REVALIDATE,
+  });
   return async (...args: Args): Promise<Result> => {
     try {
       return await memoized(...args);
@@ -54,16 +96,40 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
 }
 
 /**
- * Invalidate every storefront catalog cache after a catalog mutation. Call this
- * alongside the existing `revalidatePath(...)` calls in admin server actions so
- * edits to products, collection membership, media or reviews surface
- * immediately across the menu, homepage and listing pages.
+ * Invalidate tagged Data Cache after a catalog mutation.
+ *
+ * `"max"` = stale-while-revalidate: shoppers keep getting an instant cached
+ * response while the entry refreshes in the background after the next visit.
+ * (Admin-facing routes are still expired immediately via `revalidatePath`.)
  */
 export function revalidateStorefrontCatalog(): void {
-  // `"max"` = stale-while-revalidate: shoppers keep getting an instant cached
-  // response while the entry refreshes in the background after the next visit.
-  // (Admin-facing routes are still expired immediately via `revalidatePath`.)
   revalidateTag(CACHE_TAGS.products, "max");
   revalidateTag(CACHE_TAGS.collections, "max");
   revalidateTag(CACHE_TAGS.reviews, "max");
+}
+
+/**
+ * Canonical listing HTML (home, /products, /collections, insights).
+ *
+ * Do not call `revalidatePath("/products/[slug]", "page")` from here. That
+ * marks every PDP stale; the next crawl of 161 product URLs rewrites ISR
+ * units for pages whose data did not change.
+ */
+export function revalidateStorefrontListings(): void {
+  revalidatePath("/");
+  revalidatePath("/products");
+  revalidatePath("/collections");
+  revalidatePath("/insights");
+}
+
+/**
+ * One product changed. Refresh that PDP and the shared listing caches.
+ * Passing a slug avoids a DB round-trip; callers that only have an id should
+ * resolve it first.
+ */
+export function revalidateStorefrontProduct(slug: string): void {
+  const trimmed = slug.trim();
+  if (trimmed) revalidatePath(`/products/${trimmed}`);
+  revalidateStorefrontListings();
+  revalidateStorefrontCatalog();
 }

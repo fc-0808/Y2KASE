@@ -1,5 +1,4 @@
 import OpenAI from "openai";
-import { type Style } from "@/lib/pricing";
 import {
   coerceProductCopy,
   describeViolations,
@@ -1305,7 +1304,7 @@ export async function verifyMagSafe(
  * filename → the single style the photo depicts, as the array shape stored in
  * `product_images.style_tags`. Empty means universal / unidentifiable.
  */
-export type ImageStyleClassification = Record<string, Style[]>;
+export type ImageStyleClassification = Record<string, string[]>;
 
 /**
  * One vision request for a style-tag batch.

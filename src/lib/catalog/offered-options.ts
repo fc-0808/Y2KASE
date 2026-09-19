@@ -18,6 +18,12 @@ import {
   priceAxisFor,
 } from "./product-types";
 import { orderModels, orderStyles, summarizeModels } from "../pricing";
+import {
+  customStyleByLabel,
+  mergeOfferedStyleValues,
+  normalizeCustomStyles,
+  type CustomStyleInput,
+} from "./custom-styles";
 
 export type NamedOptionValues = {
   name: string;
@@ -133,13 +139,38 @@ export function priceForOfferedStyle(
   productTypeId: string,
   style: string,
   currency: string,
+  customStyles?: readonly CustomStyleInput[] | null,
 ): number | null {
+  const matched = customStyleByLabel(
+    normalizeCustomStyles(customStyles, { productType: productTypeId }),
+    style,
+  );
+  if (matched) return matched.price;
   const axis = priceAxisFor(productTypeId);
   if (!axis) return null;
   return getProductType(productTypeId).getPriceFromOptions(
     { [axis.name]: style },
     currency,
   );
+}
+
+/**
+ * Canonical bundles plus operator-defined custom labels, in dropdown order.
+ *
+ * {@link offeredPriceValues} stays canonical-only so the grip/charm picker
+ * cannot treat "Hello Kitty + Charm" as a sixth bundle checkbox.
+ */
+export function offeredStyleValues(
+  productTypeId: string,
+  options: readonly NamedOptionValues[],
+  customStyles?: readonly CustomStyleInput[] | null,
+): string[] {
+  const canonical = offeredPriceValues(productTypeId, options);
+  const custom = normalizeCustomStyles(customStyles, {
+    productType: productTypeId,
+  });
+  if (custom.length === 0) return canonical;
+  return mergeOfferedStyleValues(canonical, custom);
 }
 
 export function offeredCompatibilityValues(

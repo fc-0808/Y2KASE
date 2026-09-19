@@ -10,7 +10,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
-import { reviews, orders, orderItems } from "@/lib/db/schema";
+import { reviews, orders, orderItems, products } from "@/lib/db/schema";
 import type { Review } from "@/lib/db/schema";
 
 export const REVIEW_STATUSES = ["pending", "published", "rejected"] as const;
@@ -40,7 +40,7 @@ export function getReviewSummary(productId: number): Promise<ReviewSummary> {
 const getReviewSummaryCached = cachedCatalogRead(
   computeReviewSummary,
   ["published-review-summary-v1"],
-  { tags: [CACHE_TAGS.reviews], revalidate: 300 },
+  { tags: [CACHE_TAGS.reviews] },
 );
 
 async function computeReviewSummary(productId: number): Promise<ReviewSummary> {
@@ -72,7 +72,7 @@ export function getPublishedReviews(
 const getPublishedReviewsCached = cachedCatalogRead(
   computePublishedReviews,
   ["published-product-reviews-v1"],
-  { tags: [CACHE_TAGS.reviews], revalidate: 300 },
+  { tags: [CACHE_TAGS.reviews] },
 );
 
 async function computePublishedReviews(
@@ -295,4 +295,18 @@ export async function setReviewStatus(
       publishedAt: status === "published" ? new Date() : null,
     })
     .where(eq(reviews.id, id));
+}
+
+/** Product the review belongs to, for narrow storefront revalidation. */
+export async function getReviewProductRef(
+  id: number,
+): Promise<{ productId: number; slug: string } | null> {
+  if (!isDbConfigured() || !Number.isFinite(id)) return null;
+  const [row] = await db
+    .select({ productId: reviews.productId, slug: products.slug })
+    .from(reviews)
+    .innerJoin(products, eq(products.id, reviews.productId))
+    .where(eq(reviews.id, id))
+    .limit(1);
+  return row ?? null;
 }

@@ -37,6 +37,9 @@ import {
   type CatalogSearchParams,
 } from "@/lib/catalog/params";
 
+/** Faceted catalog: never durable ISR. Each query string is a unique write. */
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({
   searchParams,
 }: {

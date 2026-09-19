@@ -70,6 +70,7 @@ import {
   sanitizePinterestCaption,
   sanitizePinterestHashtags,
   sanitizePinterestTitle,
+  seasonalSearchHint,
   stripUnmentionedDevices,
 } from "@/lib/social/pinterest-strategy";
 import {
@@ -93,8 +94,9 @@ export const AUTO_PIN_PER_RUN = pinterestPinsPerRun();
 
 /**
  * Hard cap on *pins posted per UTC day*, enforced across every run. Default 4
- * (two cron slots × 2 pins). This is the single knob for daily volume — raise
- * it only after save rate recovers, and never above the strategy hard cap of 8.
+ * (spread across cron slots × up to 2 pins each). This is the single knob for
+ * daily volume — raise it only after save rate recovers, and never above the
+ * strategy hard cap of 8.
  */
 export const AUTO_PIN_PER_DAY = pinterestPinsPerDay();
 
@@ -109,15 +111,15 @@ const MEDIA_GAP_MS = Math.max(
 
 /**
  * Hours (UTC) the cron fires — kept in sync with vercel.json
- * (`/api/cron/pinterest-autopin`). Two spread peak windows (≈ US evening and
- * US morning) so the day's pins don't post in one burst. Used to show
- * operators when the next pin will go out.
+ * (`/api/cron/pinterest-autopin`). Three spread windows (≈ US evening, US
+ * morning, and a late-US catch-up) so the day's pins don't post in one burst.
+ * Used to show operators when the next pin will go out.
  */
-export const AUTO_PIN_CRON_HOURS_UTC = [1, 15];
+export const AUTO_PIN_CRON_HOURS_UTC = [1, 15, 20];
 
 /** Opt-in flag — automation only runs when explicitly enabled. */
 export function isAutoPinEnabled(): boolean {
-  return process.env.PINTEREST_AUTOPIN_ENABLED === "true";
+  return process.env.PINTEREST_AUTOPIN_ENABLED?.trim() === "true";
 }
 
 /** ISO timestamp of the nearest upcoming cron run across the scheduled hours. */
@@ -958,10 +960,11 @@ async function generatePinCopy(
   job: PinJob,
 ): Promise<CaptionVariation | null> {
   if (!isCaptionGenConfigured()) return null;
-  const extra =
+  const base =
     job.kind === "video"
       ? "This pin is a product video. Title is a real search phrase for the clip (unboxing, 360, in-hand). Do not invent device models that are not in the product title."
       : "This pin is a single still. Title is a real Pinterest search phrase a shopper would type. Do not invent device models that are not in the product title.";
+  const extra = `${base}${seasonalSearchHint()}`;
   try {
     const variations = await generateCaptionVariations({
       productTitle: listing.productTitle,

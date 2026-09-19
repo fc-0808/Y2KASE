@@ -41,7 +41,7 @@ const TYPE_COUNTS_KEY = ["catalog-insights-type-counts-v1"];
 const getTypeCountsCached = cachedCatalogRead(
   computeTypeCounts,
   TYPE_COUNTS_KEY,
-  { tags: [CACHE_TAGS.products], revalidate: 3600 },
+  { tags: [CACHE_TAGS.products] },
 );
 
 async function computeTypeCounts(): Promise<InsightsTypeRow[]> {
@@ -82,9 +82,11 @@ function flattenStocked(
   return out;
 }
 
+const EMPTY_GENERATED_AT = "1970-01-01T00:00:00.000Z";
+
 function emptyInsights(): CatalogInsights {
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: EMPTY_GENERATED_AT,
     activeProducts: 0,
     magsafe: 0,
     nonMagsafe: 0,
@@ -94,10 +96,14 @@ function emptyInsights(): CatalogInsights {
 }
 
 async function computeCatalogInsights(): Promise<CatalogInsights> {
-  const [magsafe, byType, tree] = await Promise.all([
+  const [magsafe, byType, tree, [asOf]] = await Promise.all([
     getMagsafeFacetCounts(),
     getTypeCountsCached(),
     getCollectionTree(),
+    db
+      .select({ at: sql<Date | null>`max(${products.updatedAt})` })
+      .from(products)
+      .where(eq(products.status, "active")),
   ]);
 
   const collections = flattenStocked(tree)
@@ -105,7 +111,7 @@ async function computeCatalogInsights(): Promise<CatalogInsights> {
     .slice(0, 16);
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: asOf?.at ? new Date(asOf.at).toISOString() : EMPTY_GENERATED_AT,
     activeProducts: magsafe.magsafe + magsafe.nonMagsafe,
     magsafe: magsafe.magsafe,
     nonMagsafe: magsafe.nonMagsafe,

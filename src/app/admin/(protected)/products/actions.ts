@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
-import { revalidateStorefrontCatalog } from "@/lib/cache";
+import {
+  revalidateStorefrontCatalog,
+  revalidateStorefrontListings,
+  revalidateStorefrontProduct,
+} from "@/lib/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -39,6 +43,7 @@ import {
 } from "@/lib/catalog/listing-title-service";
 import { updateProductBrand, updateProductTitle } from "./[id]/actions";
 import { requireAdmin } from "@/lib/auth";
+import { getProductSlugById } from "@/lib/products";
 import {
   MODEL_OPTION_NAME,
   STYLE_OPTION_NAME,
@@ -47,8 +52,6 @@ import {
   orderStyles,
   orderModels,
   stylesForAddons,
-  defaultStyleFor,
-  getStylePrice,
   normalizeImageStyleTags,
   imageStyleTagsAreCanonical,
 } from "@/lib/pricing";
@@ -82,27 +85,33 @@ import {
   offeredCompatibilityValues,
   offeredPriceValues,
 } from "@/lib/catalog/offered-options";
+import {
+  hydrateCustomStyles,
+  mergeOfferedStyleValues,
+  minOfferedPrice,
+  normalizeCustomStyles,
+  type CustomStyle,
+} from "@/lib/catalog/custom-styles";
 import { isInternalMediaDirectory } from "@/lib/catalog/discover";
 
 const VALID_STYLES = new Set<string>(STYLES);
 const VALID_MODELS = new Set<string>(IPHONE_MODELS);
 
-/** Re-prime every surface a catalog change can affect. */
-function revalidateCatalog(productId?: number) {
-  if (productId != null) revalidatePath(`/admin/products/${productId}`);
+/** Re-prime listing caches. One product id refreshes that PDP only. */
+async function revalidateCatalog(productId?: number) {
+  if (productId != null) {
+    revalidatePath(`/admin/products/${productId}`);
+    const slug = await getProductSlugById(productId);
+    if (slug) revalidateStorefrontProduct(slug);
+    else {
+      revalidateStorefrontListings();
+      revalidateStorefrontCatalog();
+    }
+  } else {
+    revalidateStorefrontListings();
+    revalidateStorefrontCatalog();
+  }
   revalidatePath("/admin/products");
-  revalidatePath("/products");
-  // Product detail pages are ISR-cached per slug; invalidate the whole dynamic
-  // route so edited media/variations/availability appear immediately rather
-  // than after the hourly ISR window. (Dynamic segment → requires `type`.)
-  revalidatePath("/products/[slug]", "page");
-  revalidatePath("/devices/[slug]", "page");
-  revalidatePath("/collections");
-  revalidatePath("/collections/[slug]", "page");
-  revalidatePath("/");
-  // Drop the tagged Data Cache entries (featured rail, mega-menu taxonomy,
-  // category image pools) so the menu/homepage reflect the change immediately.
-  revalidateStorefrontCatalog();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,7 +146,7 @@ export async function assignProductsToCollection(
     .values(ids.map((productId) => ({ productId, collectionId })))
     .onConflictDoNothing();
 
-  revalidateCatalog();
+  await revalidateCatalog();
   return {
     ok: true,
     message: `Added ${ids.length} product${ids.length === 1 ? "" : "s"} to collection.`,
@@ -162,7 +171,7 @@ export async function syncCollectionTaxonomy(): Promise<CollectionAssignResult> 
   }
   try {
     const { inserted, updated, total } = await applyCollectionTaxonomy();
-    revalidateCatalog();
+    await revalidateCatalog();
     return {
       ok: true,
       message:
@@ -201,7 +210,7 @@ export async function removeProductsFromCollection(
       ),
     );
 
-  revalidateCatalog();
+  await revalidateCatalog();
   return {
     ok: true,
     message: `Removed ${ids.length} product${ids.length === 1 ? "" : "s"} from collection.`,
@@ -223,7 +232,7 @@ export async function publishProduct(id: number) {
     .update(products)
     .set({ status: "active", updatedAt: new Date() })
     .where(eq(products.id, id));
-  revalidateCatalog(id);
+  await revalidateCatalog(id);
 }
 
 export async function unpublishProduct(id: number) {
@@ -232,7 +241,7 @@ export async function unpublishProduct(id: number) {
     .update(products)
     .set({ status: "draft", updatedAt: new Date() })
     .where(eq(products.id, id));
-  revalidateCatalog(id);
+  await revalidateCatalog(id);
 }
 
 export async function setFeatured(id: number, featured: boolean) {
@@ -253,13 +262,13 @@ export async function setFeatured(id: number, featured: boolean) {
     .update(products)
     .set({ featured, featuredPosition, updatedAt: new Date() })
     .where(eq(products.id, id));
-  revalidateCatalog(id);
+  await revalidateCatalog(id);
 }
 
 export async function deleteProduct(id: number) {
   if (!(await requireAdmin(await headers()))) return;
   await deleteProductsAndMedia([id]);
-  revalidateCatalog();
+  await revalidateCatalog();
 }
 
 /**
@@ -300,7 +309,7 @@ export async function confirmMagsafe(id: number) {
       .values({ productId: id, collectionId: magCol.id })
       .onConflictDoNothing();
   }
-  revalidateCatalog(id);
+  await revalidateCatalog(id);
 }
 
 /**
@@ -376,7 +385,7 @@ export async function bulkSetMagsafe(
     }
   }
 
-  revalidateCatalog();
+  await revalidateCatalog();
   return {
     ok: true,
     message: `${magsafe ? "Marked" : "Unmarked"} ${rows.length} product${rows.length === 1 ? "" : "s"} ${magsafe ? "as" : "from"} MagSafe.`,
@@ -409,10 +418,10 @@ export async function bulkSetMagsafe(
  *
  * `revalidateCatalog` already drops the `collections` cache tag, which is the
  * one the vocabulary snapshot is stored under — so a brand added here is
- * visible to the next classification without waiting out the hourly window.
+ * visible to the next classification without waiting for a timer.
  */
-function revalidateVocabulary(): void {
-  revalidateCatalog();
+async function revalidateVocabulary(): Promise<void> {
+  await revalidateCatalog();
   revalidatePath("/admin/collections");
 }
 
@@ -435,7 +444,7 @@ export async function createBrand(input: {
     parentBrandId: input.parentBrandId ?? null,
     icon: input.icon ?? null,
   });
-  if (res.ok) revalidateVocabulary();
+  if (res.ok) await revalidateVocabulary();
   return res;
 }
 
@@ -454,7 +463,7 @@ export async function updateBrand(input: {
     aliases: parseAliases(input.aliases),
     icon: input.icon ?? null,
   });
-  if (res.ok) revalidateVocabulary();
+  if (res.ok) await revalidateVocabulary();
   return res;
 }
 
@@ -466,7 +475,7 @@ export async function deleteBrand(
     return { ok: false, message: "Not authorized." };
   }
   const res = await deleteBrandEntry(slug, unfile);
-  if (res.ok) revalidateVocabulary();
+  if (res.ok) await revalidateVocabulary();
   return res;
 }
 
@@ -558,7 +567,7 @@ export async function setProductClassification(
     }
   }
 
-  revalidateCatalog(productId);
+  await revalidateCatalog(productId);
   return { ok: true, message: `${res.message}${note}`, title };
 }
 
@@ -599,7 +608,7 @@ export async function setProductCollection(
       );
   }
 
-  revalidateCatalog(productId);
+  await revalidateCatalog(productId);
   return {
     ok: true,
     message: member
@@ -675,7 +684,7 @@ export async function adoptTitleBrand(
     if (res.ok) changed += 1;
   }
 
-  revalidateCatalog();
+  await revalidateCatalog();
   const skipped = [
     noSignal > 0 ? `${noSignal} name no known IP` : null,
     alreadyRight > 0 ? `${alreadyRight} already correct` : null,
@@ -743,7 +752,7 @@ export async function purgeUnsupportedCollections(
     removed += collectionIds.length;
   }
 
-  revalidateCatalog();
+  await revalidateCatalog();
   return {
     ok: true,
     message: changed
@@ -802,7 +811,7 @@ export async function bulkRewriteTitles(
     }
   }
 
-  revalidateCatalog();
+  await revalidateCatalog();
 
   if (changed === 0) {
     return {
@@ -872,7 +881,7 @@ export async function bulkRepairTitles(
     changed += 1;
   }
 
-  revalidateCatalog();
+  await revalidateCatalog();
   const remainder =
     needsHuman > 0
       ? ` ${needsHuman} still need${needsHuman === 1 ? "s" : ""} a human — open the product and use “Rewrite with AI”.`
@@ -929,7 +938,7 @@ export async function dismissMagsafe(id: number) {
         ),
       );
   }
-  revalidateCatalog(id);
+  await revalidateCatalog(id);
 }
 
 export type BulkDeleteResult = {
@@ -955,7 +964,7 @@ export async function bulkDeleteProducts(
   }
 
   const deleted = await deleteProductsAndMedia(wanted);
-  revalidateCatalog();
+  await revalidateCatalog();
 
   return {
     ok: true,
@@ -1122,7 +1131,13 @@ export async function bulkUpdateProducts(
 
   const rows = await db.query.products.findMany({
     where: inArray(products.id, ids),
-    columns: { id: true, currency: true, productType: true },
+    columns: {
+      id: true,
+      currency: true,
+      productType: true,
+      price: true,
+      customStyles: true,
+    },
     with: {
       images: { columns: { id: true, styleTags: true } },
       options: { columns: { id: true, name: true } },
@@ -1149,36 +1164,45 @@ export async function bulkUpdateProducts(
     }
 
     if (isIphoneCase && wantsStyles && targetStyles) {
+      const custom = normalizeCustomStyles(product.customStyles, {
+        productType: product.productType,
+      });
+      const offered = mergeOfferedStyleValues(targetStyles, custom);
       await upsertOption(
         product.id,
         STYLE_OPTION_NAME,
-        targetStyles,
+        offered,
         product.options,
         product.options.length,
       );
-      // Base "from" price follows the cheapest offered style.
       await db
         .update(products)
         .set({
           price: String(
-            getStylePrice(defaultStyleFor(targetStyles), product.currency),
+            minOfferedPrice({
+              productType: product.productType,
+              currency: product.currency,
+              canonicalStyles: targetStyles,
+              customStyles: custom,
+              basePrice: product.price,
+            }),
           ),
           updatedAt: new Date(),
         })
         .where(eq(products.id, product.id));
-      // Re-point per-image tags at the new offered set. This also collapses any
-      // image still carrying several tags, so applying styles in bulk repairs
-      // legacy rows on the way past.
+      // Re-point per-image tags at the new offered set. Custom variation
+      // labels stay in `offered` so a bulk bundle edit cannot untag the
+      // photo a named product is linked to.
       await Promise.all(
         product.images
           .filter(
-            (img) => !imageStyleTagsAreCanonical(img.styleTags, targetStyles),
+            (img) => !imageStyleTagsAreCanonical(img.styleTags, offered),
           )
           .map((img) =>
             db
               .update(productImages)
               .set({
-                styleTags: normalizeImageStyleTags(img.styleTags, targetStyles),
+                styleTags: normalizeImageStyleTags(img.styleTags, offered),
               })
               .where(eq(productImages.id, img.id)),
           ),
@@ -1198,7 +1222,7 @@ export async function bulkUpdateProducts(
     updated += 1;
   }
 
-  revalidateCatalog();
+  await revalidateCatalog();
 
   const parts: string[] = [];
   if (wantsStatus)
@@ -1249,6 +1273,8 @@ export type BulkEditProduct = {
   images: BulkEditImage[];
   availableStyles: string[];
   availableModels: string[];
+  containsMultipleProducts: boolean;
+  customStyles: CustomStyle[];
 };
 
 /** A single product's curated state, sent back to {@link bulkSaveProducts}. */
@@ -1259,6 +1285,8 @@ export type PerProductSave = {
   styleTags: Record<number, string[]>;
   availableStyles: string[];
   availableModels: string[];
+  containsMultipleProducts: boolean;
+  customStyles: CustomStyle[];
 };
 
 export type BulkSaveResult = {
@@ -1293,6 +1321,8 @@ export async function getBulkEditProducts(
       videoUrl: true,
       videoPosition: true,
       sourceFolder: true,
+      containsMultipleProducts: true,
+      customStyles: true,
     },
     with: {
       images: {
@@ -1334,6 +1364,12 @@ export async function getBulkEditProducts(
       })),
       availableStyles: offeredPriceValues(p.productType, p.options),
       availableModels: offeredCompatibilityValues(p.productType, p.options),
+      containsMultipleProducts: p.containsMultipleProducts,
+      customStyles: hydrateCustomStyles(
+        p.customStyles,
+        p.images,
+        p.productType,
+      ),
     };
   });
 }
@@ -1366,6 +1402,8 @@ export async function bulkSaveProducts(
         styleTags: item.styleTags,
         availableStyles: item.availableStyles,
         availableModels: item.availableModels,
+        containsMultipleProducts: item.containsMultipleProducts,
+        customStyles: item.customStyles,
       });
       if (res.ok) saved += 1;
       else failed.push({ productId: item.productId, message: res.message });
@@ -1377,7 +1415,7 @@ export async function bulkSaveProducts(
     }
   }
 
-  revalidateCatalog();
+  await revalidateCatalog();
 
   const ok = failed.length === 0;
   const message = ok
@@ -1448,7 +1486,7 @@ export async function approveThumbnailProposal(
   }
   const res = await approveProposal(productId, { publish: publish === true });
   if (res.ok) {
-    revalidateCatalog(productId);
+    await revalidateCatalog(productId);
     revalidatePath("/admin/products/thumbnails");
   }
   return { ok: res.ok, message: res.message };
@@ -1564,7 +1602,7 @@ export async function bulkApproveThumbnails(
     publish: publish === true,
   });
   if (processed > 0) {
-    revalidateCatalog();
+    await revalidateCatalog();
     revalidatePath("/admin/products/thumbnails");
   }
   return {
