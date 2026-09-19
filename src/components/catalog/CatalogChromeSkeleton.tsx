@@ -30,6 +30,47 @@ export function CatalogChromeSkeleton() {
   );
 }
 
+/**
+ * `/products` listing pending UI. Used from the `(listing)` route group so it
+ * never wraps `/products/[slug]` — a parent `loading.tsx` would flush HTTP 200
+ * before `notFound()` and turn missing PDPs into soft-404 HTML.
+ */
+export function ProductsListingSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-3 sm:px-6 sm:py-7">
+      <CatalogChromeSkeleton />
+      <div className="mb-4 mt-3 h-5 w-40 animate-pulse rounded-full bg-[var(--muted)] sm:mb-6 sm:mt-4" />
+      <CatalogGridSkeleton />
+    </div>
+  );
+}
+
+/**
+ * Collection / device landing pending UI. Rendered from an in-page Suspense
+ * boundary *after* the slug has been resolved, so missing landings can still
+ * return a real 404 instead of a streamed 200 skeleton.
+ */
+export function CatalogIdentityLandingSkeleton({
+  showDescription = false,
+}: {
+  showDescription?: boolean;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
+      <div className="mb-3 rounded-2xl border border-[var(--border)] bg-[var(--muted)]/40 px-3 py-3 sm:mb-4 sm:rounded-3xl sm:px-6 sm:py-4">
+        <div className="h-4 w-40 animate-pulse rounded-full bg-[var(--muted)]" />
+        <div className="mt-2 h-7 w-56 animate-pulse rounded-full bg-[var(--muted)] sm:h-8" />
+        {showDescription ? (
+          <div className="mt-2 h-4 w-72 max-w-full animate-pulse rounded-full bg-[var(--muted)]" />
+        ) : null}
+      </div>
+      <CatalogChromeSkeleton />
+      <div className="mb-4 mt-3 h-5 w-40 animate-pulse rounded-full bg-[var(--muted)] sm:mb-6 sm:mt-4" />
+      <CatalogGridSkeleton />
+    </div>
+  );
+}
+
 export function CatalogGridSkeleton({ count = 15 }: { count?: number }) {
   return (
     <div className={PRODUCT_MOSAIC}>

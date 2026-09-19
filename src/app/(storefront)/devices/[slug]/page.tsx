@@ -59,7 +59,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const device = findDevice(slug);
-  if (!device) return { title: "Not found" };
+  if (!device || device.comingSoon) notFound();
   const seo = deviceSeo(slug, device.label);
   return catalogPageMetadata({
     title: seo.heading,

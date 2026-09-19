@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
+import type { Collection } from "@/lib/db/schema";
+import { CatalogIdentityLandingSkeleton } from "@/components/catalog/CatalogChromeSkeleton";
 import {
   getCollectionBySlug,
   getCollectionTree,
@@ -60,7 +63,7 @@ export async function generateMetadata({
     getCollectionTree().catch(() => []),
     searchParams,
   ]);
-  if (!collection) return { title: "Collection not found" };
+  if (!collection) notFound();
   const catalogParams = parseCatalogParams(
     rawSearchParams,
     `/collections/${slug}`,
@@ -118,6 +121,24 @@ export default async function CollectionPage({
   const collection = await getCollectionBySlug(slug);
   if (!collection) notFound();
 
+  return (
+    <Suspense fallback={<CatalogIdentityLandingSkeleton />}>
+      <CollectionCatalog
+        collection={collection}
+        searchParams={searchParams}
+      />
+    </Suspense>
+  );
+}
+
+async function CollectionCatalog({
+  collection,
+  searchParams,
+}: {
+  collection: Collection;
+  searchParams: Promise<CatalogSearchParams>;
+}) {
+  const slug = collection.slug;
   const basePath = `/collections/${slug}`;
 
   // The tree is what makes this page a catalog rather than a list: it carries

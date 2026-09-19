@@ -12,7 +12,7 @@
  *  - Timed Data Cache (`revalidate: 300|3600`) rewriting unchanged payloads.
  */
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -84,7 +84,7 @@ const FORCE_DYNAMIC_STOREFRONT = [
   "src/app/(storefront)/devices/[slug]/opengraph-image.tsx",
   "src/app/sitemap.ts",
   "src/app/llms.txt/route.ts",
-  "src/app/(storefront)/products/page.tsx",
+  "src/app/(storefront)/products/(listing)/page.tsx",
   "src/app/(storefront)/collections/[slug]/page.tsx",
   "src/app/(storefront)/devices/[slug]/page.tsx",
 ];
@@ -229,6 +229,34 @@ test("storefront invalidation does not persist ISR paths", () => {
 
   const reviews = read("src/lib/reviews.ts");
   assert.match(reviews, /export async function getReviewProductRef/);
+});
+
+test("listing skeletons do not wrap routes that call notFound()", () => {
+  // A sibling/parent `loading.tsx` flushes HTTP 200 before the page can 404.
+  assert.equal(existsSync("src/app/(storefront)/products/loading.tsx"), false);
+  assert.equal(
+    existsSync("src/app/(storefront)/products/(listing)/loading.tsx"),
+    true,
+  );
+  assert.equal(
+    existsSync("src/app/(storefront)/collections/[slug]/loading.tsx"),
+    false,
+  );
+  assert.equal(
+    existsSync("src/app/(storefront)/devices/[slug]/loading.tsx"),
+    false,
+  );
+});
+
+test("missing catalog landings call notFound instead of a 200 title", () => {
+  const collection = read("src/app/(storefront)/collections/[slug]/page.tsx");
+  assert.doesNotMatch(collection, /title: "Collection not found"/);
+  assert.match(collection, /if \(!collection\) notFound\(\)/);
+  const device = read("src/app/(storefront)/devices/[slug]/page.tsx");
+  assert.doesNotMatch(device, /title: "Not found"/);
+  assert.match(device, /if \(!device \|\| device\.comingSoon\) notFound\(\)/);
+  const blog = read("src/app/(storefront)/blog/[slug]/page.tsx");
+  assert.match(blog, /if \(!post\) notFound\(\)/);
 });
 
 test("insights snapshot time is catalog data, not wall clock", () => {

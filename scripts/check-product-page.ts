@@ -8,7 +8,7 @@
  * on that ISR route and caching unpublished HTML for shoppers.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import {
   LIVE_PRODUCT_STATUS,
@@ -118,6 +118,14 @@ test("the public PDP stays active-only and never loads admin products", () => {
   );
   assert.match(publicPdp, /if \(!product\) notFound\(\)/);
   assert.doesNotMatch(publicPdp, /title: "Product not found"/);
+});
+
+test("the catalog listing skeleton does not wrap the PDP", () => {
+  assert.equal(existsSync("src/app/(storefront)/products/loading.tsx"), false);
+  assert.equal(
+    existsSync("src/app/(storefront)/products/(listing)/loading.tsx"),
+    true,
+  );
 });
 
 test("unpublished preview is session-gated and not the admin chrome", () => {

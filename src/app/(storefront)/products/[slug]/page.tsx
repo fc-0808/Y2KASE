@@ -17,7 +17,14 @@ import {
   ProductPageView,
 } from "@/components/product/ProductPageView";
 
-/** Public PDP: never durable ISR. CDN caches the HTML for new and returning visitors. */
+/**
+ * Public PDP: never durable ISR. CDN caches the HTML for new and returning
+ * visitors.
+ *
+ * There is no `loading.tsx` in `products/` — that file would wrap this
+ * segment, flush HTTP 200, then paint the catalog skeleton on every PDP
+ * navigation. The listing skeleton lives in `products/(listing)/` instead.
+ */
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({

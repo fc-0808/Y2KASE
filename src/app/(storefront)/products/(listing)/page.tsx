@@ -37,7 +37,12 @@ import {
   type CatalogSearchParams,
 } from "@/lib/catalog/params";
 
-/** Faceted catalog: never durable ISR. Each query string is a unique write. */
+/**
+ * Faceted catalog: never durable ISR. Each query string is a unique write.
+ *
+ * This file lives in the `(listing)` group so `loading.tsx` applies only to
+ * `/products`, not `/products/[slug]`.
+ */
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
