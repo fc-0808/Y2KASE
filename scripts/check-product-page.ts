@@ -116,6 +116,8 @@ test("the public PDP stays active-only and never loads admin products", () => {
     productLib,
     /eq\(products\.slug, slug\),\s*eq\(products\.status, "active"\)/,
   );
+  assert.match(publicPdp, /if \(!product\) notFound\(\)/);
+  assert.doesNotMatch(publicPdp, /title: "Product not found"/);
 });
 
 test("unpublished preview is session-gated and not the admin chrome", () => {

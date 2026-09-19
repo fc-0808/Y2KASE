@@ -30,7 +30,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const post = await getPublishedPost(slug);
-  if (!post) return { title: "Not found" };
+  if (!post) notFound();
   const canonical = `/blog/${slug}`;
   const description = truncateDescription(post.meta.description);
   const image = post.meta.cover ?? "/brand/og.webp";

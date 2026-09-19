@@ -27,7 +27,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const product = await getProductBySlug(slug);
-  if (!product) return { title: "Product not found" };
+  if (!product) notFound();
 
   const description = truncateDescription(
     product.description?.trim() || BRAND.description,
