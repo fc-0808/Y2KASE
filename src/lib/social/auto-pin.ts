@@ -11,9 +11,10 @@
  * ──────────────────────────────────
  * Pinterest ranks accounts by engagement quality, not upload volume. Five
  * close-ups of the same case in a row train the model to skip this shop.
- * One pin per SKU, a multi-day cooldown, video-first, and 2:3 fresh-pin
- * graphics (see {@link renderFreshPinImage}) is how CASETiFY-tier brands
- * actually merchandise: remaining angles become later fresh pins, not same-day
+ * One pin per SKU, a multi-day cooldown, a still/video mix (never exhaust
+ * the clip backlog first), and 2:3 fresh-pin graphics (see
+ * {@link renderFreshPinImage}) is how CASETiFY-tier brands actually
+ * merchandise: remaining angles become later fresh pins, not same-day
  * duplicates. Editorial rules live in {@link pinterest-strategy}.
  *
  * What counts as postable media
@@ -66,7 +67,9 @@ import {
   pinterestPinsPerRun,
   pinterestProductCooldownDays,
   planPinSlot,
+  preferredPinMedia,
   promptWithAltText,
+  type PinterestMediaPreference,
   sanitizePinterestCaption,
   sanitizePinterestHashtags,
   sanitizePinterestTitle,
@@ -276,11 +279,24 @@ export type NextListing = {
 
 /**
  * Next active listing that still has un-pinned media, is not in product
- * cooldown, and is not in `excludeIds` (already used this run). Video-ready
- * listings sort first so the higher-engagement format gets the slot.
+ * cooldown, and is not in `excludeIds` (already used this run). When
+ * `preferMedia` is set, listings that can fill that format are tried first so
+ * a video backlog cannot starve stills (or vice versa). Falls back to any
+ * eligible SKU if the preferred format has no candidate.
  */
 async function getNextEligibleProductId(
   excludeIds: readonly number[] = [],
+  preferMedia?: PinterestMediaPreference,
+): Promise<number | null> {
+  const id = await selectEligibleProductId(excludeIds, preferMedia);
+  if (id != null) return id;
+  if (preferMedia) return selectEligibleProductId(excludeIds);
+  return null;
+}
+
+async function selectEligibleProductId(
+  excludeIds: readonly number[] = [],
+  preferMedia?: PinterestMediaPreference,
 ): Promise<number | null> {
   const cooldownDays = AUTO_PIN_PRODUCT_COOLDOWN_DAYS;
   const excludeClause =
@@ -289,11 +305,28 @@ async function getNextEligibleProductId(
           excludeIds.map((id) => String(Number(id))).join(","),
         )})`
       : sql``;
+  const preferClause =
+    preferMedia === "image"
+      ? sql`AND EXISTS (
+          SELECT 1 FROM product_images pi
+          WHERE pi.product_id = p.id
+            AND ${isPinnablePhoto("pi")}
+            AND ${imageNeedsPin("pi")}
+        )`
+      : preferMedia === "video"
+        ? sql`AND p.video_url LIKE 'http%'
+            AND ${videoNeedsPin("p.id")}
+            AND EXISTS (
+              SELECT 1 FROM product_images pi2
+              WHERE pi2.product_id = p.id AND ${isPinnablePhoto("pi2")}
+            )`
+        : sql``;
   const res = await db.execute<{ id: number }>(sql`
     SELECT p.id
     FROM products p
     WHERE p.status = 'active'
       AND ${productNeedsPinning()}
+      ${preferClause}
       ${excludeClause}
       AND NOT EXISTS (
         SELECT 1 FROM social_creatives sc
@@ -302,10 +335,7 @@ async function getNextEligibleProductId(
           AND sc.status = 'published'
           AND sc.published_at >= now() - (${cooldownDays} * interval '1 day')
       )
-    ORDER BY
-      (p.video_url LIKE 'http%' AND ${videoNeedsPin("p.id")}) DESC,
-      p.created_at ASC,
-      p.id ASC
+    ORDER BY p.created_at ASC, p.id ASC
     LIMIT 1
   `);
   return rows<{ id: number }>(res)[0]?.id ?? null;
@@ -440,20 +470,47 @@ export async function getListingsPostedToday(): Promise<number> {
   return rows<{ n: number }>(res)[0]?.n ?? 0;
 }
 
+export type PinsPostedToday = {
+  total: number;
+  images: number;
+  videos: number;
+};
+
+/**
+ * Pins published today (UTC) split by format. Drives both the daily cap and
+ * the still/video mix so a clip backlog cannot monopolize every slot.
+ */
+export async function getPinsPostedTodayByType(): Promise<PinsPostedToday> {
+  const empty: PinsPostedToday = { total: 0, images: 0, videos: 0 };
+  if (!isDbConfigured()) return empty;
+  const res = await db.execute<{
+    total: number;
+    images: number;
+    videos: number;
+  }>(sql`
+    SELECT
+      count(*)::int AS total,
+      count(*) FILTER (WHERE media_type IN ('image','carousel'))::int AS images,
+      count(*) FILTER (WHERE media_type = 'video')::int AS videos
+    FROM social_creatives
+    WHERE platform = 'pinterest' AND status = 'published'
+      AND published_at >= ${startOfUtcDay().toISOString()}
+  `);
+  const r = rows<{ total: number; images: number; videos: number }>(res)[0];
+  return {
+    total: r?.total ?? 0,
+    images: r?.images ?? 0,
+    videos: r?.videos ?? 0,
+  };
+}
+
 /**
  * Pins published today (UTC) across auto-pin and manual publishes. Drives the
  * per-day cap so volume stays controlled across every cron run and any manual
  * triggers combined.
  */
 export async function getPinsPostedToday(): Promise<number> {
-  if (!isDbConfigured()) return 0;
-  const res = await db.execute<{ n: number }>(sql`
-    SELECT count(*)::int AS n
-    FROM social_creatives
-    WHERE platform = 'pinterest' AND status = 'published'
-      AND published_at >= ${startOfUtcDay().toISOString()}
-  `);
-  return rows<{ n: number }>(res)[0]?.n ?? 0;
+  return (await getPinsPostedTodayByType()).total;
 }
 
 export async function getAutoPinCoverage(): Promise<AutoPinCoverage> {
@@ -574,7 +631,9 @@ export type NextListingPreview = {
  */
 export async function getNextListingPreview(): Promise<NextListingPreview | null> {
   if (!isDbConfigured()) return null;
-  const productId = await getNextEligibleProductId();
+  const posted = await getPinsPostedTodayByType();
+  const prefer = preferredPinMedia(posted);
+  const productId = await getNextEligibleProductId([], prefer);
   if (!productId) return null;
   const listing = await loadListing(productId);
   if (!listing) return null;
@@ -584,9 +643,12 @@ export async function getNextListingPreview(): Promise<NextListingPreview | null
   const plan = planPinSlot({
     hasUnpinnedPhotos: photoCount > 0,
     hasUnpinnedVideo: hasVideo,
-    pinsPostedToday: await getPinsPostedToday(),
+    pinsPostedToday: posted.total,
+    imagesPostedToday: posted.images,
+    videosPostedToday: posted.videos,
     dailyCap: AUTO_PIN_PER_DAY,
     productPinnedWithinCooldown: false,
+    preferMedia: prefer,
   });
   const mediaType =
     plan.action === "post" ? plan.mediaType : hasVideo ? "video" : "image";
@@ -922,13 +984,19 @@ async function resolveBoardId(explicit?: string): Promise<string> {
 
 type PinJob = { kind: "image"; image: PinImage } | { kind: "video" };
 
-function pickSlotJob(listing: NextListing): PinJob | null {
+function pickSlotJob(
+  listing: NextListing,
+  mix: PinsPostedToday & { dailyCap: number },
+): PinJob | null {
   const plan = planPinSlot({
     hasUnpinnedPhotos: listing.images.length > 0,
     hasUnpinnedVideo: Boolean(listing.videoUrl),
-    pinsPostedToday: 0,
-    dailyCap: AUTO_PIN_PER_DAY,
+    pinsPostedToday: mix.total,
+    imagesPostedToday: mix.images,
+    videosPostedToday: mix.videos,
+    dailyCap: mix.dailyCap,
     productPinnedWithinCooldown: false,
+    preferMedia: preferredPinMedia(mix),
   });
   if (plan.action !== "post") return null;
   if (plan.mediaType === "video") return { kind: "video" };
@@ -1049,8 +1117,8 @@ export type AutoPinResult = {
 
 /**
  * Post the next `max` curated pins to Pinterest. Each pin is one asset from a
- * different listing (video preferred), never a gallery dump. A short pause
- * between posts keeps us under Pinterest's write rate limit.
+ * different listing (stills and videos mixed), never a gallery dump. A short
+ * pause between posts keeps us under Pinterest's write rate limit.
  */
 export async function runAutoPin(
   opts: { max?: number; boardId?: string; dailyCap?: number } = {},
@@ -1118,9 +1186,9 @@ export async function runAutoPin(
     console.error("[auto-pin] stale claim reclaim failed:", err);
   }
 
-  let postedToday = await getPinsPostedToday();
+  let posted = await getPinsPostedTodayByType();
   const dailyCap = opts.dailyCap ?? AUTO_PIN_PER_DAY;
-  const allowed = Math.max(0, dailyCap - postedToday);
+  const allowed = Math.max(0, dailyCap - posted.total);
   if (allowed <= 0) {
     return { ...result, reason: "daily-cap-reached" };
   }
@@ -1154,12 +1222,13 @@ export async function runAutoPin(
   const usedProductIds: number[] = [];
 
   for (let n = 0; n < maxPins; n++) {
-    if (postedToday >= dailyCap) {
+    if (posted.total >= dailyCap) {
       if (n === 0) result.reason = "daily-cap-reached";
       break;
     }
 
-    const productId = await getNextEligibleProductId(usedProductIds);
+    const prefer = preferredPinMedia(posted);
+    const productId = await getNextEligibleProductId(usedProductIds, prefer);
     if (!productId) {
       if (n === 0) result.reason = "all-pinned";
       break;
@@ -1172,7 +1241,7 @@ export async function runAutoPin(
       continue;
     }
 
-    const job = pickSlotJob(listing);
+    const job = pickSlotJob(listing, { ...posted, dailyCap });
     if (!job) {
       result.skipped++;
       continue;
@@ -1240,9 +1309,14 @@ export async function runAutoPin(
 
     if (outcome.ok) {
       result.mediaPinned++;
-      postedToday++;
-      if (job.kind === "image") summary.images++;
-      else summary.videos++;
+      posted.total++;
+      if (job.kind === "image") {
+        summary.images++;
+        posted.images++;
+      } else {
+        summary.videos++;
+        posted.videos++;
+      }
     } else {
       result.failed++;
       summary.failed++;

@@ -21,8 +21,11 @@
  *   2. One pin per product per run, and a multi-day cooldown before the same
  *      SKU appears again. Remaining gallery shots go out later as fresh pins,
  *      not as a same-day duplicate row.
- *   3. Video first when the listing has an un-pinned clip. Video pins earn
- *      materially more saves than stills; the stills wait.
+ *   3. Mix stills and videos across the day. Video pins can earn more saves,
+ *      but exhausting a 100+ clip backlog first turns Created into a 0:12 wall
+ *      and starves search-indexed 2:3 stills. Alternate: when today's video
+ *      count is ahead (or tied), post a still; otherwise post a video. A
+ *      listing with both formats still only contributes one pin per run.
  *   4. Fresh pin graphics: a 2:3 (1000×1500) card with the REAL product photo
  *      and a short readable overlay. New image bytes = a fresh pin even when
  *      the destination URL is the same PDP. The product must remain the hero
@@ -185,11 +188,17 @@ export function isPinCardEnabled(
 
 export type PinterestMediaType = "image" | "video";
 
+export type PinterestMediaPreference = PinterestMediaType;
+
 export type PinterestSlotPlan =
   | {
       action: "post";
       mediaType: PinterestMediaType;
-      reason: "prefer-video" | "video-remaining" | "image-remaining";
+      reason:
+        | "prefer-video"
+        | "prefer-image"
+        | "video-remaining"
+        | "image-remaining";
     }
   | {
       action: "skip";
@@ -197,17 +206,36 @@ export type PinterestSlotPlan =
     };
 
 /**
+ * Which format the next slot should try to fill so Created is not a clip dump.
+ *
+ * Tied counts (including 0–0 at the start of a UTC day) pick a still: overlay
+ * cards need image bytes, and a video backlog must not starve them.
+ */
+export function preferredPinMedia(input: {
+  images: number;
+  videos: number;
+}): PinterestMediaPreference {
+  if (input.videos > input.images) return "image";
+  if (input.images > input.videos) return "video";
+  return "image";
+}
+
+/**
  * Decide the single pin this product may contribute to today's drip.
  *
  * Product *selection* (coverage + cooldown) lives in auto-pin SQL. This
- * function only picks media type and enforces the daily pin cap.
+ * function picks media type from the day's still/video mix and enforces the
+ * daily pin cap.
  */
 export function planPinSlot(input: {
   hasUnpinnedPhotos: boolean;
   hasUnpinnedVideo: boolean;
   pinsPostedToday: number;
+  imagesPostedToday?: number;
+  videosPostedToday?: number;
   dailyCap?: number;
   productPinnedWithinCooldown: boolean;
+  preferMedia?: PinterestMediaPreference;
 }): PinterestSlotPlan {
   const cap = input.dailyCap ?? pinterestPinsPerDay();
   if (input.pinsPostedToday >= cap) {
@@ -219,14 +247,30 @@ export function planPinSlot(input: {
   if (input.productPinnedWithinCooldown) {
     return { action: "skip", reason: "product-cooldown" };
   }
-  if (input.hasUnpinnedVideo) {
+  const prefer =
+    input.preferMedia ??
+    preferredPinMedia({
+      images: input.imagesPostedToday ?? 0,
+      videos: input.videosPostedToday ?? 0,
+    });
+  if (prefer === "video") {
+    if (input.hasUnpinnedVideo) {
+      return {
+        action: "post",
+        mediaType: "video",
+        reason: input.hasUnpinnedPhotos ? "prefer-video" : "video-remaining",
+      };
+    }
+    return { action: "post", mediaType: "image", reason: "image-remaining" };
+  }
+  if (input.hasUnpinnedPhotos) {
     return {
       action: "post",
-      mediaType: "video",
-      reason: input.hasUnpinnedPhotos ? "prefer-video" : "video-remaining",
+      mediaType: "image",
+      reason: input.hasUnpinnedVideo ? "prefer-image" : "image-remaining",
     };
   }
-  return { action: "post", mediaType: "image", reason: "image-remaining" };
+  return { action: "post", mediaType: "video", reason: "video-remaining" };
 }
 
 export function describePinSlot(plan: PinterestSlotPlan): string {
@@ -244,8 +288,11 @@ export function describePinSlot(plan: PinterestSlotPlan): string {
   }
   if (plan.mediaType === "video") {
     return plan.reason === "prefer-video"
-      ? "Video first — video pins earn more saves than stills. Remaining photos wait for later days."
+      ? "Video this slot — mixed with stills so Created is not a clip dump. Remaining photos wait for a later mix slot."
       : "Video pin from the product clip.";
+  }
+  if (plan.reason === "prefer-image") {
+    return "Still this slot — Pinterest search indexes 2:3 cards. Remaining video waits for a later mix slot.";
   }
   return "One still pin from a distinct gallery photo. Other angles wait so they stay visually fresh.";
 }

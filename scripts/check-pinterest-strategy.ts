@@ -28,6 +28,7 @@ import {
   pinterestPinsPerRun,
   pinterestProductCooldownDays,
   planPinSlot,
+  preferredPinMedia,
   promptWithAltText,
   sanitizePinterestCaption,
   sanitizePinterestHashtags,
@@ -67,19 +68,56 @@ assert.equal(isPinCardEnabled(""), true);
 assert.equal(isPinCardEnabled("true"), true);
 assert.equal(isPinCardEnabled("false"), false);
 
-// ── Slot picker: video first, one pin, honour cap + cooldown ─────────────────
+// ── Slot picker: mix stills and videos, one pin, honour cap + cooldown ───────
+
+assert.equal(preferredPinMedia({ images: 0, videos: 0 }), "image");
+assert.equal(preferredPinMedia({ images: 0, videos: 2 }), "image");
+assert.equal(preferredPinMedia({ images: 1, videos: 0 }), "video");
+assert.equal(preferredPinMedia({ images: 2, videos: 2 }), "image");
 
 const bothDue = planPinSlot({
   hasUnpinnedPhotos: true,
   hasUnpinnedVideo: true,
   pinsPostedToday: 0,
+  imagesPostedToday: 0,
+  videosPostedToday: 0,
   dailyCap: 4,
   productPinnedWithinCooldown: false,
 });
 assert.equal(bothDue.action, "post");
 if (bothDue.action === "post") {
-  assert.equal(bothDue.mediaType, "video");
-  assert.equal(bothDue.reason, "prefer-video");
+  assert.equal(bothDue.mediaType, "image");
+  assert.equal(bothDue.reason, "prefer-image");
+}
+
+const catchUpStills = planPinSlot({
+  hasUnpinnedPhotos: true,
+  hasUnpinnedVideo: true,
+  pinsPostedToday: 2,
+  imagesPostedToday: 0,
+  videosPostedToday: 2,
+  dailyCap: 4,
+  productPinnedWithinCooldown: false,
+});
+assert.equal(catchUpStills.action, "post");
+if (catchUpStills.action === "post") {
+  assert.equal(catchUpStills.mediaType, "image");
+  assert.equal(catchUpStills.reason, "prefer-image");
+}
+
+const afterStill = planPinSlot({
+  hasUnpinnedPhotos: true,
+  hasUnpinnedVideo: true,
+  pinsPostedToday: 1,
+  imagesPostedToday: 1,
+  videosPostedToday: 0,
+  dailyCap: 4,
+  productPinnedWithinCooldown: false,
+});
+assert.equal(afterStill.action, "post");
+if (afterStill.action === "post") {
+  assert.equal(afterStill.mediaType, "video");
+  assert.equal(afterStill.reason, "prefer-video");
 }
 
 const photosOnly = planPinSlot({
@@ -93,6 +131,21 @@ assert.equal(photosOnly.action, "post");
 if (photosOnly.action === "post") {
   assert.equal(photosOnly.mediaType, "image");
   assert.equal(photosOnly.reason, "image-remaining");
+}
+
+const videoOnlyWhenStillsAhead = planPinSlot({
+  hasUnpinnedPhotos: false,
+  hasUnpinnedVideo: true,
+  pinsPostedToday: 0,
+  imagesPostedToday: 0,
+  videosPostedToday: 0,
+  dailyCap: 4,
+  productPinnedWithinCooldown: false,
+});
+assert.equal(videoOnlyWhenStillsAhead.action, "post");
+if (videoOnlyWhenStillsAhead.action === "post") {
+  assert.equal(videoOnlyWhenStillsAhead.mediaType, "video");
+  assert.equal(videoOnlyWhenStillsAhead.reason, "video-remaining");
 }
 
 assert.deepEqual(
@@ -128,7 +181,8 @@ assert.deepEqual(
   { action: "skip", reason: "no-media" },
 );
 
-assert.match(describePinSlot(bothDue), /Video first/);
+assert.match(describePinSlot(bothDue), /Still this slot/);
+assert.match(describePinSlot(afterStill), /Video this slot/);
 assert.match(
   describePinSlot({ action: "skip", reason: "daily-cap" }),
   /already used/,
