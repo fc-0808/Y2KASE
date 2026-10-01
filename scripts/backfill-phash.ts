@@ -4,12 +4,14 @@
  *   npm run db:phash        # once, to add the column
  *   npm run backfill:phash  # hash every existing image
  *
- * Downloads each image from its public R2 URL, computes a dHash, and stores it.
- * Idempotent + resumable: only rows where phash IS NULL are processed, so
- * re-running picks up where it left off (e.g. after a transient network error).
+ * Downloads each image from its public R2 URL, computes a v2 composite
+ * fingerprint (centre-crop dHash + DCT pHash + colour layout), and stores it.
+ * Idempotent + resumable: only rows whose hash is missing or from a previous
+ * algorithm version are processed, so re-running picks up where it left off
+ * and a matcher upgrade rewrites the old 16-char dHashes.
  *
- * The same core lives in `src/lib/catalog/phash-backfill.ts` and powers the
- * admin "Find duplicates" button — keep behaviour in sync.
+ * Bytes come from the R2 S3 API (not the public CDN). Failures are skipped
+ * via an id cursor so one dead object cannot stall the rest of the catalogue.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -25,8 +27,9 @@ async function main() {
 
   const coverage = await getPhashCoverage();
   console.log(
-    `\nFound ${coverage.missingImages} image(s) without a perceptual hash` +
-      ` (${coverage.unscannedProducts} product(s) unscanned).\n`,
+    `\nFound ${coverage.missingImages} image(s) needing a current fingerprint` +
+      ` (${coverage.staleImages} from a previous algorithm, ` +
+      `${coverage.unscannedProducts} product(s) unscanned).\n`,
   );
 
   if (coverage.missingImages === 0) {
@@ -37,24 +40,18 @@ async function main() {
   let hashed = 0;
   let failed = 0;
   let batch = 0;
+  let afterId = 0;
 
   for (;;) {
     batch++;
-    const res = await backfillMissingPhashes(PHASH_BACKFILL_BATCH_SIZE);
+    const res = await backfillMissingPhashes(PHASH_BACKFILL_BATCH_SIZE, afterId);
     hashed += res.hashed;
     failed += res.failed;
+    afterId = res.lastId;
     console.log(
-      `Batch ${batch}: hashed ${res.hashed}, failed ${res.failed}, remaining ${res.remaining}`,
+      `Batch ${batch}: hashed ${res.hashed}, skipped ${res.failed}, remaining ${res.remaining}`,
     );
-    // No progress and nothing left, or a full batch of failures with work
-    // still queued — stop so we don't spin forever on permanently broken URLs.
-    if (res.remaining === 0) break;
-    if (res.hashed === 0) {
-      console.error(
-        "No images hashed in this batch — remaining URLs may be unreachable. Aborting.",
-      );
-      break;
-    }
+    if (res.scanned === 0) break;
   }
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

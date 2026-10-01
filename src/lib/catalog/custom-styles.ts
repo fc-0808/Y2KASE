@@ -19,6 +19,8 @@ import {
   STYLES,
   getProductEntryPrice,
   getStylePrice,
+  effectiveStylePrice,
+  normalizeStylePrices,
   normalizeImageStyleTags,
 } from "@/lib/pricing";
 import { getProductType, priceAxisFor } from "./product-types";
@@ -152,7 +154,8 @@ export function normalizeCustomStyles(
 /**
  * Validate a draft before write. Empty rows (no label, no price) are ignored.
  * A row with a name but no price — or a price but no name — is an operator
- * error, not silent data loss.
+ * error, not silent data loss. A missing photo is allowed: shoppers keep
+ * seeing the gallery, and that style simply has no dedicated slide.
  */
 export function validateCustomStylesDraft(
   input: readonly CustomStyleInput[] | null | undefined,
@@ -282,6 +285,8 @@ export function listingUnitPrice(args: {
   currency: string;
   selected: Record<string, string>;
   customStyles?: readonly CustomStyleInput[] | null;
+  /** Canonical bundle overrides. Missing keys use the shared price table. */
+  stylePrices?: unknown;
   basePrice: string | number;
 }): number {
   const custom = normalizeCustomStyles(args.customStyles, {
@@ -292,7 +297,16 @@ export function listingUnitPrice(args: {
   const selectedStyle = args.selected[axisName];
   const matched = customStyleByLabel(custom, selectedStyle);
   if (matched) return matched.price;
-  if (axis) {
+  if (axis && selectedStyle) {
+    const override = normalizeStylePrices(args.stylePrices)[
+      selectedStyle as (typeof STYLES)[number]
+    ];
+    if (
+      (STYLES as readonly string[]).includes(selectedStyle) &&
+      override != null
+    ) {
+      return override;
+    }
     return getProductType(args.productType).getPriceFromOptions(
       args.selected,
       args.currency,
@@ -315,6 +329,8 @@ export function listingEntryPrice(args: {
   storedPrice: string | number;
   currency: string;
   customStyles?: readonly CustomStyleInput[] | null;
+  /** Case Only override. Other bundles do not change the advertised "from" price. */
+  stylePrices?: unknown;
 }): number {
   const custom = normalizeCustomStyles(args.customStyles, {
     productType: args.productType,
@@ -324,6 +340,8 @@ export function listingEntryPrice(args: {
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
     return Math.min(...custom.map((style) => style.price));
   }
+  const caseOnly = normalizeStylePrices(args.stylePrices)["Case Only"];
+  if (caseOnly != null) return caseOnly;
   return getProductEntryPrice(
     args.productType,
     args.storedPrice,
@@ -338,6 +356,7 @@ export function minOfferedPrice(args: {
   canonicalStyles: readonly string[];
   customStyles: readonly CustomStyle[];
   basePrice: string | number;
+  stylePrices?: unknown;
 }): number {
   const prices: number[] = [];
   const axis = priceAxisFor(args.productType);
@@ -350,10 +369,12 @@ export function minOfferedPrice(args: {
           : [axis.values[0]].filter(Boolean);
     for (const style of offered) {
       prices.push(
-        getProductType(args.productType).getPriceFromOptions(
-          { [axis.name]: style },
-          args.currency,
-        ),
+        (STYLES as readonly string[]).includes(style)
+          ? effectiveStylePrice(style, args.currency, args.stylePrices)
+          : getProductType(args.productType).getPriceFromOptions(
+              { [axis.name]: style },
+              args.currency,
+            ),
       );
     }
   }
@@ -670,12 +691,6 @@ export function applyCustomImageTags(
     tags[style.imageId] = normalizeImageStyleTags([style.label], offered);
   }
   return tags;
-}
-
-export function customStylesNeedPhoto(
-  styles: readonly CustomStyle[],
-): string[] {
-  return styles.filter((style) => style.imageId == null).map((style) => style.label);
 }
 
 /**

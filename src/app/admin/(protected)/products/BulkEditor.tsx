@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   X,
   Check,
@@ -21,12 +21,15 @@ import {
   TriangleAlert,
   Sparkles,
   Boxes,
+  Crop,
 } from "lucide-react";
 import {
   STYLES,
   AIRPODS_STYLES,
   IPHONE_GENERATIONS,
   IPHONE_MODELS,
+  defaultModels,
+  defaultModelRangeFromId,
   stylesForAddons,
   addonsFromStyles,
   orderStyles,
@@ -34,16 +37,19 @@ import {
   modelsForGenerationRange,
   summarizeModels,
   normalizeImageStyleTags,
+  displayedStylePrices,
+  getStylePrice,
+  STORE_CURRENCY,
 } from "@/lib/pricing";
-import { compareFilenamesNatural, formatPrice } from "@/lib/utils";
+import { compareFilenamesNatural } from "@/lib/utils";
 import { compatibilityAxisFor } from "@/lib/catalog/product-types";
 import {
   hasCompatibilityAxis,
   hasPriceAxis,
-  priceForOfferedStyle,
   summarizeCompatibility,
 } from "@/lib/catalog/offered-options";
 import { StyleTagPicker, StyleCoverageHint } from "./StyleTagPicker";
+import { StylePriceSelect } from "./StylePriceSelect";
 import { DeviceFitPicker } from "./DeviceFitPicker";
 import {
   CustomVariationsEditor,
@@ -64,6 +70,7 @@ import {
   type CustomStyle,
 } from "@/lib/catalog/custom-styles";
 import { detectProductImageStyles } from "./[id]/actions";
+import { ImageCropStudio } from "./ImageCropStudio";
 
 type Mode = "all" | "each";
 
@@ -74,6 +81,8 @@ type MediaItem =
       url: string;
       filename: string | null;
       styleTags: string[];
+      /** Ingested URL once this photo has been cropped. Null while it is original. */
+      originalUrl: string | null;
     }
   | { kind: "video"; url: string };
 
@@ -85,6 +94,8 @@ type Draft = {
   models: string[];
   containsMultipleProducts: boolean;
   customStyles: CustomStyle[];
+  /** Display strings for canonical bundle prices, keyed by style name. */
+  stylePrices: Record<string, string>;
 };
 
 export function BulkEditor({
@@ -102,7 +113,7 @@ export function BulkEditor({
   const count = productIds.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
       <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl border border-[var(--border)] bg-[var(--card)] shadow-2xl sm:rounded-3xl">
         {/* header + mode switch */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
@@ -201,7 +212,10 @@ function SameForAllPanel({
   const [styles, setStyles] = useState<string[]>(() =>
     stylesForAddons({ hasGrip: false, hasCharm: false }),
   );
-  const [models, setModels] = useState<string[]>(() => [...IPHONE_MODELS]);
+  const [prices, setPrices] = useState<Record<string, string>>(() =>
+    displayedStylePrices(STYLES, STORE_CURRENCY),
+  );
+  const [models, setModels] = useState<string[]>(() => defaultModels());
   const [pending, startTransition] = useTransition();
 
   const canApply =
@@ -211,7 +225,9 @@ function SameForAllPanel({
     startTransition(async () => {
       const res = await bulkUpdateProducts({
         productIds,
-        ...(doStyles ? { styles: { mode: "manual", styles } } : {}),
+        ...(doStyles
+          ? { styles: { mode: "manual", styles }, stylePrices: prices }
+          : {}),
         ...(doModels ? { models: orderModels(models) } : {}),
       });
       onSaved(res);
@@ -236,7 +252,18 @@ function SameForAllPanel({
           enabled={doStyles}
           onToggle={() => setDoStyles((v) => !v)}
         >
-          <StyleVariationPicker styles={styles} onChange={setStyles} />
+          <StyleVariationPicker
+            styles={styles}
+            prices={prices}
+            currency={STORE_CURRENCY}
+            onChange={(next) => {
+              setStyles(next);
+              setPrices((prev) => fillStylePrices(next, STORE_CURRENCY, prev));
+            }}
+            onPriceChange={(style, price) =>
+              setPrices((prev) => ({ ...prev, [style]: price }))
+            }
+          />
         </SectionCard>
 
         <SectionCard
@@ -280,7 +307,13 @@ function IndividualWorkspace({
   // Serialized baseline per product → cheap dirty detection.
   const [baseline, setBaseline] = useState<Record<number, string>>({});
   const [activeId, setActiveId] = useState<number | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [cropTarget, setCropTarget] = useState<{
+    productId: number;
+    imageId: number;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -419,7 +452,55 @@ function IndividualWorkspace({
     });
   }
 
-  function handleSaveAll() {
+  function commitImageEdit(
+    productId: number,
+    imageId: number,
+    next: { url: string; originalUrl: string | null },
+  ) {
+    setDrafts((prev) => {
+      const current = prev[productId];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [productId]: {
+          ...current,
+          media: replaceImageBytes(current.media, imageId, next),
+        },
+      };
+    });
+    // A crop is already stored. Fold the new URL into the baseline so it
+    // does not show up as an unsaved draft, and leave every other edit dirty.
+    setBaseline((prev) => {
+      const raw = prev[productId];
+      if (!raw) return prev;
+      try {
+        const parsed = JSON.parse(raw) as { media?: MediaItem[] };
+        if (!Array.isArray(parsed.media)) return prev;
+        parsed.media = replaceImageBytes(parsed.media, imageId, next);
+        return { ...prev, [productId]: JSON.stringify(parsed) };
+      } catch {
+        return prev;
+      }
+    });
+  }
+
+  function selectProduct(id: number) {
+    setActiveId(id);
+    setCropTarget((current) => (current?.productId === id ? current : null));
+  }
+
+  function openCrop(imageId: number) {
+    if (activeId == null) return;
+    const item = drafts[activeId]?.media.find(
+      (m) => m.kind === "image" && m.id === imageId,
+    );
+    if (!item || item.kind !== "image") return;
+    setCropTarget({ productId: activeId, imageId: item.id });
+  }
+
+  async function handleSaveAll() {
+    if (savingRef.current) return;
+    setSaveError(null);
     for (const id of order) {
       if (!dirtyIds.has(id)) continue;
       const draft = drafts[id];
@@ -429,8 +510,8 @@ function IndividualWorkspace({
         productType,
       });
       if (!validated.ok) {
-        setActiveId(id);
-        onSaved({ ok: false, message: validated.message });
+        selectProduct(id);
+        setSaveError(validated.message);
         return;
       }
     }
@@ -438,15 +519,37 @@ function IndividualWorkspace({
       .filter((id) => dirtyIds.has(id))
       .map((id) => toPerProductSave(id, drafts[id]));
     if (items.length === 0) {
-      onSaved({ ok: false, message: "No changes to save." });
+      setSaveError("No changes to save.");
       return;
     }
-    startTransition(async () => {
+    savingRef.current = true;
+    setSaving(true);
+    try {
       const res = await bulkSaveProducts(items);
+      if (!res.ok) {
+        const detail =
+          res.failed.length > 0
+            ? res.failed.map((failure) => failure.message).join(" ")
+            : res.message;
+        setSaveError(detail || "Save failed.");
+        return;
+      }
       onSaved(res);
-    });
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
+  const cropImage =
+    cropTarget == null
+      ? null
+      : (drafts[cropTarget.productId]?.media.find(
+          (item): item is Extract<MediaItem, { kind: "image" }> =>
+            item.kind === "image" && item.id === cropTarget.imageId,
+        ) ?? null);
   const active = activeId != null ? drafts[activeId] : null;
   const activeMeta = activeId != null ? meta[activeId] : null;
 
@@ -479,7 +582,7 @@ function IndividualWorkspace({
               return (
                 <li key={id}>
                   <button
-                    onClick={() => setActiveId(id)}
+                    onClick={() => selectProduct(id)}
                     className={`flex w-full items-center gap-2.5 border-b border-[var(--border)] px-3 py-2.5 text-left transition ${
                       isActive
                         ? "bg-[var(--primary)]/8"
@@ -586,6 +689,7 @@ function IndividualWorkspace({
                   }))}
                 productType={activeMeta.productType}
                 currency={activeMeta.currency}
+                onEditPhoto={(image) => openCrop(image.id)}
               />
 
               {activeMeta.productType === "iphone_case" ? (
@@ -597,7 +701,7 @@ function IndividualWorkspace({
                       </p>
                       <StyleVariationPicker
                         styles={active.styles}
-                        productType={activeMeta.productType}
+                        prices={active.stylePrices}
                         currency={activeMeta.currency}
                         requireCaseOnly={active.customStyles.length === 0}
                         onChange={(styles) => {
@@ -607,6 +711,11 @@ function IndividualWorkspace({
                           );
                           updateActive({
                             styles,
+                            stylePrices: fillStylePrices(
+                              styles,
+                              activeMeta.currency,
+                              active.stylePrices,
+                            ),
                             media: active.media.map((m) =>
                               m.kind === "image"
                                 ? {
@@ -620,6 +729,11 @@ function IndividualWorkspace({
                             ),
                           });
                         }}
+                        onPriceChange={(style, price) =>
+                          updateActive({
+                            stylePrices: { ...active.stylePrices, [style]: price },
+                          })
+                        }
                       />
                     </div>
                     <div className="rounded-2xl border border-[var(--border)] p-3.5">
@@ -642,8 +756,8 @@ function IndividualWorkspace({
                       </p>
                       <StyleVariationPicker
                         styles={active.styles}
+                        prices={active.stylePrices}
                         allowGrip={false}
-                        productType={activeMeta.productType}
                         currency={activeMeta.currency}
                         requireCaseOnly={active.customStyles.length === 0}
                         onChange={(styles) => {
@@ -653,6 +767,11 @@ function IndividualWorkspace({
                           );
                           updateActive({
                             styles,
+                            stylePrices: fillStylePrices(
+                              styles,
+                              activeMeta.currency,
+                              active.stylePrices,
+                            ),
                             media: active.media.map((m) =>
                               m.kind === "image"
                                 ? {
@@ -666,6 +785,11 @@ function IndividualWorkspace({
                             ),
                           });
                         }}
+                        onPriceChange={(style, price) =>
+                          updateActive({
+                            stylePrices: { ...active.stylePrices, [style]: price },
+                          })
+                        }
                       />
                     </div>
                   )}
@@ -718,6 +842,7 @@ function IndividualWorkspace({
                     )
                   }
                   onChange={handleMedia}
+                  onCrop={openCrop}
                 />
               </div>
             </div>
@@ -729,12 +854,31 @@ function IndividualWorkspace({
         </div>
       </div>
 
+      {cropTarget && cropImage && (
+        <ImageCropStudio
+          productId={cropTarget.productId}
+          imageId={cropImage.id}
+          url={cropImage.url}
+          filename={cropImage.filename}
+          originalUrl={cropImage.originalUrl}
+          onClose={() => setCropTarget(null)}
+          onApplied={(next) =>
+            commitImageEdit(cropTarget.productId, cropImage.id, next)
+          }
+        />
+      )}
+
       <FooterBar
         onClose={onClose}
-        primaryLabel={`Save ${dirtyIds.size} change${dirtyIds.size === 1 ? "" : "s"}`}
-        onPrimary={handleSaveAll}
-        disabled={dirtyIds.size === 0 || pending}
-        pending={pending}
+        primaryLabel={
+          saving
+            ? `Saving ${dirtyIds.size}…`
+            : `Save ${dirtyIds.size} change${dirtyIds.size === 1 ? "" : "s"}`
+        }
+        onPrimary={() => void handleSaveAll()}
+        disabled={dirtyIds.size === 0 || saving}
+        pending={saving}
+        error={saveError}
         note={
           dirtyIds.size > 0
             ? `${dirtyIds.size} product${dirtyIds.size === 1 ? "" : "s"} edited`
@@ -748,18 +892,32 @@ function IndividualWorkspace({
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared: Style picker
 // ─────────────────────────────────────────────────────────────────────────────
+function fillStylePrices(
+  styles: readonly string[],
+  currency: string,
+  current: Record<string, string>,
+): Record<string, string> {
+  const next = { ...current };
+  for (const style of styles) {
+    if (!next[style]) next[style] = getStylePrice(style, currency).toFixed(2);
+  }
+  return next;
+}
+
 function StyleVariationPicker({
   styles,
+  prices,
   onChange,
+  onPriceChange,
   allowGrip = true,
-  productType,
-  currency,
+  currency = STORE_CURRENCY,
   requireCaseOnly = true,
 }: {
   styles: string[];
+  prices: Record<string, string>;
   onChange: (styles: string[]) => void;
+  onPriceChange: (style: string, price: string) => void;
   allowGrip?: boolean;
-  productType?: string;
   currency?: string;
   /** When false, Case Only may be turned off (a custom variation carries the listing). */
   requireCaseOnly?: boolean;
@@ -790,8 +948,8 @@ function StyleVariationPicker({
   return (
     <>
       <p className="text-xs text-[var(--foreground)]/60">
-        Pick which add-ons ship — offered styles and the price update
-        automatically.
+        Pick which add-ons ship, then choose a price for each bundle. A price
+        left at the catalog default stays on the shared table.
       </p>
       <div className="mt-2.5 grid grid-cols-2 gap-2">
         {allowGrip && (
@@ -819,27 +977,22 @@ function StyleVariationPicker({
         <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--foreground)]/40">
           Offered styles
         </p>
-        <div className="flex flex-wrap gap-1.5">
-          {styles.map((s) => {
-            const price =
-              productType && currency
-                ? priceForOfferedStyle(productType, s, currency)
-                : null;
-            return (
-              <span
-                key={s}
-                className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[11px] font-semibold"
-              >
-                {s}
-                {price != null && (
-                  <span className="ml-1 tabular-nums text-[var(--foreground)]/55">
-                    {formatPrice(price, currency)}
-                  </span>
-                )}
-              </span>
-            );
-          })}
-        </div>
+        <ul className="space-y-1.5">
+          {styles.map((s) => (
+            <li key={s} className="flex items-center justify-between gap-2">
+              <span className="min-w-0 text-[11px] font-semibold">{s}</span>
+              <label className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-[var(--foreground)]/45">
+                <span>{currency}</span>
+                <StylePriceSelect
+                  style={s}
+                  currency={currency}
+                  value={prices[s] ?? ""}
+                  onChange={(price) => onPriceChange(s, price)}
+                />
+              </label>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <details className="mt-2">
@@ -874,7 +1027,7 @@ function ModelAvailabilityPicker({
   selected: string[];
   onChange: (models: string[]) => void;
 }) {
-  const [rangeFrom, setRangeFrom] = useState(IPHONE_GENERATIONS[0].id);
+  const [rangeFrom, setRangeFrom] = useState(defaultModelRangeFromId);
   const [rangeTo, setRangeTo] = useState(
     IPHONE_GENERATIONS[IPHONE_GENERATIONS.length - 1].id,
   );
@@ -997,11 +1150,13 @@ function MediaOrderEditor({
   onChange,
   preserveLabels,
   preserveImageIds,
+  onCrop,
 }: {
   productId: number;
   media: MediaItem[];
   styles: string[];
   onChange: (media: MediaItem[]) => void;
+  onCrop: (imageId: number) => void;
   /** Style tags that Detect must not overwrite (linked custom variations). */
   preserveLabels?: ReadonlySet<string>;
   /** Photos a custom row already owns — Detect must not retag them. */
@@ -1193,6 +1348,22 @@ function MediaOrderEditor({
                 <span className="absolute left-1 top-1 rounded-full bg-black/60 px-1.5 text-[10px] font-bold text-white">
                   {index + 1}
                 </span>
+                {item.kind === "image" && (
+                  <button
+                    type="button"
+                    draggable={false}
+                    onDragStart={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCrop(item.id);
+                    }}
+                    className="absolute bottom-1 right-1 grid h-6 w-6 place-items-center rounded-full bg-white text-[var(--foreground)] shadow ring-1 ring-black/10"
+                    aria-label={`Crop ${item.filename ?? "photo"}`}
+                    title="Crop and rotate"
+                  >
+                    <Crop className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
 
               <div className="min-w-0 flex-1">
@@ -1242,6 +1413,7 @@ function FooterBar({
   disabled,
   pending,
   note,
+  error,
 }: {
   onClose: () => void;
   primaryLabel: string;
@@ -1249,32 +1421,42 @@ function FooterBar({
   disabled: boolean;
   pending: boolean;
   note?: string;
+  error?: string | null;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-4">
-      <div className="flex items-center gap-3">
+    <div className="border-t border-[var(--border)] px-5 py-4">
+      {error && (
+        <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+          {error}
+        </p>
+      )}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-4 py-2 text-sm font-semibold hover:bg-[var(--muted)]"
+          >
+            Cancel
+          </button>
+          {note && (
+            <span className="text-xs text-[var(--foreground)]/55">{note}</span>
+          )}
+        </div>
         <button
-          onClick={onClose}
-          className="rounded-full px-4 py-2 text-sm font-semibold hover:bg-[var(--muted)]"
+          type="button"
+          onClick={onPrimary}
+          disabled={disabled}
+          className="flex items-center gap-2 rounded-full bg-[var(--primary)] px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
         >
-          Cancel
+          {pending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Check className="h-4 w-4" />
+          )}
+          {primaryLabel}
         </button>
-        {note && (
-          <span className="text-xs text-[var(--foreground)]/55">{note}</span>
-        )}
       </div>
-      <button
-        onClick={onPrimary}
-        disabled={disabled}
-        className="flex items-center gap-2 rounded-full bg-[var(--primary)] px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
-      >
-        {pending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Check className="h-4 w-4" />
-        )}
-        {primaryLabel}
-      </button>
     </div>
   );
 }
@@ -1377,6 +1559,7 @@ function draftFromProduct(p: BulkEditProduct): Draft {
     url: i.url,
     filename: i.filename,
     styleTags: normalizeImageStyleTags(i.styleTags, tagStyles),
+    originalUrl: i.originalUrl,
   }));
   let media = imgs;
   if (p.videoUrl) {
@@ -1395,7 +1578,24 @@ function draftFromProduct(p: BulkEditProduct): Draft {
     models: p.availableModels,
     containsMultipleProducts: p.containsMultipleProducts,
     customStyles: p.customStyles,
+    stylePrices: displayedStylePrices(
+      isIphoneCase ? STYLES : AIRPODS_STYLES,
+      p.currency,
+      p.stylePrices,
+    ),
   };
+}
+
+function replaceImageBytes(
+  media: MediaItem[],
+  imageId: number,
+  next: { url: string; originalUrl: string | null },
+): MediaItem[] {
+  return media.map((item) =>
+    item.kind === "image" && item.id === imageId
+      ? { ...item, url: next.url, originalUrl: next.originalUrl }
+      : item,
+  );
 }
 
 function serializeDraft(d: Draft): string {
@@ -1405,6 +1605,7 @@ function serializeDraft(d: Draft): string {
     models: d.models,
     containsMultipleProducts: d.containsMultipleProducts,
     customStyles: d.customStyles,
+    stylePrices: d.stylePrices,
   });
 }
 
@@ -1430,5 +1631,6 @@ function toPerProductSave(productId: number, d: Draft): PerProductSave {
     availableModels: d.models,
     containsMultipleProducts: d.containsMultipleProducts,
     customStyles: d.customStyles,
+    stylePrices: d.stylePrices,
   };
 }

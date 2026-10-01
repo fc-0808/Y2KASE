@@ -3,7 +3,7 @@ import {
   STYLES,
   STYLE_OPTION_NAME,
   MODEL_OPTION_NAME,
-  IPHONE_MODELS,
+  defaultModels,
   getBasePrice,
   getStylePrice,
 } from "@/lib/pricing";
@@ -16,7 +16,7 @@ export const iphoneCaseType: ProductTypeConfig = {
   enabled: true,
   noun: "Case",
   options: [
-    { name: MODEL_OPTION_NAME, values: [...IPHONE_MODELS], role: "compatibility" },
+    { name: MODEL_OPTION_NAME, values: defaultModels(), role: "compatibility" },
     { name: STYLE_OPTION_NAME, values: [...STYLES], role: "price" },
   ],
   mediaTagAxis: STYLE_OPTION_NAME,

@@ -5,11 +5,10 @@
  * proxy.ts — per the same defense-in-depth rule the admin area follows. An
  * anonymous (guest) session is treated as logged-out for account access.
  */
-import Link from "next/link";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { Package, Sparkles } from "lucide-react";
+import { AccountNav } from "@/app/(storefront)/account/AccountNav";
 import { getSession } from "@/lib/auth";
 import { isSignedInUser } from "@/lib/auth-redirect";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
@@ -31,41 +30,34 @@ export default async function AccountLayout({
   }
 
   const user = session.user;
+  const name = user.name?.trim() ?? "";
+  const email = user.email ?? "";
+  const showName = name.length > 0 && name.toLowerCase() !== email.toLowerCase();
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
-      <header className="mb-8">
-        <h1 className="font-display text-2xl font-black sm:text-3xl">
-          My Account
-        </h1>
-        <p className="mt-1 text-sm text-[var(--foreground)]/60">
-          Signed in as{" "}
-          <span className="font-semibold text-[var(--foreground)]">
-            {user.email}
-          </span>
-        </p>
-      </header>
+    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+      <h1 className="font-display text-2xl font-black leading-none tracking-tight sm:text-3xl">
+        My Account
+      </h1>
 
-      <div className="grid gap-8 md:grid-cols-[200px_1fr]">
-        {/* Sidebar nav */}
-        <nav className="flex gap-2 md:flex-col">
-          <Link
-            href="/account/orders"
-            className="flex items-center gap-2.5 rounded-2xl px-4 py-2.5 text-sm font-semibold transition hover:bg-[var(--muted)] hover:text-[var(--primary)]"
-          >
-            <Package className="h-4 w-4" />
-            My Orders
-          </Link>
-          <Link
-            href="/products"
-            className="flex items-center gap-2.5 rounded-2xl px-4 py-2.5 text-sm font-semibold transition hover:bg-[var(--muted)] hover:text-[var(--primary)]"
-          >
-            <Sparkles className="h-4 w-4" />
-            Keep Shopping
-          </Link>
-        </nav>
-
-        <section>{children}</section>
+      <div className="mt-5 grid items-start gap-4 md:grid-cols-[16rem_minmax(0,1fr)] md:gap-6">
+        <aside className="card-cute sticky top-[calc(var(--storefront-header-h)+0.75rem)] overflow-hidden">
+          <div className="h-1 w-full bg-holo-vivid" />
+          <div className="px-3 py-4">
+            <div className="px-3">
+              {showName ? (
+                <p className="truncate text-sm font-black leading-5">{name}</p>
+              ) : null}
+              <p className="mt-0.5 text-xs leading-4 text-[var(--foreground)]/60 [overflow-wrap:anywhere]">
+                {email}
+              </p>
+            </div>
+            <div className="mt-3">
+              <AccountNav />
+            </div>
+          </div>
+        </aside>
+        <div className="min-w-0">{children}</div>
       </div>
     </div>
   );

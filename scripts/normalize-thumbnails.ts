@@ -37,6 +37,7 @@ import {
 } from "../src/lib/ai";
 import { composeOnCanvas } from "../src/lib/catalog/normalize-thumbnail";
 import { removeHandsOnWhite } from "../src/lib/catalog/ai-cleanup";
+import { findLocalFrame } from "../src/lib/catalog/thumbnail-framing";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -133,15 +134,35 @@ async function main() {
     }
 
     try {
-      const referenceUrls = [
-        best.url,
-        ...candidates.filter((c) => c !== best).map((c) => c.url),
-      ];
-      const cleaned = await removeHandsOnWhite(referenceUrls);
-      const after = await composeOnCanvas(cleaned, {
-        padding: PADDING,
-        width: SIZE,
-      });
+      // Same gate as the admin queue: a clean paper-white shot is framed
+      // locally. Hands and scenes still pay for Nano Banana Pro.
+      const local = await findLocalFrame(
+        candidates.map((c) => ({ url: c.url, score: c.score })),
+      );
+      for (const c of candidates) c.chosen = false;
+      let after: Buffer;
+      let note: string;
+      if (local) {
+        const chosen = candidates.find((c) => c.url === local.url);
+        if (chosen) chosen.chosen = true;
+        after = await composeOnCanvas(local.bytes, {
+          padding: PADDING,
+          width: SIZE,
+        });
+        note = `Framed locally (score ${local.score.score.toFixed(2)}, ${local.score.category}) — no generative edit.`;
+      } else {
+        best.chosen = true;
+        const referenceUrls = [
+          best.url,
+          ...candidates.filter((c) => c !== best).map((c) => c.url),
+        ];
+        const cleaned = await removeHandsOnWhite(referenceUrls);
+        after = await composeOnCanvas(cleaned, {
+          padding: PADDING,
+          width: SIZE,
+        });
+        note = `Generated (score ${best.score.score.toFixed(2)}, ${best.score.category}).`;
+      }
 
       const afterFile = `${p.slug}.after.webp`;
       fs.writeFileSync(path.join(OUT_DIR, afterFile), after);
@@ -153,9 +174,9 @@ async function main() {
         candidates,
         status: "normalized",
         afterFile,
-        note: `Selected image scored ${best.score.score.toFixed(2)} (${best.score.category}).`,
+        note,
       });
-      console.log(`${label} — normalized (score ${best.score.score.toFixed(2)})`);
+      console.log(`${label} — ${local ? "framed locally" : "generated"} (${note})`);
     } catch (err) {
       failed++;
       results.push({

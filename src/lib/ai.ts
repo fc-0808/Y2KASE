@@ -341,8 +341,16 @@ STEP 2 — Three proofs. Settle each one in order before moving to the next; a
       It counts however it renders: a moulded ridge, a matte disc, or — on a
       clear or printed case — a thin coloured outline, because you are seeing the
       magnets through the back. A circle that size, in that position, is a magnet
-      ring; nothing else is put there. It still counts when a grip or stand sits
+      array; nothing else is put there. It still counts when a grip or stand sits
       on top of it, or when decoration is printed over it.
+
+      A raised ring HOLDER (a hoop or ring stand fixed on that circle, often with
+      a character face in the middle) is also MagSafe — use this same evidence.
+      A flat disc or a thin outline with no hoop is MagSafe too. This question is
+      only whether a charger can snap on. A ring holder is always MagSafe. A
+      MagSafe case often has no ring holder at all. Do not answer "no" just
+      because there is no finger ring, and do not treat the flat magnet as a
+      ring holder — that is a different check.
 
   2b "magsafe_text_visible"
       The word "MagSafe", or a magnet-ring icon, on the case, its packaging, or a
@@ -1294,6 +1302,108 @@ export async function verifyMagSafe(
     confidence: unanimous && mostlyHigh ? "high" : "low",
     evidence: modalEvidence(yes),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grip verification
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type GripVerdict = {
+  /** True only when a grip is visibly part of this product. */
+  grip: boolean;
+  evidence: "pop_grip" | "ring_stand" | "kickstand" | "none";
+};
+
+const GRIP_VERIFY_PROMPT = `You decide whether a phone-case listing includes a GRIP the customer receives. Look at every photo before answering. Return JSON only: {"grip": true|false, "evidence": "pop_grip"|"ring_stand"|"kickstand"|"none"}.
+
+A grip IS any of these, either attached to the case or shown as an included piece of the same product:
+- pop socket, pop grip, accordion grip, griptok
+- ring holder or ring stand a finger goes through
+- foldable kickstand or prop stand fixed to the back of the case
+
+A grip is NOT:
+- a dangling charm, bow, bead, plush, fruit, or keyring
+- a beaded wrist strap, chain, or lanyard
+- a flat MagSafe magnet: a thin circle, faint outline, or disc flush with the case and no raised hoop
+- glitter, printed artwork, a camera-hole decoration, or a person's fingers
+
+A magnetic ring holder whose center is filled by a character, mirror, or medallion is still a ring_stand. The hoop has to be raised. A flat magnet circle is not a ring_stand.
+
+Set grip to true only when a grip is clearly visible. If the photos show only the case and/or charms or straps, set grip to false and evidence to "none". Do not guess a grip that is not in the photos. When grip is false, evidence must be "none". When grip is true, evidence must name the kind you can see.`;
+
+const GRIP_VOTES = 3;
+
+function coerceGripEvidence(value: unknown): GripVerdict["evidence"] {
+  if (value === "pop_grip" || value === "ring_stand" || value === "kickstand") {
+    return value;
+  }
+  return "none";
+}
+
+async function verifyGripOnce(imageUrls: string[]): Promise<GripVerdict | null> {
+  try {
+    const { client, model } = visionClient();
+    const raw = await visionJsonCompletion(
+      client,
+      model,
+      [
+        { role: "system", content: GRIP_VERIFY_PROMPT },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Inspect every photo. Does this product include a grip? Return JSON.",
+            },
+            ...imageUrls.map((url) => imagePart(url, "high")),
+          ],
+        },
+      ],
+      0,
+    );
+    const obj = parseJsonObject(raw);
+    if (!obj) return null;
+    const evidence = coerceGripEvidence(obj.evidence);
+    const grip = obj.grip === true && evidence !== "none";
+    return { grip, evidence: grip ? evidence : "none" };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the photos show a grip that ships with the case.
+ *
+ * A strict majority of completed votes must say yes. A failed call returns
+ * null so an outage does not silently strip or invent a grip.
+ */
+export async function verifyProductGrip(
+  imageUrls: string[],
+): Promise<GripVerdict | null> {
+  if (imageUrls.length === 0) return null;
+  const frames = sampleEvenly(imageUrls, MAX_VERIFY_IMAGES);
+  const results = await Promise.all(
+    Array.from({ length: GRIP_VOTES }, () => verifyGripOnce(frames)),
+  );
+  const votes = results.filter((v): v is GripVerdict => v !== null);
+  if (votes.length === 0) return null;
+  const yes = votes.filter((v) => v.grip);
+  if (yes.length * 2 <= votes.length) {
+    return { grip: false, evidence: "none" };
+  }
+  const tally = new Map<GripVerdict["evidence"], number>();
+  for (const vote of yes) {
+    tally.set(vote.evidence, (tally.get(vote.evidence) ?? 0) + 1);
+  }
+  let evidence: GripVerdict["evidence"] = "pop_grip";
+  let best = 0;
+  for (const [kind, count] of tally) {
+    if (count > best) {
+      evidence = kind;
+      best = count;
+    }
+  }
+  return { grip: true, evidence };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

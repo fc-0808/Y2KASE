@@ -92,7 +92,7 @@ async function main() {
       "Production switch",
       sendEnabled,
       sendEnabled
-        ? `Enabled · cap ${process.env.MARKETING_MAX_RECIPIENTS ?? "25"}`
+        ? `Enabled · cap ${process.env.MARKETING_MAX_RECIPIENTS ?? "80"}`
         : "MARKETING_SEND_ENABLED=false (intentional until launch)",
     ),
   );

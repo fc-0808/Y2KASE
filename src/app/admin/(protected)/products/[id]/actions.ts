@@ -72,6 +72,8 @@ export type SaveProductPayload = {
   containsMultipleProducts?: boolean;
   /** Operator-defined Style values linked to photos. */
   customStyles?: SaveProductPayloadCustomStyle[];
+  /** Canonical bundle prices. Omitted keys keep the shared table. */
+  stylePrices?: Record<string, string | number>;
 };
 
 type SaveProductPayloadCustomStyle = {

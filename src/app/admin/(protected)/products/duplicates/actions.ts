@@ -17,31 +17,42 @@ import {
   type PhashScanResult,
 } from "@/lib/catalog/phash-types";
 
-const NO_PROGRESS = { hashed: 0, failed: 0, remaining: 0 } as const;
+const NO_PROGRESS = {
+  hashed: 0,
+  failed: 0,
+  remaining: 0,
+  scanned: 0,
+  lastId: 0,
+} as const;
 
 /**
- * Fingerprint the next batch of unhashed images. The client loops this until
- * `remaining === 0` (same pattern as the thumbnail "Generate all" flow) so a
- * full-catalogue scan stays within the serverless time budget.
+ * Fingerprint the next batch of unhashed images. The client loops this,
+ * feeding `lastId` back as the cursor, until `scanned === 0`.
  *
- * Takes no arguments on purpose: the batch size is a server-owned tunable, not
- * something a caller can inflate into a long-running request.
+ * `afterId` is a cursor, not a batch-size knob — the server still owns how
+ * many rows a single round-trip will attempt.
  */
-export async function scanPhashBatch(): Promise<PhashScanResult> {
+export async function scanPhashBatch(
+  afterId = 0,
+): Promise<PhashScanResult> {
   if (!(await requireAdmin(await headers()))) {
     return { ok: false, message: "Not authorized.", ...NO_PROGRESS };
   }
 
   try {
-    const result = await backfillMissingPhashes(PHASH_BACKFILL_BATCH_SIZE);
+    const cursor = Number.isFinite(afterId) ? Math.max(0, Math.floor(afterId)) : 0;
+    const result = await backfillMissingPhashes(
+      PHASH_BACKFILL_BATCH_SIZE,
+      cursor,
+    );
 
     // Only bust the cache when the cluster report could actually change.
     if (result.hashed > 0) revalidatePath("/admin/products/duplicates");
 
     const parts = [
       result.hashed > 0 ? `Hashed ${result.hashed}` : null,
-      result.failed > 0 ? `${result.failed} failed` : null,
-      result.remaining > 0 ? `${result.remaining} left` : "catalogue scanned",
+      result.failed > 0 ? `${result.failed} skipped` : null,
+      result.remaining > 0 ? `${result.remaining} left this pass` : "pass complete",
     ].filter(Boolean);
 
     return { ok: true, message: parts.join(" · "), ...result };

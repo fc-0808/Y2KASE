@@ -283,7 +283,7 @@ export function filterMagSafeCollectionSlugs(
   // The slug is the MagSafe feature collection (`MAGSAFE_SLUG`). Kept as a
   // literal so this module stays out of the collections-config tree — the
   // navbar is a client component and must not pull the whole taxonomy.
-  return slugs.filter((slug) => slug !== "magsafe");
+  return slugs.filter((slug) => slug !== "magsafe" && slug !== "magnetic-ring");
 }
 
 /**

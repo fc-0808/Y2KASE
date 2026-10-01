@@ -1186,7 +1186,7 @@ export async function runAutoPin(
     console.error("[auto-pin] stale claim reclaim failed:", err);
   }
 
-  let posted = await getPinsPostedTodayByType();
+  const posted = await getPinsPostedTodayByType();
   const dailyCap = opts.dailyCap ?? AUTO_PIN_PER_DAY;
   const allowed = Math.max(0, dailyCap - posted.total);
   if (allowed <= 0) {

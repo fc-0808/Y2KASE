@@ -326,6 +326,14 @@ export const products = pgTable(
       >()
       .notNull()
       .default([]),
+    /**
+     * Per-listing prices for canonical Style bundles ("Case + Charm", …),
+     * in {@link products.currency}. Missing keys use the shared price table.
+     */
+    stylePrices: jsonb("style_prices")
+      .$type<Partial<Record<string, number>>>()
+      .notNull()
+      .default({}),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -381,9 +389,17 @@ export const productImages = pgTable(
     /** Original source filename (without extension) for traceability. */
     sourceFilename: text("source_filename"),
     /**
-     * Perceptual hash (dHash, 16-char hex) of the image — a resize/recompress-
-     * robust fingerprint used to detect near-duplicate products. See
-     * `src/lib/catalog/phash.ts`. Null until computed (ingest or backfill).
+     * Gallery URL captured the first time this photo is cropped. Later crops
+     * replace `url` but leave this alone, so restore returns the ingested
+     * bytes. Null means the row still shows that original.
+     */
+    originalUrl: text("original_url"),
+    /**
+     * Composite perceptual fingerprint (`v2:` + four 64-bit hex channels) of
+     * the image. Used to detect the same product photo re-uploaded after a
+     * resize or recompress. See `src/lib/catalog/phash.ts`. Null until
+     * computed (ingest or backfill); a 16-char value is a previous algorithm
+     * and is rewritten on the next scan.
      */
     phash: text("phash"),
   },
@@ -414,6 +430,19 @@ export const thumbnailProposals = pgTable(
     status: text("status").notNull().default("proposed"),
     /** R2 URL of the normalized preview (null when flagged / no clean shot). */
     proposalUrl: text("proposal_url"),
+    /**
+     * Previews this one replaced, oldest first. Previous pops the tail.
+     * Capped in `thumbnail-history` — the column itself is just the stack.
+     */
+    previousProposalUrls: jsonb("previous_proposal_urls")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    /** Previews parked by Previous. Redo pops the tail. Cleared by a new preview. */
+    nextProposalUrls: jsonb("next_proposal_urls")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     /** Which product_images row the proposal was derived from. */
     sourceImageId: integer("source_image_id"),
     /** AI thumbnail-suitability score of the selected image (0–1). */

@@ -54,6 +54,8 @@ export const COLLECTION_COVER_THEMES: Record<string, string> = {
     "a clean pixel-art thumb-sucking monkey doll face with big round ears and a tiny pixel pacifier, on a flat dusty-rose pixel gradient background",
   magsafe:
     "a clean flat pixel-art MagSafe magnetic ring symbol next to a phone outline, built from iridescent pixel colors, on a flat iridescent-blue pixel gradient background",
+  "magnetic-ring":
+    "a clean flat pixel-art raised circular ring holder on the back of a simple phone-case outline, the hoop thick and separate from the case, a tiny pixel heart in the middle of the ring, on a flat rose-pink pixel gradient background. No flat disc, no camera rings, no pop socket",
   // House-brand shelf — clouds, bows, stars, hearts. Never a licensed face,
   // and never a blob-with-a-face (that reads as Chiikawa next to that tile).
   // Palette is the Originals accent (#7ec8ff) so the tile sits next to MagSafe

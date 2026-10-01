@@ -13,13 +13,15 @@
  * cache revalidation — callers (Server Actions) own those concerns so a bulk
  * save can authenticate once and revalidate once.
  */
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { products, productImages, productOptions } from "@/lib/db/schema";
+import { products, productOptions } from "@/lib/db/schema";
 import {
   STYLE_OPTION_NAME,
   orderStyles,
   normalizeImageStyleTags,
+  stylePricesForSave,
+  normalizeStylePrices,
 } from "@/lib/pricing";
 import {
   compatibilityAxisFor,
@@ -68,6 +70,11 @@ export type SaveVariationsInput = {
    * untouched; send `[]` to clear them.
    */
   customStyles?: CustomStyleInput[];
+  /**
+   * Display prices for canonical bundles. Omit to leave stored overrides
+   * untouched. Values that match the shared table are cleared.
+   */
+  stylePrices?: Record<string, string | number>;
 };
 
 export type SaveVariationsResult = { ok: boolean; message: string };
@@ -139,6 +146,38 @@ function canonicalStylesFor(
 }
 
 /**
+ * Write every gallery slot in one round trip.
+ *
+ * Returns how many rows changed, or null when the driver does not report a
+ * count. A short count means an id in the draft is no longer on this product.
+ */
+async function writeImageOrder(
+  productId: number,
+  orderIds: number[],
+  tags: Record<number, string[]>,
+  offered: readonly string[],
+): Promise<number | null> {
+  if (orderIds.length === 0) return 0;
+  const rows = orderIds.map((id, position) => ({
+    id,
+    position,
+    tags: normalizeImageStyleTags(tags[id], offered),
+  }));
+  const result = await db.execute(sql`
+    UPDATE product_images AS img
+    SET
+      position = (item->>'position')::int,
+      style_tags = ARRAY(
+        SELECT jsonb_array_elements_text(item->'tags')
+      )
+    FROM jsonb_array_elements(CAST(${JSON.stringify(rows)} AS jsonb)) AS item
+    WHERE img.id = (item->>'id')::int
+      AND img.product_id = ${productId}
+  `);
+  return result.rowCount;
+}
+
+/**
  * Persist media order, per-image style tags, the video slot, the offered Style
  * set (+ base price), optional custom variations, and optionally the offered
  * compatibility set for a single product. Returns a per-product result so bulk
@@ -159,6 +198,7 @@ export async function saveProductVariations(
       price: true,
       containsMultipleProducts: true,
       customStyles: true,
+      stylePrices: true,
     },
     with: { images: { columns: { id: true } } },
   });
@@ -241,17 +281,16 @@ export async function saveProductVariations(
   );
 
   // ── 1. Image positions + style tags ───────────────────────────────────────
-  await Promise.all(
-    orderIds.map((id, index) =>
-      db
-        .update(productImages)
-        .set({
-          position: index,
-          styleTags: normalizeImageStyleTags(tags[id], offered),
-        })
-        .where(eq(productImages.id, id)),
-    ),
-  );
+  // One statement for the whole gallery. A per-image update is a separate
+  // Neon HTTP round trip, and a 15-photo listing then takes seconds — long
+  // enough that Save looks like it did nothing.
+  const written = await writeImageOrder(productId, orderIds, tags, offered);
+  if (written != null && written !== orderIds.length) {
+    return {
+      ok: false,
+      message: `#${productId}: image list out of sync — reload and retry.`,
+    };
+  }
 
   // ── 2. Video slot + listing "from" price + multi-product fields ───────────
   const videoSlot = product.videoUrl
@@ -262,8 +301,23 @@ export async function saveProductVariations(
     price?: string;
     containsMultipleProducts?: boolean;
     customStyles?: CustomStyle[];
+    stylePrices?: ReturnType<typeof normalizeStylePrices>;
     updatedAt: Date;
   } = { videoPosition: videoSlot, updatedAt: new Date() };
+
+  let stylePrices = normalizeStylePrices(product.stylePrices);
+  if (input.stylePrices) {
+    const parsed = stylePricesForSave(
+      input.stylePrices,
+      product.currency,
+      canonical,
+    );
+    if (!parsed.ok) {
+      return { ok: false, message: `#${productId}: ${parsed.message}` };
+    }
+    stylePrices = parsed.prices;
+    productUpdate.stylePrices = parsed.prices;
+  }
 
   if (offered.length > 0) {
     productUpdate.price = String(
@@ -273,6 +327,7 @@ export async function saveProductVariations(
         canonicalStyles: canonical,
         customStyles: custom,
         basePrice: product.price,
+        stylePrices,
       }),
     );
   }

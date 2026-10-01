@@ -10,7 +10,8 @@ import { orders } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth";
 import { isSignedInUser } from "@/lib/auth-redirect";
 import { normalizeEmail } from "@/lib/email-address";
-import { formatPrice } from "@/lib/utils";
+import { trackingLink } from "@/lib/carriers";
+import { formatCents, formatOptionValues } from "@/lib/utils";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -22,12 +23,17 @@ export const dynamic = "force-dynamic";
 
 /** Human-friendly label + accent per order status. */
 const STATUS_META: Record<string, { label: string; className: string }> = {
-  paid: { label: "Paid", className: "bg-emerald-50 text-emerald-600" },
-  shipped: { label: "Shipped", className: "bg-blue-50 text-blue-600" },
-  delivered: { label: "Delivered", className: "bg-emerald-50 text-emerald-600" },
+  paid: { label: "Paid", className: "bg-emerald-50 text-emerald-700" },
+  shipped: { label: "Shipped", className: "bg-sky-50 text-sky-700" },
+  delivered: { label: "Delivered", className: "bg-emerald-50 text-emerald-700" },
   cancelled: { label: "Cancelled", className: "bg-gray-100 text-gray-500" },
-  refunded: { label: "Refunded", className: "bg-amber-50 text-amber-600" },
+  refunded: { label: "Refunded", className: "bg-amber-50 text-amber-700" },
 };
+
+const orderDate = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
+
+/** Shared money column so header, line, and summary amounts share one right edge. */
+const priceCol = "w-[6.5rem] shrink-0 text-right tabular-nums";
 
 function StatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] ?? {
@@ -36,10 +42,71 @@ function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span
-      className={`rounded-full px-3 py-1 text-xs font-bold capitalize ${meta.className}`}
+      className={`inline-flex h-6 items-center rounded-full px-2.5 text-xs font-bold ${meta.className}`}
     >
       {meta.label}
     </span>
+  );
+}
+
+function countryName(code: string | null | undefined): string {
+  if (!code) return "";
+  try {
+    return (
+      new Intl.DisplayNames("en", { type: "region" }).of(code.toUpperCase()) ??
+      code
+    );
+  } catch {
+    return code;
+  }
+}
+
+type ShippingAddress = NonNullable<
+  (typeof orders.$inferSelect)["shippingAddress"]
+>;
+
+function addressLines(address: ShippingAddress): string[] {
+  const locality = [
+    address.city,
+    [address.state, address.postalCode].filter(Boolean).join(" "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return [address.line1, address.line2, locality, countryName(address.country)]
+    .map((line) => line?.trim())
+    .filter((line): line is string => Boolean(line));
+}
+
+function MoneyLine({
+  label,
+  value,
+  emphasize = false,
+}: {
+  label: string;
+  value: string;
+  emphasize?: boolean;
+}) {
+  return (
+    <>
+      <dt
+        className={
+          emphasize
+            ? "text-sm font-black"
+            : "text-sm text-[var(--foreground)]/60"
+        }
+      >
+        {label}
+      </dt>
+      <dd
+        className={
+          emphasize
+            ? `${priceCol} text-sm font-black`
+            : `${priceCol} text-sm font-semibold`
+        }
+      >
+        {value}
+      </dd>
+    </>
   );
 }
 
@@ -71,94 +138,176 @@ export default async function AccountOrdersPage() {
 
   if (rows.length === 0) {
     return (
-      <div className="card-cute flex flex-col items-center gap-4 px-6 py-16 text-center">
-        <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--muted)]">
-          <Package className="h-7 w-7 text-[var(--foreground)]/40" />
-        </span>
-        <div>
-          <h2 className="text-lg font-black">No orders yet</h2>
-          <p className="mt-1 text-sm text-[var(--foreground)]/60">
-            When you place an order it&apos;ll show up here. ✨
+      <div className="card-cute overflow-hidden">
+        <div className="h-1 w-full bg-holo-vivid" />
+        <div className="flex flex-col items-center px-6 py-14 text-center sm:py-16">
+          <span className="grid h-14 w-14 place-items-center rounded-full bg-[var(--muted)]">
+            <Package className="h-6 w-6 text-[var(--foreground)]/40" />
+          </span>
+          <h2 className="mt-4 text-lg font-black leading-6">No orders yet</h2>
+          <p className="mt-1 max-w-sm text-sm leading-5 text-[var(--foreground)]/60">
+            When you place an order it&apos;ll show up here.
           </p>
+          <Link
+            href="/products"
+            className="btn-candy mt-5 inline-flex h-10 items-center justify-center px-6 text-sm"
+          >
+            Start shopping
+          </Link>
         </div>
-        <Link href="/products" className="btn-candy mt-2 px-6 py-2.5 text-sm">
-          Start shopping
-        </Link>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
-      {rows.map((order) => (
-        <article
-          key={order.id}
-          className="card-cute overflow-hidden"
-        >
-          {/* Order header */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-            <div>
-              <p className="text-sm font-black">Order #{order.id}</p>
-              <p className="text-xs text-[var(--foreground)]/55">
-                {new Intl.DateTimeFormat("en-US", {
-                  dateStyle: "medium",
-                }).format(new Date(order.createdAt))}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
+    <div className="space-y-4">
+      {rows.map((order) => {
+        const lines = order.shippingAddress
+          ? addressLines(order.shippingAddress)
+          : [];
+        const trackHref = trackingLink(
+          order.carrier,
+          order.trackingNumber,
+          order.trackingUrl,
+        );
+        const currency = order.currency;
+
+        return (
+          <article key={order.id} className="card-cute overflow-hidden">
+            <div className="h-1 w-full bg-holo-vivid" />
+            <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-black leading-5">Order #{order.id}</p>
+                <p className="mt-0.5 text-xs leading-4 text-[var(--foreground)]/55">
+                  {orderDate.format(new Date(order.createdAt))}
+                </p>
+              </div>
               <StatusBadge status={order.status} />
-              <span className="text-sm font-black">
-                {formatPrice(order.totalCents / 100, order.currency)}
+              <span className={`${priceCol} text-sm font-black leading-5`}>
+                {formatCents(order.totalCents, currency)}
               </span>
             </div>
-          </div>
 
-          {/* Items */}
-          <ul className="divide-y divide-[var(--border)]">
-            {order.items.map((item) => (
-              <li key={item.id} className="flex items-center gap-3 px-5 py-3">
-                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--product-surface)]">
-                  {item.imageUrl && (
-                    <Image
-                      src={item.imageUrl}
-                      alt={item.productTitle}
-                      fill
-                      unoptimized
-                      sizes="56px"
-                      className="object-cover"
-                    />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/products/${item.productSlug}`}
-                    className="line-clamp-1 text-sm font-semibold hover:text-[var(--primary)]"
+            <ul className="divide-y divide-[var(--border)]">
+              {order.items.map((item) => {
+                const options = formatOptionValues(item.optionValues);
+                return (
+                  <li
+                    key={item.id}
+                    className="flex items-start gap-3 px-5 py-3.5"
                   >
-                    {item.productTitle}
-                  </Link>
-                  {item.optionValues &&
-                    Object.keys(item.optionValues).length > 0 && (
-                      <p className="line-clamp-1 text-xs text-[var(--foreground)]/55">
-                        {Object.entries(item.optionValues)
-                          .map(([k, v]) => `${k}: ${v}`)
-                          .join(" · ")}
+                    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--product-surface)] ring-1 ring-[var(--border)]">
+                      {item.imageUrl ? (
+                        <Image
+                          src={item.imageUrl}
+                          alt={item.productTitle}
+                          fill
+                          unoptimized
+                          sizes="56px"
+                          className="object-cover"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/products/${item.productSlug}`}
+                        className="line-clamp-2 text-sm font-semibold leading-5 hover:text-[var(--primary)]"
+                      >
+                        {item.productTitle}
+                      </Link>
+                      {options ? (
+                        <p className="mt-0.5 line-clamp-1 text-xs leading-4 text-[var(--foreground)]/55">
+                          {options}
+                        </p>
+                      ) : null}
+                      <p className="mt-0.5 text-xs leading-4 text-[var(--foreground)]/55">
+                        Qty {item.quantity}
                       </p>
-                    )}
-                  <p className="text-xs text-[var(--foreground)]/55">
-                    Qty {item.quantity}
+                    </div>
+                    <span className={`${priceCol} text-sm font-bold leading-5`}>
+                      {formatCents(item.unitCents * item.quantity, currency)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="flex items-start gap-6 border-t border-[var(--border)] px-5 py-4">
+              {order.shippingAddress ? (
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]/45">
+                    Ships to
+                  </p>
+                  <div className="mt-1.5 text-sm leading-5">
+                    <p className="font-semibold">{order.shippingAddress.name}</p>
+                    {lines.map((line) => (
+                      <p key={line} className="text-[var(--foreground)]/70">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1" />
+              )}
+
+              <dl className="grid shrink-0 grid-cols-[auto_6.5rem] items-baseline gap-x-6 gap-y-1.5">
+                <MoneyLine
+                  label="Subtotal"
+                  value={formatCents(order.subtotalCents, currency)}
+                />
+                <MoneyLine
+                  label="Shipping"
+                  value={
+                    order.shippingCents === 0
+                      ? "Free"
+                      : formatCents(order.shippingCents, currency)
+                  }
+                />
+                {order.taxCents > 0 ? (
+                  <MoneyLine
+                    label="Tax"
+                    value={formatCents(order.taxCents, currency)}
+                  />
+                ) : null}
+                <div className="col-span-2 my-1 border-t border-[var(--border)]" />
+                <MoneyLine
+                  label="Total"
+                  value={formatCents(order.totalCents, currency)}
+                  emphasize
+                />
+              </dl>
+            </div>
+
+            {trackHref ? (
+              <div className="flex flex-col gap-3 border-t border-[var(--border)] px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--foreground)]/45">
+                    Tracking
+                  </p>
+                  <p className="mt-0.5 text-sm leading-5">
+                    <span className="font-semibold">{order.carrier}</span>
+                    {order.trackingNumber ? (
+                      <span className="text-[var(--foreground)]/60">
+                        {" "}
+                        · {order.trackingNumber}
+                      </span>
+                    ) : null}
                   </p>
                 </div>
-                <span className="text-sm font-bold">
-                  {formatPrice(
-                    (item.unitCents * item.quantity) / 100,
-                    order.currency,
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </article>
-      ))}
+                <a
+                  href={trackHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-candy inline-flex h-9 shrink-0 items-center justify-center self-end px-4 text-sm sm:self-auto"
+                >
+                  Track package
+                </a>
+              </div>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
   );
 }

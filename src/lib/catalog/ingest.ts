@@ -23,6 +23,7 @@ import {
   copyModelName,
   slugify,
   verifyMagSafe,
+  verifyProductGrip,
   type CopyTypeHint,
 } from "@/lib/ai";
 import {
@@ -33,9 +34,9 @@ import {
   priceAxisFor,
 } from "@/lib/catalog/product-types";
 import { listingIp, repairListingTitle } from "@/lib/catalog/listing-title";
-import { normalizeImageStyleTags } from "@/lib/pricing";
+import { normalizeImageStyleTags, stylesForAddons } from "@/lib/pricing";
 import { styleClassifyLabel } from "@/lib/catalog/style-classify";
-import { dhashFromBuffer } from "@/lib/catalog/phash";
+import { fingerprintFromBuffer } from "@/lib/catalog/phash";
 import { sanitizeTag } from "@/lib/catalog/copy-schema";
 import {
   decideMagSafe,
@@ -47,6 +48,7 @@ import {
 } from "@/lib/catalog/magsafe";
 import {
   findNearestDuplicate,
+  type DuplicateQuery,
   type NearestDuplicate,
 } from "@/lib/catalog/duplicates";
 import { classifyBrandContext } from "@/lib/catalog/brands";
@@ -92,6 +94,19 @@ const VIDEO_CONTENT_TYPES: Record<string, string> = {
   ".mov": "video/quicktime",
   ".webm": "video/webm",
 };
+
+/** Thrown when `skipIfDuplicate` is set and the catalogue already has this product. */
+export class DuplicateProductError extends Error {
+  readonly duplicateOf: NearestDuplicate;
+
+  constructor(duplicateOf: NearestDuplicate) {
+    super(
+      `duplicate of #${duplicateOf.id} "${duplicateOf.title}" (${duplicateOf.confidence}, cost ${duplicateOf.distance})`,
+    );
+    this.name = "DuplicateProductError";
+    this.duplicateOf = duplicateOf;
+  }
+}
 
 export type IngestResult = {
   productId: number;
@@ -147,7 +162,12 @@ export type IngestOptions = {
    * Optional injected duplicate detector. When the bulk pipeline supplies a
    * preloaded in-memory index, we use it instead of a per-product DB scan.
    */
-  detectDuplicate?: (phash: string) => NearestDuplicate | null;
+  detectDuplicate?: (query: DuplicateQuery) => NearestDuplicate | null;
+  /**
+   * When set, a catalogue match aborts before the image upload and the insert.
+   * The default still creates the draft and reports `duplicateOf` for review.
+   */
+  skipIfDuplicate?: boolean;
   log?: (msg: string) => void;
 };
 
@@ -208,6 +228,24 @@ async function uniqueSlug(base: string): Promise<string> {
   }
 }
 
+async function assertNotDuplicate(
+  opts: IngestOptions,
+  image: Buffer | undefined,
+  query: Omit<DuplicateQuery, "phash">,
+): Promise<void> {
+  if (!image) return;
+  const phash = await fingerprintFromBuffer(image);
+  if (!phash) return;
+  const hit = opts.detectDuplicate
+    ? opts.detectDuplicate({ ...query, phash })
+    : await findNearestDuplicate({ ...query, phash });
+  if (!hit) return;
+  opts.log?.(
+    `skipped duplicate of #${hit.id} "${hit.title}" (${hit.confidence}, cost ${hit.distance})`,
+  );
+  throw new DuplicateProductError(hit);
+}
+
 /**
  * Ingest a single product folder:
  *   convert → AI copy + style classification → upload to R2 → insert into Neon.
@@ -264,6 +302,17 @@ export async function ingestProductFolder(
     overrides.description,
     ...(overrides.tags ?? []),
   ]);
+  // Exact visual matches do not need a title. Catching them here avoids paying
+  // for copy on a listing the catalogue already has. Near matches still need
+  // the finished English title, so they are checked again after copy.
+  if (opts.skipIfDuplicate) {
+    await assertNotDuplicate(opts, webp[0]?.buffer, {
+      title: path.basename(folder.absPath),
+      productType: pinnedType?.id,
+      brandName: brandClassification.brand,
+      characterName: brandClassification.character,
+    });
+  }
   const copy = needsCopy
     ? await generateProductCopy(dataUrls, folder.categoryHint, typeHint, log)
     : null;
@@ -368,10 +417,32 @@ export async function ingestProductFolder(
     }
   }
 
+  if (opts.skipIfDuplicate) {
+    await assertNotDuplicate(opts, webp[0]?.buffer, {
+      title,
+      productType: type.id,
+      brandName: brandClassification.brand,
+      characterName: brandClassification.character,
+    });
+  }
+
   let styleMap: Record<string, string[]> = {};
+  // The type's price axis offers every style, including a grip. A grip is only
+  // listed when the photos show one; otherwise Includes grip stays off.
+  let offeredStyles = priceAxisFor(type.id)?.values ?? [];
+  if (type.id === "iphone_case" && dataUrls.length > 0) {
+    const grip = await verifyProductGrip(dataUrls);
+    if (!grip) {
+      log("grip verifier unavailable — leaving grip offered");
+    } else if (!grip.grip) {
+      offeredStyles = stylesForAddons({ hasGrip: false, hasCharm: true });
+      log("grip verifier: no — Includes grip off");
+    } else {
+      log(`grip verifier: yes (${grip.evidence})`);
+    }
+  }
   if (mediaTagAxisFor(type.id)) {
     try {
-      const offeredStyles = priceAxisFor(type.id)?.values ?? [];
       styleMap = await classifyImageStyles(
         webp.map((w, i) => ({
           filename: styleClassifyLabel(i),
@@ -400,7 +471,7 @@ export async function ingestProductFolder(
       const key = `products/${keyBase}/${w.objectName}`;
       const [url, phash] = await Promise.all([
         uploadWebpToR2(r2, bucket, key, w.buffer),
-        dhashFromBuffer(w.buffer),
+        fingerprintFromBuffer(w.buffer),
       ]);
       log(`uploaded → ${url}`);
       return {
@@ -434,16 +505,26 @@ export async function ingestProductFolder(
   //     human can decide. Catches the same product re-uploaded with re-encoded
   //     or resized photos that a byte-hash would miss.
   const primaryPhash = uploaded[0]?.phash ?? null;
-  const duplicateOf = primaryPhash
+  const duplicateQuery = primaryPhash
+    ? {
+        phash: primaryPhash,
+        title,
+        productType: type.id,
+        brandName: brandClassification.brand,
+        characterName: brandClassification.character,
+      }
+    : null;
+  const duplicateOf = duplicateQuery
     ? opts.detectDuplicate
-      ? opts.detectDuplicate(primaryPhash)
-      : await findNearestDuplicate(primaryPhash)
+      ? opts.detectDuplicate(duplicateQuery)
+      : await findNearestDuplicate(duplicateQuery)
     : null;
   if (duplicateOf) {
     log(
       `⚠ possible duplicate of #${duplicateOf.id} "${duplicateOf.title}" ` +
-        `(distance ${duplicateOf.distance}/64) → review at /admin/products/duplicates`,
+        `(${duplicateOf.confidence}, cost ${duplicateOf.distance}) → review at /admin/products/duplicates`,
     );
+    if (opts.skipIfDuplicate) throw new DuplicateProductError(duplicateOf);
   }
 
   // 5. Insert product + children into Neon (draft unless the manifest publishes).
@@ -539,7 +620,7 @@ export async function ingestProductFolder(
     })
     .returning({ id: products.id });
 
-  const offeredStyles = priceAxisFor(type.id)?.values ?? [];
+  const imageOfferedStyles = offeredStyles;
   await db.insert(productImages).values(
     uploaded.map((u, idx) => ({
       productId: product.id,
@@ -547,8 +628,8 @@ export async function ingestProductFolder(
       position: idx,
       altText: idx === 0 ? altText : null,
       aiAnalyzed: true,
-      styleTags: offeredStyles.length
-        ? normalizeImageStyleTags(u.styleTags, offeredStyles)
+      styleTags: imageOfferedStyles.length
+        ? normalizeImageStyleTags(u.styleTags, imageOfferedStyles)
         : [],
       sourceFilename: u.filename,
       phash: u.phash,
@@ -561,7 +642,10 @@ export async function ingestProductFolder(
         productId: product.id,
         name: opt.name,
         position,
-        values: opt.values,
+        values:
+          opt.role === "price" && type.id === "iphone_case"
+            ? offeredStyles
+            : opt.values,
       })),
     );
   }

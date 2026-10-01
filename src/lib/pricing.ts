@@ -200,6 +200,94 @@ export function getStylePrice(style: string | undefined, currency: string): numb
   return table[DEFAULT_STYLE];
 }
 
+/**
+ * Prices an operator can assign to any offered style, in ladder order.
+ * USD is 39.99, 34.99, 24.99, 12.99 — one entry per distinct amount, so
+ * Case + Grip and Case + Charm do not list 34.99 twice.
+ */
+export function stylePriceChoices(currency: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const style of STYLES) {
+    const label = getStylePrice(style, currency).toFixed(2);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+  }
+  return out;
+}
+
+/** Canonical style → amount, in the product's currency. Only real deltas. */
+export type StylePriceOverrides = Partial<Record<Style, number>>;
+
+export function normalizeStylePrices(raw: unknown): StylePriceOverrides {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const source = raw as Record<string, unknown>;
+  const out: StylePriceOverrides = {};
+  for (const style of STYLES) {
+    const value = source[style];
+    const amount =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value)
+          : Number.NaN;
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) continue;
+    out[style] = Math.round(amount * 100) / 100;
+  }
+  return out;
+}
+
+/** The amount a shopper pays: a listing override, otherwise the shared table. */
+export function effectiveStylePrice(
+  style: string,
+  currency: string,
+  overrides?: unknown,
+): number {
+  const saved = normalizeStylePrices(overrides)[style as Style];
+  if (saved != null) return saved;
+  return getStylePrice(style, currency);
+}
+
+/**
+ * Keep only prices that differ from the shared table. An unchanged field is
+ * not stored, so a later catalog-wide price change still reaches that listing.
+ */
+export function stylePricesForSave(
+  entered: Record<string, string | number>,
+  currency: string,
+  offered: readonly string[],
+): { ok: true; prices: StylePriceOverrides } | { ok: false; message: string } {
+  const prices: StylePriceOverrides = {};
+  for (const style of offered) {
+    if (!(STYLES as readonly string[]).includes(style)) continue;
+    const raw = entered[style];
+    const amount = typeof raw === "number" ? raw : Number(String(raw ?? "").trim());
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) {
+      return { ok: false, message: `${style} needs a price greater than 0.` };
+    }
+    const rounded = Math.round(amount * 100) / 100;
+    if (Math.abs(rounded - getStylePrice(style, currency)) >= 0.005) {
+      prices[style as Style] = rounded;
+    }
+  }
+  return { ok: true, prices };
+}
+
+/** Text the price inputs show: override, or the shared table to two decimals. */
+export function displayedStylePrices(
+  styles: readonly string[],
+  currency: string,
+  overrides?: unknown,
+): Record<string, string> {
+  const saved = normalizeStylePrices(overrides);
+  const out: Record<string, string> = {};
+  for (const style of styles) {
+    out[style] = (saved[style as Style] ?? getStylePrice(style, currency)).toFixed(2);
+  }
+  return out;
+}
+
 /** Entry ("from") price for a product — the default style's price. */
 export function getBasePrice(currency: string): number {
   return tableFor(currency)[DEFAULT_STYLE];
@@ -253,7 +341,7 @@ export function getProductEntryPrice(
 /** The two option axes every phone-case product carries, in display order. */
 export function defaultPhoneCaseOptions(): { name: string; values: string[] }[] {
   return [
-    { name: MODEL_OPTION_NAME, values: [...IPHONE_MODELS] },
+    { name: MODEL_OPTION_NAME, values: defaultModels() },
     { name: STYLE_OPTION_NAME, values: [...STYLES] },
   ];
 }
@@ -555,9 +643,32 @@ export function modelsForGenerationRange(
   return IPHONE_GENERATIONS.slice(a, b + 1).flatMap((g) => g.models);
 }
 
-/** A product must always be available for at least one model. */
+/**
+ * The shared 13/14 mould. It stays in {@link IPHONE_MODELS} so an operator can
+ * turn it on. New listings leave the whole 13/14 generation off.
+ */
+export const IPHONE_14_13_MODEL = "iPhone 14 / 13";
+
+/** Generation ids a new listing leaves unchecked. Still available in the picker. */
+const DEFAULT_OFF_GENERATION_IDS = new Set(["14"]);
+
+/** Models a new iPhone-case listing offers. Excludes the iPhone 13/14 generation. */
 export function defaultModels(): string[] {
-  return [...IPHONE_MODELS];
+  const off = new Set(
+    IPHONE_GENERATIONS.filter((g) => DEFAULT_OFF_GENERATION_IDS.has(g.id)).flatMap(
+      (g) => g.models,
+    ),
+  );
+  return IPHONE_MODELS.filter((model) => !off.has(model));
+}
+
+/** Range-picker start: the oldest generation a new listing actually offers. */
+export function defaultModelRangeFromId(): string {
+  const offered = new Set(defaultModels());
+  return (
+    IPHONE_GENERATIONS.find((g) => g.models.some((m) => offered.has(m)))?.id ??
+    IPHONE_GENERATIONS[0]!.id
+  );
 }
 
 /**

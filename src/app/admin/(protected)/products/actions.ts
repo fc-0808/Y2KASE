@@ -17,6 +17,8 @@ import {
   collections,
 } from "@/lib/db/schema";
 import { applyMagSafeCopy, removeMagSafeCopy } from "@/lib/catalog/magsafe";
+import { MAGNETIC_RING_TAG } from "@/lib/catalog/magnetic-ring";
+import { productTypeOffersMagSafe } from "@/lib/catalog/devices";
 import { applyCollectionTaxonomy } from "@/lib/catalog/taxonomy-sync";
 import { refileProduct } from "@/lib/catalog/collection-filing";
 import { auditCatalogClassification } from "@/lib/catalog/classification-health-service";
@@ -54,6 +56,7 @@ import {
   stylesForAddons,
   normalizeImageStyleTags,
   imageStyleTagsAreCanonical,
+  stylePricesForSave,
 } from "@/lib/pricing";
 import { saveProductVariations } from "@/lib/admin/product-variations";
 import {
@@ -61,8 +64,10 @@ import {
   setProposalDecision,
   approveProposals,
   decideProposals,
+  stepThumbnailProposal,
 } from "@/lib/admin/thumbnails";
 import {
+  generateProposalForProduct,
   generateProposalsForPending,
   regenerateProposalWithAiCleanup,
   regenerateProposalsWithAiCleanup,
@@ -112,6 +117,12 @@ async function revalidateCatalog(productId?: number) {
     revalidateStorefrontCatalog();
   }
   revalidatePath("/admin/products");
+}
+
+/** The review board and this product's editor both render the proposal. */
+function revalidateThumbnailSurfaces(productId: number) {
+  revalidatePath("/admin/products/thumbnails");
+  revalidatePath(`/admin/products/${productId}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -390,6 +401,142 @@ export async function bulkSetMagsafe(
     ok: true,
     message: `${magsafe ? "Marked" : "Unmarked"} ${rows.length} product${rows.length === 1 ? "" : "s"} ${magsafe ? "as" : "from"} MagSafe.`,
     changed: rows.length,
+  };
+}
+
+/**
+ * Operator choice for the magnetic ring holder shop.
+ *
+ * Vision is not consulted. Marking files the product in Magnetic Ring Holder and
+ * also as MagSafe, because a ring holder sits on the magnet. Unmarking
+ * removes only the ring holder; MagSafe stays.
+ */
+export async function setMagneticRingHolders(
+  productIds: number[],
+  enabled: boolean,
+): Promise<{ ok: boolean; message: string; changed: number }> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized.", changed: 0 };
+  }
+  const ids = Array.from(new Set(productIds)).filter((n) => Number.isFinite(n));
+  if (ids.length === 0) {
+    return { ok: false, message: "No products selected.", changed: 0 };
+  }
+
+  const rows = await db.query.products.findMany({
+    where: inArray(products.id, ids),
+    columns: {
+      id: true,
+      title: true,
+      description: true,
+      tags: true,
+      productType: true,
+    },
+  });
+  const eligible = rows.filter((row) => productTypeOffersMagSafe(row.productType));
+  const skipped = rows.length - eligible.length;
+  if (eligible.length === 0) {
+    return {
+      ok: false,
+      message: "Magnetic ring holders are phone cases only.",
+      changed: 0,
+    };
+  }
+
+  const [ringCol, magCol] = await Promise.all([
+    db.query.collections.findFirst({
+      where: eq(collections.slug, "magnetic-ring"),
+      columns: { id: true },
+    }),
+    db.query.collections.findFirst({
+      where: eq(collections.slug, "magsafe"),
+      columns: { id: true },
+    }),
+  ]);
+  if (!ringCol) {
+    return {
+      ok: false,
+      message: "Magnetic Ring Holder collection is not set up.",
+      changed: 0,
+    };
+  }
+
+  for (const product of eligible) {
+    if (enabled) {
+      const withRing = product.tags.includes(MAGNETIC_RING_TAG)
+        ? product.tags
+        : [...product.tags, MAGNETIC_RING_TAG];
+      const next = applyMagSafeCopy({
+        title: product.title,
+        description: product.description,
+        tags: withRing,
+      });
+      await db
+        .update(products)
+        .set({
+          title: next.title,
+          description: next.description,
+          tags: next.tags.includes(MAGNETIC_RING_TAG)
+            ? next.tags
+            : [...next.tags, MAGNETIC_RING_TAG],
+          needsMagsafeReview: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, product.id));
+    } else {
+      await db
+        .update(products)
+        .set({
+          tags: product.tags.filter((tag) => tag !== MAGNETIC_RING_TAG),
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, product.id));
+    }
+  }
+
+  const eligibleIds = eligible.map((row) => row.id);
+  if (enabled) {
+    await db
+      .insert(productCollections)
+      .values(
+        eligibleIds.map((productId) => ({
+          productId,
+          collectionId: ringCol.id,
+        })),
+      )
+      .onConflictDoNothing();
+    if (magCol) {
+      await db
+        .insert(productCollections)
+        .values(
+          eligibleIds.map((productId) => ({
+            productId,
+            collectionId: magCol.id,
+          })),
+        )
+        .onConflictDoNothing();
+    }
+  } else {
+    await db
+      .delete(productCollections)
+      .where(
+        and(
+          eq(productCollections.collectionId, ringCol.id),
+          inArray(productCollections.productId, eligibleIds),
+        ),
+      );
+  }
+
+  await revalidateCatalog();
+  const verb = enabled ? "Marked" : "Unmarked";
+  const skipNote =
+    skipped > 0
+      ? ` Skipped ${skipped} that ${skipped === 1 ? "is" : "are"} not a phone case.`
+      : "";
+  return {
+    ok: true,
+    message: `${verb} ${eligible.length} product${eligible.length === 1 ? "" : "s"} ${enabled ? "as having" : "from"} a magnetic ring holder.${skipNote}`,
+    changed: eligible.length,
   };
 }
 
@@ -1035,6 +1182,11 @@ export type BulkUpdatePayload = {
   productIds: number[];
   /** When present, overwrites each product's offered Style set + base price. */
   styles?: BulkStyleUpdate;
+  /**
+   * Display prices keyed by canonical style, applied with `styles`.
+   * Values equal to the shared table are stored as "no override".
+   */
+  stylePrices?: Record<string, string>;
   /** When present, overwrites each product's offered iPhone Model set. */
   models?: string[];
   /** When present, publishes (active) or unpublishes (draft) the selection. */
@@ -1137,6 +1289,7 @@ export async function bulkUpdateProducts(
       productType: true,
       price: true,
       customStyles: true,
+      stylePrices: true,
     },
     with: {
       images: { columns: { id: true, styleTags: true } },
@@ -1168,6 +1321,20 @@ export async function bulkUpdateProducts(
         productType: product.productType,
       });
       const offered = mergeOfferedStyleValues(targetStyles, custom);
+      const parsedPrices = payload.stylePrices
+        ? stylePricesForSave(payload.stylePrices, product.currency, targetStyles)
+        : null;
+      if (parsedPrices && !parsedPrices.ok) {
+        return {
+          ok: false,
+          message: parsedPrices.message,
+          updated,
+          skipped,
+        };
+      }
+      const stylePrices = parsedPrices?.ok
+        ? parsedPrices.prices
+        : product.stylePrices;
       await upsertOption(
         product.id,
         STYLE_OPTION_NAME,
@@ -1185,8 +1352,10 @@ export async function bulkUpdateProducts(
               canonicalStyles: targetStyles,
               customStyles: custom,
               basePrice: product.price,
+              stylePrices,
             }),
           ),
+          ...(parsedPrices?.ok ? { stylePrices: parsedPrices.prices } : {}),
           updatedAt: new Date(),
         })
         .where(eq(products.id, product.id));
@@ -1255,6 +1424,8 @@ export type BulkEditImage = {
   url: string;
   filename: string | null;
   styleTags: string[];
+  /** Ingested URL, set the first time this photo is cropped. */
+  originalUrl: string | null;
 };
 
 /** Everything the per-product editor needs to render and edit one product. */
@@ -1275,6 +1446,7 @@ export type BulkEditProduct = {
   availableModels: string[];
   containsMultipleProducts: boolean;
   customStyles: CustomStyle[];
+  stylePrices: Partial<Record<string, number>>;
 };
 
 /** A single product's curated state, sent back to {@link bulkSaveProducts}. */
@@ -1287,6 +1459,7 @@ export type PerProductSave = {
   availableModels: string[];
   containsMultipleProducts: boolean;
   customStyles: CustomStyle[];
+  stylePrices: Record<string, string>;
 };
 
 export type BulkSaveResult = {
@@ -1323,6 +1496,7 @@ export async function getBulkEditProducts(
       sourceFolder: true,
       containsMultipleProducts: true,
       customStyles: true,
+      stylePrices: true,
     },
     with: {
       images: {
@@ -1331,6 +1505,7 @@ export async function getBulkEditProducts(
           url: true,
           sourceFilename: true,
           styleTags: true,
+          originalUrl: true,
         },
         orderBy: (img, { asc }) => asc(img.position),
       },
@@ -1361,6 +1536,7 @@ export async function getBulkEditProducts(
         url: i.url,
         filename: i.sourceFilename,
         styleTags: i.styleTags ?? [],
+        originalUrl: i.originalUrl,
       })),
       availableStyles: offeredPriceValues(p.productType, p.options),
       availableModels: offeredCompatibilityValues(p.productType, p.options),
@@ -1370,6 +1546,7 @@ export async function getBulkEditProducts(
         p.images,
         p.productType,
       ),
+      stylePrices: p.stylePrices ?? {},
     };
   });
 }
@@ -1390,37 +1567,45 @@ export async function bulkSaveProducts(
     return { ok: false, message: "No changes to save.", saved: 0, failed: [] };
   }
 
-  let saved = 0;
-  const failed: { productId: number; message: string }[] = [];
+  const results = await Promise.all(
+    items.map(async (item) => {
+      try {
+        const res = await saveProductVariations({
+          productId: item.productId,
+          imageOrder: item.imageOrder,
+          videoSlot: item.videoSlot,
+          styleTags: item.styleTags,
+          availableStyles: item.availableStyles,
+          availableModels: item.availableModels,
+          containsMultipleProducts: item.containsMultipleProducts,
+          customStyles: item.customStyles,
+          stylePrices: item.stylePrices,
+        });
+        return res.ok
+          ? ({ ok: true as const })
+          : ({ ok: false as const, productId: item.productId, message: res.message });
+      } catch (err) {
+        return {
+          ok: false as const,
+          productId: item.productId,
+          message: err instanceof Error ? err.message : "Unknown error",
+        };
+      }
+    }),
+  );
 
-  for (const item of items) {
-    try {
-      const res = await saveProductVariations({
-        productId: item.productId,
-        imageOrder: item.imageOrder,
-        videoSlot: item.videoSlot,
-        styleTags: item.styleTags,
-        availableStyles: item.availableStyles,
-        availableModels: item.availableModels,
-        containsMultipleProducts: item.containsMultipleProducts,
-        customStyles: item.customStyles,
-      });
-      if (res.ok) saved += 1;
-      else failed.push({ productId: item.productId, message: res.message });
-    } catch (err) {
-      failed.push({
-        productId: item.productId,
-        message: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
-  }
+  const failed = results.filter(
+    (result): result is { ok: false; productId: number; message: string } =>
+      !result.ok,
+  );
+  const saved = results.length - failed.length;
 
   await revalidateCatalog();
 
   const ok = failed.length === 0;
   const message = ok
     ? `Saved ${saved} product${saved === 1 ? "" : "s"}.`
-    : `Saved ${saved}, ${failed.length} failed.`;
+    : failed.map((failure) => failure.message).join(" ");
   return { ok, message, saved, failed };
 }
 
@@ -1435,9 +1620,9 @@ export type ActionResult = { ok: boolean; message: string };
  * the run.
  *
  * `proposed` is what the client's "Generate all" loop watches: the candidate
- * pool only shrinks when a product yields a proposal (failures are re-flagged
- * and stay eligible), so a batch that proposes nothing means no further
- * progress is possible.
+ * pool only shrinks when a product yields a proposal. A batch that proposes
+ * nothing has hit failures, and those stay eligible only until their automatic
+ * attempts are used up — the loop must stop rather than re-bill them.
  */
 export async function generateThumbnailProposals(
   limit = 5,
@@ -1447,10 +1632,8 @@ export async function generateThumbnailProposals(
     return { ok: false, message: "Not authorized.", changed: 0, proposed: 0 };
   }
   try {
-    const { processed, proposed, flagged } = await generateProposalsForPending(
-      limit,
-      parseThumbnailScope(scope),
-    );
+    const { processed, proposed, flagged, local, generative } =
+      await generateProposalsForPending(limit, parseThumbnailScope(scope));
     revalidatePath("/admin/products/thumbnails");
     revalidatePath("/admin/products");
     return {
@@ -1458,7 +1641,7 @@ export async function generateThumbnailProposals(
       message:
         processed === 0
           ? "Nothing left to process — the queue is clear."
-          : `Processed ${processed} · ${proposed} proposed · ${flagged} flagged.`,
+          : `Processed ${processed} · ${proposed} proposed (${local} framed locally, ${generative} generated) · ${flagged} flagged.`,
       changed: processed,
       proposed,
     };
@@ -1468,6 +1651,29 @@ export async function generateThumbnailProposals(
       message: err instanceof Error ? err.message : "Generation failed.",
       changed: 0,
       proposed: 0,
+    };
+  }
+}
+
+/**
+ * Generate one product through the same cost-aware path as Generate all.
+ * Pending cards use this. Regenerate stays on the generative engine.
+ */
+export async function generateThumbnailProposal(
+  productId: number,
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  try {
+    const res = await generateProposalForProduct(productId);
+    // A failure still writes a flagged row, so the editor has to refresh either way.
+    revalidateThumbnailSurfaces(productId);
+    return res;
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : "Generation failed.",
     };
   }
 }
@@ -1492,6 +1698,31 @@ export async function approveThumbnailProposal(
   return { ok: res.ok, message: res.message };
 }
 
+/**
+ * Put the previous generated thumbnail back in the proposal slot.
+ * The thumbnail this replaces is kept so Redo can return to it.
+ */
+export async function restorePreviousThumbnail(
+  productId: number,
+): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  const res = await stepThumbnailProposal(productId, "previous");
+  if (res.ok) revalidateThumbnailSurfaces(productId);
+  return res;
+}
+
+/** Bring back the thumbnail Previous just left. */
+export async function redoThumbnail(productId: number): Promise<ActionResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  const res = await stepThumbnailProposal(productId, "redo");
+  if (res.ok) revalidateThumbnailSurfaces(productId);
+  return res;
+}
+
 /** Flag (needs a better photo) or skip a proposal. */
 export async function decideThumbnailProposal(
   productId: number,
@@ -1501,7 +1732,7 @@ export async function decideThumbnailProposal(
     return { ok: false, message: "Not authorized." };
   }
   const res = await setProposalDecision(productId, decision);
-  if (res.ok) revalidatePath("/admin/products/thumbnails");
+  if (res.ok) revalidateThumbnailSurfaces(productId);
   return res;
 }
 
@@ -1517,7 +1748,7 @@ export async function aiCleanupThumbnail(
   }
   try {
     const res = await regenerateProposalWithAiCleanup(productId);
-    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    if (res.ok) revalidateThumbnailSurfaces(productId);
     return res;
   } catch (err) {
     return {
@@ -1536,7 +1767,7 @@ export async function aiRemoveThumbnailArtifact(
   }
   try {
     const res = await regenerateProposalWithAiCleanup(productId, "artifact");
-    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    if (res.ok) revalidateThumbnailSurfaces(productId);
     return res;
   } catch (err) {
     return {
@@ -1555,7 +1786,7 @@ export async function removeThumbnailBackground(
   }
   try {
     const res = await removeBackgroundProposal(productId);
-    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    if (res.ok) revalidateThumbnailSurfaces(productId);
     return res;
   } catch (err) {
     return {
@@ -1575,7 +1806,7 @@ export async function adjustThumbnailCrop(
   }
   try {
     const res = await recropProposal(productId, rect);
-    if (res.ok) revalidatePath("/admin/products/thumbnails");
+    if (res.ok) revalidateThumbnailSurfaces(productId);
     return res;
   } catch (err) {
     return {

@@ -22,7 +22,8 @@ Support: ${BRAND.email}
 - [Shop iPhone cases](${absoluteUrl("/devices/iphone")}): Compatibility guidance and available iPhone case designs.
 - [Kawaii phone cases](${absoluteUrl("/collections/kawaii")}): Cute character and pastel designs.
 - [Y2K phone cases](${absoluteUrl("/collections/y2k")}): Early-2000s holographic and chrome looks.
-- [MagSafe phone cases](${absoluteUrl("/collections/magsafe")}): Cases with a built-in magnetic charging ring.
+- [MagSafe phone cases](${absoluteUrl("/collections/magsafe")}): Cases that snap to MagSafe chargers and wallets. Most of these do not include a ring holder.
+- [Magnetic ring holders](${absoluteUrl("/collections/magnetic-ring")}): iPhone cases with a raised ring holder on the back. These are MagSafe. A MagSafe case without that ring is not listed here.
 
 ## Brand and customer information
 

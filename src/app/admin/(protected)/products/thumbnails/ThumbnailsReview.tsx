@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   Check,
   Flag,
@@ -22,9 +22,12 @@ import {
   Crop,
   Eraser,
   Globe,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import {
   generateThumbnailProposals,
+  generateThumbnailProposal,
   approveThumbnailProposal,
   decideThumbnailProposal,
   aiCleanupThumbnail,
@@ -34,6 +37,8 @@ import {
   bulkRegenerateThumbnails,
   adjustThumbnailCrop,
   removeThumbnailBackground,
+  restorePreviousThumbnail,
+  redoThumbnail,
 } from "../actions";
 import type { ThumbnailQueueStats } from "@/lib/admin/thumbnails";
 import {
@@ -58,6 +63,10 @@ type Item = {
   productStatus: string;
   currentUrl: string | null;
   proposalUrl: string;
+  /** Replaced previews Previous can restore. */
+  previousCount: number;
+  /** Previews Redo can bring back after Previous. */
+  nextCount: number;
   score: number | null;
   category: string | null;
   reason: string | null;
@@ -73,58 +82,6 @@ type BulkResult = ActionResult & { processed: number; published?: number };
 
 const isDraft = (item: { productStatus: string }) =>
   item.productStatus === "draft";
-
-/** Session preference: whether Approve should also publish drafts. Off by default. */
-const PUBLISH_DRAFTS_STORAGE_KEY =
-  "y2kase.admin.thumbnails.publish-drafts-on-approve";
-const PUBLISH_DRAFTS_EVENT = "y2kase-thumbnails-publish-drafts";
-
-/** Fallback when localStorage is blocked; also the SSR snapshot. */
-let publishDraftsMemory = false;
-
-function readPublishDraftsPref(): boolean {
-  try {
-    const raw = window.localStorage.getItem(PUBLISH_DRAFTS_STORAGE_KEY);
-    if (raw === "1") {
-      publishDraftsMemory = true;
-      return true;
-    }
-    if (raw === "0") {
-      publishDraftsMemory = false;
-      return false;
-    }
-  } catch {
-    // Private mode / quota.
-  }
-  return publishDraftsMemory;
-}
-
-function getPublishDraftsServerSnapshot(): boolean {
-  return false;
-}
-
-function writePublishDraftsPref(on: boolean) {
-  publishDraftsMemory = on;
-  try {
-    window.localStorage.setItem(PUBLISH_DRAFTS_STORAGE_KEY, on ? "1" : "0");
-  } catch {
-    // Keep the in-memory value for this session.
-  }
-  window.dispatchEvent(new Event(PUBLISH_DRAFTS_EVENT));
-}
-
-function subscribePublishDrafts(onStoreChange: () => void) {
-  const onStorage = (event: StorageEvent) => {
-    if (event.key && event.key !== PUBLISH_DRAFTS_STORAGE_KEY) return;
-    onStoreChange();
-  };
-  window.addEventListener("storage", onStorage);
-  window.addEventListener(PUBLISH_DRAFTS_EVENT, onStoreChange);
-  return () => {
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener(PUBLISH_DRAFTS_EVENT, onStoreChange);
-  };
-}
 
 function approveActionLabel(publishDrafts: boolean, draft: boolean): string {
   return publishDrafts && draft ? "Approve & publish" : "Approve";
@@ -206,17 +163,10 @@ export function ThumbnailsReview({
   const stopRef = useRef(false);
   const [auto, setAuto] = useState({ running: false, done: 0, total: 0 });
   const [bulk, setBulk] = useState({ running: false, done: 0, total: 0, verb: "" });
-  const publishDraftsOnApprove = useSyncExternalStore(
-    subscribePublishDrafts,
-    readPublishDraftsPref,
-    getPublishDraftsServerSnapshot,
-  );
+  // Always starts off. A previous visit must not publish drafts on the next open.
+  const [publishDraftsOnApprove, setPublishDrafts] = useState(false);
 
   const globalBusy = auto.running || bulk.running;
-
-  function setPublishDrafts(on: boolean) {
-    writePublishDraftsPref(on);
-  }
 
   function flash(result: ActionResult) {
     setToast(result);
@@ -328,7 +278,7 @@ export function ThumbnailsReview({
   }
 
   // ── Generate the pending queue (client-orchestrated batches) ───────────
-  const remaining = stats.pending + stats.flagged;
+  const remaining = stats.pending + stats.retryable;
 
   function generateOnce() {
     startTransition(async () => {
@@ -352,10 +302,9 @@ export function ThumbnailsReview({
         done += res.changed;
         setAuto({ running: true, done, total: Math.max(remaining, done) });
         router.refresh();
-        // The candidate pool only shrinks when a product yields a proposal —
-        // failures are re-flagged and stay eligible — so a batch that proposed
-        // nothing means the rest can't succeed either. Without this the loop
-        // would retry the same failing products forever.
+        // Failures are re-flagged and stay eligible only until their automatic
+        // attempts are used up. A batch that proposes nothing cannot make
+        // progress on the next call either, so stop instead of re-billing it.
         if (res.proposed === 0) break;
       }
       flash({
@@ -488,11 +437,12 @@ export function ThumbnailsReview({
 
         <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--foreground)]/45">
           <Clock className="h-3.5 w-3.5" />
-          Generated with Nano Banana Pro (~45s each, in parallel). Counts and
-          actions follow the selected scope. Approving a thumbnail never
-          publishes a draft unless you turn on “Publish drafts on approve.” The
-          AI cleanup path also removes the small top-left physical tag when
-          present.
+          Clean shots on plain white are framed locally at no image-model cost.
+          Hands, props, and scenes still use Nano Banana Pro (~45s, in
+          parallel). Generate all tries a failed product at most twice, then
+          leaves it under Needs attention. Counts follow the selected scope. Approving
+          a thumbnail never publishes a draft unless you turn on “Publish
+          drafts on approve.”
         </p>
         <PublishDraftsToggle
           checked={publishDraftsOnApprove}
@@ -525,7 +475,7 @@ export function ThumbnailsReview({
           <SectionHeader
             title="To review"
             count={stats.proposed}
-            subtitle={`Compare the proposed thumbnail against the current one, then approve, regenerate, flag, or skip. Tick cards to act in bulk.${
+            subtitle={`Compare the proposed thumbnail against the current one, then approve, regenerate, flag, or skip. Previous restores the last generated thumbnail; Redo brings that newer one back. Tick cards to act in bulk.${
               stats.proposed > items.length
                 ? ` Showing the first ${items.length} of ${stats.proposed}.`
                 : ""
@@ -559,6 +509,14 @@ export function ThumbnailsReview({
                 onCleanup={() =>
                   run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
                 }
+                onPrevious={() =>
+                  run(item.productId, "Previous", () =>
+                    restorePreviousThumbnail(item.productId),
+                  )
+                }
+                onRedo={() =>
+                  run(item.productId, "Redo", () => redoThumbnail(item.productId))
+                }
                 onFlag={() =>
                   run(item.productId, "Flag", () => decideThumbnailProposal(item.productId, "flagged"))
                 }
@@ -585,7 +543,7 @@ export function ThumbnailsReview({
           <SectionHeader
             title="Needs attention"
             count={stats.flagged}
-            subtitle={`Generation didn't produce a usable result (no images, or an error). Retry with the AI cleanup flow, or open the product to add a better photo.${
+            subtitle={`Generation didn't produce a usable result. Automatic retries stop after two attempts — use Regenerate (Nano Banana Pro) or upload a photo.${
               stats.flagged > flagged.length
                 ? ` Showing the first ${flagged.length} of ${stats.flagged}.`
                 : ""
@@ -606,6 +564,14 @@ export function ThumbnailsReview({
                 selectDisabled={globalBusy}
                 onCleanup={() =>
                   run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
+                }
+                onPrevious={() =>
+                  run(item.productId, "Previous", () =>
+                    restorePreviousThumbnail(item.productId),
+                  )
+                }
+                onRedo={() =>
+                  run(item.productId, "Redo", () => redoThumbnail(item.productId))
                 }
                 onSkip={() =>
                   run(item.productId, "Skip", () => decideThumbnailProposal(item.productId, "skipped"))
@@ -690,7 +656,9 @@ export function ThumbnailsReview({
                 actionLabel="Generate"
                 actionIcon={<Sparkles className="h-3.5 w-3.5" />}
                 onAction={() =>
-                  run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
+                  run(item.productId, "Generate", () =>
+                    generateThumbnailProposal(item.productId),
+                  )
                 }
                 onUpload={(f) => uploadThumbnail(item.productId, f)}
               />
@@ -1035,6 +1003,8 @@ function ProposalCard({
   onFlag,
   onSkip,
   onCleanup,
+  onPrevious,
+  onRedo,
   onUpload,
   onAdjust,
   onRemoveBg,
@@ -1051,6 +1021,8 @@ function ProposalCard({
   onFlag: () => void;
   onSkip: () => void;
   onCleanup: () => void;
+  onPrevious: () => void;
+  onRedo: () => void;
   onUpload: (file: File) => void;
   onAdjust: () => void;
   onRemoveBg: () => void;
@@ -1112,6 +1084,28 @@ function ProposalCard({
           </GhostButton>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <GhostButton
+            onClick={onPrevious}
+            disabled={disabled || item.previousCount === 0}
+            title={
+              item.previousCount === 0
+                ? "No previous thumbnail yet. Regenerate, crop, remove the background, or upload — then Previous restores the one this replaced."
+                : "Restore the previous generated thumbnail."
+            }
+          >
+            <Undo2 className="h-3.5 w-3.5" /> Previous
+          </GhostButton>
+          <GhostButton
+            onClick={onRedo}
+            disabled={disabled || item.nextCount === 0}
+            title={
+              item.nextCount === 0
+                ? "Nothing to redo. Previous parks the thumbnail you leave here."
+                : "Bring back the thumbnail you left when you chose Previous."
+            }
+          >
+            <Redo2 className="h-3.5 w-3.5" /> Redo
+          </GhostButton>
           <GhostButton onClick={onRemoveBg} disabled={disabled} accent>
             <Eraser className="h-3.5 w-3.5" /> Remove BG
           </GhostButton>
@@ -1142,6 +1136,8 @@ function FlaggedCard({
   onSelect,
   selectDisabled,
   onCleanup,
+  onPrevious,
+  onRedo,
   onSkip,
   onUpload,
 }: {
@@ -1152,6 +1148,8 @@ function FlaggedCard({
   onSelect: () => void;
   selectDisabled: boolean;
   onCleanup: () => void;
+  onPrevious: () => void;
+  onRedo: () => void;
   onSkip: () => void;
   onUpload: (file: File) => void;
 }) {
@@ -1177,6 +1175,26 @@ function FlaggedCard({
         <PrimaryButton onClick={onCleanup} disabled={disabled} busy={busy} className="w-full">
           <Wand2 className="h-3.5 w-3.5" /> Remove hand
         </PrimaryButton>
+        {(item.previousCount > 0 || item.nextCount > 0) && (
+          <div className="flex items-center gap-1.5">
+            <GhostButton
+              onClick={onPrevious}
+              disabled={disabled || item.previousCount === 0}
+              title="Restore the previous generated thumbnail."
+              className="flex-1"
+            >
+              <Undo2 className="h-3.5 w-3.5" /> Previous
+            </GhostButton>
+            <GhostButton
+              onClick={onRedo}
+              disabled={disabled || item.nextCount === 0}
+              title="Bring back the thumbnail you left when you chose Previous."
+              className="flex-1"
+            >
+              <Redo2 className="h-3.5 w-3.5" /> Redo
+            </GhostButton>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <UploadButton
             onFile={onUpload}

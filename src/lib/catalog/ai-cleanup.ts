@@ -27,6 +27,12 @@
  * and a product with nine good photos and one dead one still gets a thumbnail.
  *
  * Every result is a human-reviewed proposal — never auto-applied.
+ *
+ * The admin queue does not call this for a clean product already sitting on
+ * flat paper white — that shot is framed locally for free (`findLocalFrame`).
+ * This module is the paid path: hands, props, scenes, and any backdrop Sharp
+ * must not trim. Explicit Regenerate always comes here.
+ *
  * Never import from a client component — this runs Node-only code.
  */
 import OpenAI, { toFile } from "openai";

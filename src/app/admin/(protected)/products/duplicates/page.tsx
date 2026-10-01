@@ -4,7 +4,6 @@ import { ArrowLeft } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { findDuplicateClusters } from "@/lib/catalog/duplicates";
 import { getPhashCoverage } from "@/lib/catalog/phash-backfill";
-import { DUPLICATE_THRESHOLD } from "@/lib/catalog/phash";
 import { DuplicatesReview } from "./DuplicatesReview";
 
 export const metadata: Metadata = { title: "Admin · Duplicate products" };
@@ -41,19 +40,14 @@ export default async function DuplicatesPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-black">Possible duplicates</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--foreground)]/60">
-          Products whose main photo is visually near-identical to
-          another&apos;s, grouped together. This catches the same product
-          re-uploaded (including resized or re-compressed photos) so you can
-          remove repeats before they go live. Matched on a perceptual
-          fingerprint — no AI cost.
+          Products whose photos are the same file (or a resize / recompress of
+          it), corroborated by listing identity so similar studio shots of
+          different designs stay apart. Keep one product in each group and
+          delete the rest.
         </p>
       </div>
 
-      <DuplicatesReview
-        clusters={clusters}
-        threshold={DUPLICATE_THRESHOLD}
-        coverage={coverage}
-      />
+      <DuplicatesReview clusters={clusters} coverage={coverage} />
     </div>
   );
 }

@@ -19,11 +19,18 @@ import {
   LIVE_PRODUCT_STATUS,
   shouldPublishDraftOnApprove,
 } from "@/lib/catalog/product-page";
+import { RETRIES_EXHAUSTED_MARK } from "@/lib/catalog/thumbnail-route";
 import {
   SCOPE_STATUSES,
   DEFAULT_THUMBNAIL_SCOPE,
   type ThumbnailScope,
 } from "./thumbnail-scope";
+import type { ThumbnailProposalView } from "./thumbnail-studio";
+import {
+  coerceThumbnailUrls,
+  pushThumbnailUrl,
+  stepThumbnailUrl,
+} from "./thumbnail-history";
 
 export type ApproveProposalOptions = {
   /**
@@ -40,6 +47,20 @@ export type ApproveProposalOptions = {
  */
 export function productScopeFilter(scope: ThumbnailScope): SQL {
   return inArray(products.status, [...SCOPE_STATUSES[scope]]);
+}
+
+/**
+ * System failures Generate all may spend on again.
+ *
+ * A human flag keeps the preview URL and is excluded — the operator already
+ * decided that result should not be rebuilt automatically. A row whose reason
+ * carries the exhausted mark has used its automatic attempts; another pass
+ * would re-bill the same failure. Manual Regenerate does not use this filter.
+ */
+export function autoRetryableProposalFilter(): SQL {
+  return sql`${thumbnailProposals.status} = 'flagged'
+    and ${thumbnailProposals.proposalUrl} is null
+    and position(${RETRIES_EXHAUSTED_MARK} in coalesce(${thumbnailProposals.reason}, '')) = 0`;
 }
 
 /**
@@ -156,12 +177,26 @@ export async function setProposalDecision(
   });
   if (!prop) return { ok: false, message: "No proposal for this product." };
 
-  if (decision === "skipped" && prop.proposalUrl) {
+  if (decision === "skipped") {
     try {
+      const images = await db
+        .select({ url: productImages.url })
+        .from(productImages)
+        .where(eq(productImages.productId, productId));
+      const live = new Set(images.map((image) => image.url));
+      // The approved listing image can sit on the previous stack after a
+      // regenerate. Skip must not delete that object.
+      const discard = [
+        prop.proposalUrl,
+        ...coerceThumbnailUrls(prop.previousProposalUrls),
+        ...coerceThumbnailUrls(prop.nextProposalUrls),
+      ].filter((url): url is string => typeof url === "string" && !live.has(url));
       const bucket = process.env.R2_BUCKET_NAME;
-      const key = r2KeyFromUrl(prop.proposalUrl);
-      if (bucket && key) {
-        await deleteObjectsFromR2(makeR2Client(), bucket, [key]);
+      const keys = discard
+        .map((url) => r2KeyFromUrl(url))
+        .filter((key): key is string => Boolean(key));
+      if (bucket && keys.length) {
+        await deleteObjectsFromR2(makeR2Client(), bucket, keys);
       }
     } catch {
       // Best-effort cleanup — a stale preview object is harmless.
@@ -173,6 +208,8 @@ export async function setProposalDecision(
     .set({
       status: decision,
       proposalUrl: decision === "skipped" ? null : prop.proposalUrl,
+      previousProposalUrls: decision === "skipped" ? [] : prop.previousProposalUrls,
+      nextProposalUrls: decision === "skipped" ? [] : prop.nextProposalUrls,
       updatedAt: new Date(),
     })
     .where(eq(thumbnailProposals.productId, productId));
@@ -244,6 +281,10 @@ export type ProposalQueueItem = {
   productStatus: string;
   currentUrl: string | null;
   proposalUrl: string | null;
+  /** Replaced previews Previous can restore. */
+  previousCount: number;
+  /** Previews Redo can bring back after Previous. */
+  nextCount: number;
   score: number | null;
   category: string | null;
   reason: string | null;
@@ -320,10 +361,46 @@ export async function getProposalQueue({
       productStatus: r.product!.status,
       currentUrl: r.product!.images[0]?.url ?? null,
       proposalUrl: r.proposalUrl,
+      previousCount: coerceThumbnailUrls(r.previousProposalUrls).length,
+      nextCount: coerceThumbnailUrls(r.nextProposalUrls).length,
       score: r.score != null ? Number(r.score) : null,
       category: r.category,
       reason: r.reason,
     }));
+}
+
+/**
+ * The proposal row for one product editor. `null` means generation has never
+ * run — the editor treats that as "not started". The listing image itself
+ * comes from the product already loaded for the page, so this query does not
+ * repeat the gallery.
+ */
+export async function getThumbnailProposalForProduct(
+  productId: number,
+): Promise<ThumbnailProposalView | null> {
+  const row = await db.query.thumbnailProposals.findFirst({
+    where: eq(thumbnailProposals.productId, productId),
+    columns: {
+      status: true,
+      proposalUrl: true,
+      previousProposalUrls: true,
+      nextProposalUrls: true,
+      score: true,
+      category: true,
+      reason: true,
+    },
+  });
+  if (!row) return null;
+  const score = row.score == null ? null : Number(row.score);
+  return {
+    status: row.status,
+    proposalUrl: row.proposalUrl,
+    previousCount: coerceThumbnailUrls(row.previousProposalUrls).length,
+    nextCount: coerceThumbnailUrls(row.nextProposalUrls).length,
+    score: score != null && Number.isFinite(score) ? score : null,
+    category: row.category,
+    reason: row.reason,
+  };
 }
 
 /** Approve many proposals in sequence (each is a fast DB/R2 op). Returns how
@@ -358,20 +435,52 @@ export async function decideProposals(
   return { processed };
 }
 
-/** Record a manually-uploaded image as a product's proposal (goes to "To
- *  review" so it's approved through the same flow). */
-export async function setUploadedProposal(
+type ProposalPreviewPatch = {
+  status: "proposed" | "flagged";
+  proposalUrl?: string | null;
+  sourceImageId?: number | null;
+  score?: number | null;
+  category?: string | null;
+  reason?: string | null;
+};
+
+/**
+ * Write a preview and remember the URL it replaced.
+ *
+ * Generate, regenerate, crop, background removal, and upload all come through
+ * here so Previous can restore the last thumbnail. A failed generate that
+ * clears the URL still pushes the old one, so the flagged card can undo it.
+ */
+export async function saveProposalPreview(
   productId: number,
-  proposalUrl: string,
+  patch: ProposalPreviewPatch,
 ): Promise<void> {
+  const existing = await db.query.thumbnailProposals.findFirst({
+    where: eq(thumbnailProposals.productId, productId),
+    columns: {
+      proposalUrl: true,
+      previousProposalUrls: true,
+      nextProposalUrls: true,
+    },
+  });
+  const history = pushThumbnailUrl(
+    {
+      proposalUrl: existing?.proposalUrl ?? null,
+      previousUrls: existing?.previousProposalUrls ?? [],
+      nextUrls: existing?.nextProposalUrls ?? [],
+    },
+    patch.proposalUrl ?? null,
+  );
   const row = {
     productId,
-    status: "proposed" as const,
-    proposalUrl,
-    sourceImageId: null,
-    score: null,
-    category: "manual",
-    reason: "Manually uploaded.",
+    status: patch.status,
+    proposalUrl: history.proposalUrl,
+    previousProposalUrls: history.previousUrls,
+    nextProposalUrls: history.nextUrls,
+    sourceImageId: patch.sourceImageId ?? null,
+    score: patch.score != null ? String(patch.score) : null,
+    category: patch.category ?? null,
+    reason: patch.reason ?? null,
     updatedAt: new Date(),
   };
   await db
@@ -382,6 +491,8 @@ export async function setUploadedProposal(
       set: {
         status: row.status,
         proposalUrl: row.proposalUrl,
+        previousProposalUrls: row.previousProposalUrls,
+        nextProposalUrls: row.nextProposalUrls,
         sourceImageId: row.sourceImageId,
         score: row.score,
         category: row.category,
@@ -391,19 +502,100 @@ export async function setUploadedProposal(
     });
 }
 
+/**
+ * Restore the previous generated thumbnail, or bring back the one Previous
+ * just left. Only review and flagged rows move — an approved listing image
+ * stays put until a new preview is approved.
+ */
+export async function stepThumbnailProposal(
+  productId: number,
+  direction: "previous" | "redo",
+): Promise<{ ok: boolean; message: string }> {
+  const prop = await db.query.thumbnailProposals.findFirst({
+    where: eq(thumbnailProposals.productId, productId),
+  });
+  if (!prop) return { ok: false, message: "No proposal for this product." };
+  if (prop.status !== "proposed" && prop.status !== "flagged") {
+    return {
+      ok: false,
+      message: "Only a thumbnail in review can be restored.",
+    };
+  }
+  const stepped = stepThumbnailUrl(
+    {
+      proposalUrl: prop.proposalUrl,
+      previousUrls: prop.previousProposalUrls ?? [],
+      nextUrls: prop.nextProposalUrls ?? [],
+    },
+    direction,
+  );
+  if (!stepped?.proposalUrl) {
+    return {
+      ok: false,
+      message:
+        direction === "previous"
+          ? "No previous thumbnail to restore."
+          : "Nothing to redo.",
+    };
+  }
+  await db
+    .update(thumbnailProposals)
+    .set({
+      status: "proposed",
+      proposalUrl: stepped.proposalUrl,
+      previousProposalUrls: stepped.previousUrls,
+      nextProposalUrls: stepped.nextUrls,
+      reason:
+        direction === "previous"
+          ? "Restored the previous generated thumbnail."
+          : "Restored the newer generated thumbnail.",
+      updatedAt: new Date(),
+    })
+    .where(eq(thumbnailProposals.productId, productId));
+  return {
+    ok: true,
+    message:
+      direction === "previous"
+        ? "Restored the previous thumbnail."
+        : "Restored the newer thumbnail.",
+  };
+}
+
+/** Record a manually-uploaded image as a product's proposal (goes to "To
+ *  review" so it's approved through the same flow). */
+export async function setUploadedProposal(
+  productId: number,
+  proposalUrl: string,
+): Promise<void> {
+  await saveProposalPreview(productId, {
+    status: "proposed",
+    proposalUrl,
+    sourceImageId: null,
+    score: null,
+    category: "manual",
+    reason: "Manually uploaded.",
+  });
+}
+
 export type ThumbnailQueueStats = {
   pending: number;
   proposed: number;
   approved: number;
   flagged: number;
   skipped: number;
+  /**
+   * Flagged rows Generate all will still attempt. Smaller than `flagged`:
+   * human flags and exhausted system failures stay on the board but are not
+   * billed again by the batch button.
+   */
+  retryable: number;
 };
 
 /** Queue counters for the review page header and the Products nav badge. */
 export async function getThumbnailQueueStats(
   scope: ThumbnailScope = DEFAULT_THUMBNAIL_SCOPE,
 ): Promise<ThumbnailQueueStats> {
-  const [statusRows, pendingRow] = await Promise.all([
+  const [statusRows, pendingRow, retryableRow] = await Promise.all([
     db
       .select({
         status: thumbnailProposals.status,
@@ -421,6 +613,11 @@ export async function getThumbnailQueueStats(
         eq(thumbnailProposals.productId, products.id),
       )
       .where(and(productScopeFilter(scope), isNull(thumbnailProposals.id))),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(thumbnailProposals)
+      .innerJoin(products, eq(products.id, thumbnailProposals.productId))
+      .where(and(productScopeFilter(scope), autoRetryableProposalFilter())),
   ]);
 
   const by = Object.fromEntries(statusRows.map((r) => [r.status, r.count]));
@@ -430,6 +627,7 @@ export async function getThumbnailQueueStats(
     approved: by["approved"] ?? 0,
     flagged: by["flagged"] ?? 0,
     skipped: by["skipped"] ?? 0,
+    retryable: retryableRow[0]?.count ?? 0,
   };
 }
 

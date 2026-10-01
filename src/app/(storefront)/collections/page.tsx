@@ -9,7 +9,7 @@ import {
   deviceBrowseHref,
   deviceFilterLabel,
 } from "@/lib/catalog/devices";
-import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
+import { MAGNETIC_RING_SLUG, ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 import {
   parseDirectorySort,
   sortDirectoryBrands,
@@ -18,6 +18,10 @@ import {
   COLLECTION_CARD_ART_SLUGS,
   collectionCardArtSrc,
 } from "@/lib/brand/collection-card-art";
+import {
+  COLLECTION_COVER_SLUGS,
+  collectionCoverSrc,
+} from "@/lib/brand/collection-covers";
 import { CollectionsBrowseBar } from "@/components/collections/CollectionsBrowseBar";
 import { JsonLd } from "@/components/JsonLd";
 import {
@@ -98,6 +102,9 @@ export default async function CollectionsIndexPage({
     (c) => c.kind === "brand" && (c.totalCount > 0 || c.featured),
   );
   const originals = tree.find((c) => c.slug === ORIGINALS_SLUG);
+  const magneticRing = tree.find(
+    (c) => c.slug === MAGNETIC_RING_SLUG && c.totalCount > 0,
+  );
 
   // Split the shelf: brands with real depth get cards, the long tail gets pills.
   // If nothing clears the bar (a brand-new store, or a catalogue mid-import)
@@ -122,12 +129,22 @@ export default async function CollectionsIndexPage({
             name: PAGE_COPY.collections.heading,
             description: PAGE_COPY.collections.description,
             url: "/collections",
-            items: brands
-              .filter((brand) => brand.totalCount > 0)
-              .map((brand) => ({
-                name: brand.name,
-                url: `/collections/${brand.slug}`,
-              })),
+            items: [
+              ...(magneticRing
+                ? [
+                    {
+                      name: magneticRing.name,
+                      url: `/collections/${magneticRing.slug}`,
+                    },
+                  ]
+                : []),
+              ...brands
+                .filter((brand) => brand.totalCount > 0)
+                .map((brand) => ({
+                  name: brand.name,
+                  url: `/collections/${brand.slug}`,
+                })),
+            ],
           }),
         ]}
       />
@@ -184,6 +201,49 @@ export default async function CollectionsIndexPage({
           sort={sort}
         />
       </header>
+
+      {magneticRing && (
+        <section aria-labelledby="magnetic-ring-heading" className="mb-8 sm:mb-10">
+          <h2 id="magnetic-ring-heading" className="mb-3 text-sm font-black sm:text-lg">
+            Magnetic ring holder
+          </h2>
+          <Link
+            href={`/collections/${MAGNETIC_RING_SLUG}`}
+            className="group grid overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--card)] transition hover:-translate-y-0.5 hover:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 sm:grid-cols-[minmax(0,18rem)_1fr]"
+          >
+            <div className="relative aspect-video bg-[var(--muted)] sm:aspect-auto sm:min-h-40">
+              {COLLECTION_COVER_SLUGS.has(MAGNETIC_RING_SLUG) ? (
+                <Image
+                  src={collectionCoverSrc(MAGNETIC_RING_SLUG)}
+                  alt=""
+                  fill
+                  sizes="(max-width: 639px) 100vw, 288px"
+                  className="object-cover"
+                />
+              ) : (
+                <span
+                  aria-hidden
+                  className="absolute inset-0"
+                  style={{
+                    background: `linear-gradient(150deg, ${magneticRing.accentColor ?? "#e7a0c4"}, transparent)`,
+                  }}
+                />
+              )}
+            </div>
+            <div className="flex flex-col justify-center p-4 sm:p-6">
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/45">
+                {magneticRing.icon ?? "💍"} On the back of the case
+              </p>
+              <p className="mt-1 text-xl font-black group-hover:text-[var(--primary)] sm:text-2xl">
+                {magneticRing.name}
+              </p>
+              <p className="mt-1 max-w-xl text-sm text-[var(--foreground)]/65">
+                {magneticRing.description} {magneticRing.totalCount} in stock.
+              </p>
+            </div>
+          </Link>
+        </section>
+      )}
 
       {/* Characters & brands */}
       <section aria-labelledby="brands-heading">

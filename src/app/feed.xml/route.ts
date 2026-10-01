@@ -26,6 +26,9 @@ export const dynamic = "force-dynamic";
 
 function xmlEscape(value: string): string {
   return value
+    // XML 1.0 rejects most C0 controls. A single 0x1F in a description makes
+    // Merchant Center report "XML formatting error" for that line.
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -66,8 +69,10 @@ function item(p: CatalogFeedItem): string {
       ),
   ].join("\n      ");
 
+  // Offer id is the numeric product id. Slugs run past Merchant Center's
+  // 50-character limit, and two Hello Kitty slugs share that prefix.
   return `    <item>
-      <g:id>${xmlEscape(p.slug)}</g:id>
+      <g:id>${p.id}</g:id>
       <g:title>${xmlEscape(p.title)}</g:title>
       <g:description>${xmlEscape(description)}</g:description>
       <g:link>${xmlEscape(link)}</g:link>

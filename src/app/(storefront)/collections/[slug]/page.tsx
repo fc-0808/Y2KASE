@@ -46,6 +46,8 @@ import {
   catalogHasMultipleDevices,
   stockedDeviceIds,
 } from "@/lib/catalog/devices";
+import { MAGNETIC_RING_SLUG } from "@/lib/catalog/collections-config";
+import type { BrandOption } from "@/components/catalog/brand-options";
 
 /** Faceted collection landings: never durable ISR. */
 export const dynamic = "force-dynamic";
@@ -110,6 +112,35 @@ function facetLabel(kind: string | undefined): string {
   return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}s`;
 }
 
+/**
+ * Characters a shopper can tick on the magnetic ring holder page.
+ *
+ * That collection has no children of its own, so the usual subtree facet is
+ * empty. Hello Kitty is a character under Sanrio; Miffy is a brand with no
+ * children. Both are the name on the case, so both belong in one flat list.
+ * Genre shelves (Kawaii, Y2K) and MagSafe stay out — they are not characters.
+ */
+function magneticRingCharacterFacets(tree: CollectionNode[]): BrandOption[] {
+  const options: BrandOption[] = [];
+  for (const node of tree) {
+    if (node.kind !== "brand" && node.kind !== "character") continue;
+    const characters = node.children.filter(
+      (child) => child.kind === "character",
+    );
+    const listed = characters.length > 0 ? characters : [node];
+    for (const entry of listed) {
+      options.push({
+        slug: entry.slug,
+        name: entry.name,
+        icon: entry.icon,
+        accentColor: entry.accentColor,
+      });
+    }
+  }
+  options.sort((a, b) => a.name.localeCompare(b.name));
+  return options;
+}
+
 export default async function CollectionPage({
   params,
   searchParams,
@@ -158,6 +189,8 @@ async function CollectionCatalog({
   const children = (findNode(tree, slug)?.children ?? []).filter(
     (child) => child.totalCount > 0,
   );
+  const characterFacets =
+    slug === MAGNETIC_RING_SLUG ? magneticRingCharacterFacets(tree) : [];
 
   /*
    * This page is `/products` scoped to one branch of the taxonomy, so it runs
@@ -179,7 +212,10 @@ async function CollectionCatalog({
   const requested = parseCatalogParams(await searchParams, basePath);
   const indexable = isIndexableCatalogPage(requested);
   const canonical = catalogCanonicalHref(requested);
-  const offered = new Set(children.map((child) => child.slug));
+  const offered = new Set([
+    ...children.map((child) => child.slug),
+    ...characterFacets.map((character) => character.slug),
+  ]);
   const scoped: CatalogParams = {
     ...requested,
     collection: undefined,
@@ -203,10 +239,20 @@ async function CollectionCatalog({
     sort: catalogParams.sort,
   };
 
+  const facetSlugs =
+    children.length > 0
+      ? children.map((child) => child.slug)
+      : characterFacets.map((character) => character.slug);
   const { items, total, pageSize, facetCounts } = await getCatalogPage(
     query,
-    children.map((child) => child.slug),
+    facetSlugs,
   );
+  const visibleCharacters = characterFacets.filter(
+    (character) =>
+      (facetCounts.brands[character.slug] ?? 0) > 0 ||
+      catalogParams.brands.includes(character.slug),
+  );
+  const brandOptions = children.length > 0 ? children : visibleCharacters;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -220,7 +266,7 @@ async function CollectionCatalog({
   const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
   const rangeEnd = Math.min(catalogParams.page * pageSize, total);
   const filtered = hasActiveFilters(catalogParams);
-  const chips = buildCatalogChips(catalogParams, { brands: children });
+  const chips = buildCatalogChips(catalogParams, { brands: brandOptions });
   const stocked = stockedDeviceIds(facetCounts.devices);
   const seoInput = { ...collection, stockedDeviceIds: stocked };
   const copy = collectionSeo(seoInput);
@@ -322,9 +368,13 @@ async function CollectionCatalog({
 
       <CatalogToolbar
         params={catalogParams}
-        brands={children}
+        brands={brandOptions}
         counts={facetCounts}
-        brandsLabel={facetLabel(children[0]?.kind)}
+        brandsLabel={
+          characterFacets.length > 0
+            ? "Characters"
+            : facetLabel(children[0]?.kind)
+        }
         searchPlaceholder={`Search ${collection.name}…`}
         searchLabel={`Search ${collection.name} products`}
         resultCount={total}

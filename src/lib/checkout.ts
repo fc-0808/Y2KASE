@@ -186,6 +186,7 @@ export async function priceCart(
       currency,
       selected: c.options,
       customStyles,
+      stylePrices: product.stylePrices,
       basePrice: product.price,
     });
     const image = variationImage(product.images, selectedStyle, customStyles);

@@ -86,6 +86,7 @@ export default async function ProductPage({
     storedPrice: product.price,
     currency,
     customStyles: product.customStyles,
+    stylePrices: product.stylePrices,
   });
 
   return (

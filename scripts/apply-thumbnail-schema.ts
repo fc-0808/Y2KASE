@@ -20,6 +20,8 @@ async function main() {
       "product_id" integer NOT NULL UNIQUE REFERENCES "products"("id") ON DELETE CASCADE,
       "status" text NOT NULL DEFAULT 'proposed',
       "proposal_url" text,
+      "previous_proposal_urls" jsonb NOT NULL DEFAULT '[]'::jsonb,
+      "next_proposal_urls" jsonb NOT NULL DEFAULT '[]'::jsonb,
       "source_image_id" integer,
       "score" numeric(4,3),
       "category" text,
@@ -29,8 +31,10 @@ async function main() {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS "thumbnail_proposals_status_idx" ON "thumbnail_proposals" ("status")`;
+  await sql`ALTER TABLE "thumbnail_proposals" ADD COLUMN IF NOT EXISTS "previous_proposal_urls" jsonb NOT NULL DEFAULT '[]'::jsonb`;
+  await sql`ALTER TABLE "thumbnail_proposals" ADD COLUMN IF NOT EXISTS "next_proposal_urls" jsonb NOT NULL DEFAULT '[]'::jsonb`;
 
-  console.log("✓ thumbnail_proposals table + index applied.");
+  console.log("✓ thumbnail_proposals table, history columns, and index applied.");
   process.exit(0);
 }
 

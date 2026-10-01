@@ -584,8 +584,8 @@ export async function prepareCampaignAudience(
     }
 
     const audience = await syncMarketingAudience();
-    revalidatePath("/admin/subscribers");
-    revalidatePath("/admin/campaigns");
+    // Do not revalidate this page here: a refresh remounts Email studio with a
+    // new draft UUID and drops the confirmation dialog that follows.
     const holdouts = await getCampaignAudienceHoldouts();
     const eligibleEmails = intersectCampaignAudience(
       audience.eligibleEmails,
@@ -847,12 +847,13 @@ export async function launchCampaign(input: {
     // audience. Re-snapshot before updating it; queued/sent broadcasts returned
     // above are immutable and are never duplicated.
     if (!deliverySegmentId || providerStatus === "draft") {
-      deliverySegmentId = await createMarketingAudienceSnapshot({
+      const snapshot = await createMarketingAudienceSnapshot({
         campaignId: input.id,
         campaignName: validated.value.name,
         eligibleEmails,
       });
-      snapshotCreated = true;
+      deliverySegmentId = snapshot.segmentId;
+      snapshotCreated = snapshot.created;
     }
     if (broadcastId && providerStatus === "draft") {
       await updateMarketingBroadcastDraft(broadcastId, {

@@ -340,11 +340,25 @@ export const COLLECTION_TAXONOMY: CollectionSeed[] = [
     slug: "magsafe",
     name: "MagSafe",
     kind: "feature",
+    featured: true,
     icon: "🧲",
     accentColor: "#8e8e93",
     description:
-      "Cases with a built-in magnetic ring — snap-on MagSafe charging and accessories.",
+      "Phone cases that snap to MagSafe chargers and wallets. A magnetic ring holder is a separate shop — most MagSafe cases do not include one.",
     match: ["magsafe", "mag safe"],
+  },
+  {
+    slug: "magnetic-ring",
+    name: "Magnetic Ring Holder",
+    kind: "feature",
+    featured: true,
+    icon: "💍",
+    accentColor: "#e7a0c4",
+    description:
+      "iPhone cases with a raised magnetic ring holder on the back. Every one of these is MagSafe. Most MagSafe cases do not have this ring.",
+    // No keyword match. Hyphens in the matcher become spaces, so a title that
+    // says "magnetic ring" would file itself, and feature filing never removes
+    // a false hit. An operator marks the product in admin.
   },
   {
     slug: "originals",
@@ -367,6 +381,9 @@ export const ORIGINALS_SLUG = "originals";
 /** Feature collection for MagSafe phone cases. Never file AirPods here. */
 export const MAGSAFE_SLUG = "magsafe";
 
+/** Raised ring holder on the back of the case. A subset of MagSafe. */
+export const MAGNETIC_RING_SLUG = "magnetic-ring";
+
 /**
  * Collections intentionally hidden from the "Shop the universe" homepage rail
  * (and its generated cover set). These broad genre umbrellas are still browsable
@@ -379,6 +396,30 @@ export const RAIL_HIDDEN_SLUGS: ReadonlySet<string> = new Set<string>([
   "characters",
   "cartoon",
 ]);
+
+/**
+ * Tiles that stay at the front of "Shop the universe" even when a character
+ * collection outranks them by SKU count. The magnetic ring holder is a
+ * feature, not a character, so a pure count sort would bury it. Empty tiles
+ * are not pinned. MagSafe stays in the rail by count — it is a wider shop
+ * than the ring holder.
+ */
+export const RAIL_PINNED_SLUGS: readonly string[] = [MAGNETIC_RING_SLUG];
+
+export function orderRailCategories<T extends { slug: string; count: number }>(
+  categories: readonly T[],
+  limit: number,
+): T[] {
+  const bySlug = new Map(categories.map((category) => [category.slug, category]));
+  const pinned = RAIL_PINNED_SLUGS.flatMap((slug) => {
+    const category = bySlug.get(slug);
+    return category && category.count > 0 ? [category] : [];
+  });
+  const pinnedSlugs = new Set(pinned.map((category) => category.slug));
+  const rest = categories.filter((category) => !pinnedSlugs.has(category.slug));
+  const cap = Math.max(0, limit);
+  return [...pinned, ...rest].slice(0, cap);
+}
 
 /** A flattened seed node with its resolved parent slug (null for top level). */
 export type FlatCollectionSeed = CollectionSeed & { parentSlug: string | null };

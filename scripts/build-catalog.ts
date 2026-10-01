@@ -35,7 +35,11 @@ import Database from "better-sqlite3";
 import { inspectProductFolders } from "../src/lib/catalog/discover";
 import { REJECTED_FOLDER, REVIEW_FOLDER } from "../src/lib/catalog/folder-sort";
 import { makeR2Client } from "../src/lib/catalog/r2";
-import { ingestProductFolder, sha256 } from "../src/lib/catalog/ingest";
+import {
+  DuplicateProductError,
+  ingestProductFolder,
+  sha256,
+} from "../src/lib/catalog/ingest";
 import { getProductType } from "../src/lib/catalog/product-types";
 import { loadCatalogConfig, resolveListing } from "../src/lib/catalog/manifest";
 import { mapWithConcurrency } from "../src/lib/catalog/concurrency";
@@ -59,19 +63,34 @@ function requireAnyEnv(...names: string[]): string {
   throw new Error(`Missing required env var: one of ${names.join(" / ")}`);
 }
 
-function parseArgs(): { dir: string; type: string } {
+function parseArgs(): {
+  dir: string;
+  type: string;
+  skipDuplicates: boolean;
+  manifest: string | null;
+} {
   const args = process.argv.slice(2);
   let dir =
     process.env.INGEST_DIR ??
     process.env.LOCAL_CATALOG_ROOT ??
     "./bestListings";
   let type = process.env.INGEST_PRODUCT_TYPE ?? "iphone_case";
+  let skipDuplicates = false;
+  let manifest: string | null = null;
+  let sawDir = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--dir" && args[i + 1]) dir = args[++i];
-    else if (args[i] === "--type" && args[i + 1]) type = args[++i];
-    else if (!args[i].startsWith("--")) dir = args[i];
+    if (args[i] === "--dir" && args[i + 1]) {
+      dir = args[++i];
+      sawDir = true;
+    } else if (args[i] === "--type" && args[i + 1]) type = args[++i];
+    else if (args[i] === "--skip-duplicates") skipDuplicates = true;
+    else if (args[i] === "--manifest" && args[i + 1]) manifest = args[++i];
+    else if (!args[i].startsWith("--") && !sawDir) {
+      dir = args[i];
+      sawDir = true;
+    }
   }
-  return { dir, type };
+  return { dir, type, skipDuplicates, manifest };
 }
 
 function initCatalogDb(dbPath: string): Database.Database {
@@ -143,7 +162,7 @@ async function main() {
   requireEnv("R2_SECRET_ACCESS_KEY");
   requireEnv("R2_PUBLIC_URL");
 
-  const { dir, type: cliType } = parseArgs();
+  const { dir, type: cliType, skipDuplicates, manifest } = parseArgs();
   // `--type auto` lets the vision model classify each product's type; the
   // fallback is used only when AI can't decide and nothing pins the type.
   const autoMode = cliType === "auto";
@@ -152,31 +171,35 @@ async function main() {
   const catalogPath = process.env.CATALOG_DB_PATH ?? "./data/catalog.db";
 
   const resolved = path.resolve(dir);
-  if (!fs.existsSync(resolved))
+  if (!manifest && !fs.existsSync(resolved))
     throw new Error(`Directory not found: ${resolved}`);
 
   fs.mkdirSync(path.dirname(path.resolve(catalogPath)), { recursive: true });
   const catalogDb = initCatalogDb(path.resolve(catalogPath));
   const r2 = makeR2Client();
 
-  const catalogConfig = loadCatalogConfig(resolved);
-  const discovery = inspectProductFolders(resolved);
-  if (discovery.unreadableDirectories.length > 0) {
+  const catalogConfig = loadCatalogConfig(manifest ? process.cwd() : resolved);
+  const discovery = manifest ? null : inspectProductFolders(resolved);
+  if (discovery && discovery.unreadableDirectories.length > 0) {
     throw new Error(
       `Cannot safely scan ${resolved}; ${discovery.unreadableDirectories.length} director${
         discovery.unreadableDirectories.length === 1 ? "y is" : "ies are"
       } unreadable: ${discovery.unreadableDirectories.slice(0, 5).join(", ")}`,
     );
   }
-  const folders = discovery.folders.filter((folder) => {
-    const top = folder.folderPath.split("/")[0];
-    // The classifier parks uncertain and junk folders here. Ingesting them
-    // would publish chat screenshots and unreviewed guesses as drafts.
-    return top !== REJECTED_FOLDER && top !== REVIEW_FOLDER;
-  });
-  if (folders.length === 0 && discovery.ignoredImageCount > 0) {
+  const folders = manifest
+    ? (JSON.parse(fs.readFileSync(path.resolve(manifest), "utf8")) as ReturnType<
+        typeof inspectProductFolders
+      >["folders"])
+    : discovery!.folders.filter((folder) => {
+        const top = folder.folderPath.split("/")[0];
+        // The classifier parks uncertain and junk folders here. Ingesting them
+        // would publish chat screenshots and unreviewed guesses as drafts.
+        return top !== REJECTED_FOLDER && top !== REVIEW_FOLDER;
+      });
+  if (!manifest && folders.length === 0 && discovery!.ignoredImageCount > 0) {
     throw new Error(
-      `No product galleries found. The only ${discovery.ignoredImageCount} image(s) are inside internal _originals/_removed folders. Select the parent output folder after variant generation has completed.`,
+      `No product galleries found. The only ${discovery!.ignoredImageCount} image(s) are inside internal _originals/_removed folders. Select the parent output folder after variant generation has completed.`,
     );
   }
   if (folders.length === 0) {
@@ -185,11 +208,11 @@ async function main() {
     );
   }
   console.log(
-    `\nFound ${folders.length} product folder(s) in ${resolved}\n` +
+    `\nFound ${folders.length} product folder(s) in ${manifest ?? resolved}\n` +
       (autoMode
         ? `Product type: AI auto-detect (fallback ${getProductType(fallbackType).label})\n`
         : `Product type: ${getProductType(fallbackType).label} (${fallbackType})\n`) +
-      (discovery.ignoredMediaDirectories.length > 0
+      (discovery && discovery.ignoredMediaDirectories.length > 0
         ? `Excluded ${discovery.ignoredMediaDirectories.length} internal _originals/_removed folder(s) (${discovery.ignoredImageCount} non-gallery image(s)).\n`
         : ""),
   );
@@ -208,8 +231,15 @@ async function main() {
   // Process products with bounded concurrency to overlap the slow parts (AI
   // latency, image uploads). Default 3 — high enough to hide latency, low
   // enough to respect the vision provider's rate limits. Tune via env.
-  const concurrency = Math.max(1, Number(process.env.INGEST_CONCURRENCY) || 3);
-  console.log(`Concurrency: ${concurrency}\n`);
+  // Parallel ingest can miss a twin that is still in flight. One at a time
+  // lets each insert join the duplicate index before the next folder starts.
+  const concurrency = skipDuplicates
+    ? 1
+    : Math.max(1, Number(process.env.INGEST_CONCURRENCY) || 3);
+  console.log(
+    `Concurrency: ${concurrency}` +
+      (skipDuplicates ? " (duplicates are not inserted)\n" : "\n"),
+  );
 
   await mapWithConcurrency(folders, concurrency, async (folder, i) => {
     const { resolved: listing, manifestRaw } = resolveListing({
@@ -240,8 +270,12 @@ async function main() {
       | { status: string; image_hashes: string }
       | undefined;
 
-    if (existing?.status === "pushed" && existing.image_hashes === hashesJson) {
-      console.log(`${label} — skipped (already pushed)`);
+    if (
+      existing &&
+      (existing.status === "pushed" || existing.status === "duplicate") &&
+      existing.image_hashes === hashesJson
+    ) {
+      console.log(`${label} — skipped (already ${existing.status})`);
       skipped++;
       return;
     }
@@ -281,7 +315,8 @@ async function main() {
           status: listing.status,
           collections: listing.collections,
         },
-        detectDuplicate: (ph) => nearestInIndex(dupIndex, ph),
+        detectDuplicate: (query) => nearestInIndex(dupIndex, query),
+        skipIfDuplicate: skipDuplicates,
         log: (m) => console.log(`  ${m}`),
       });
 
@@ -301,6 +336,10 @@ async function main() {
           slug: result.slug,
           title: result.title,
           phash: result.primaryPhash,
+          phashes: [result.primaryPhash],
+          productType: result.productType,
+          brandName: null,
+          characterName: null,
         });
       }
 
@@ -316,6 +355,17 @@ async function main() {
       if (result.duplicateOf) duplicates++;
       if (result.autoDetectedType) autoTyped++;
     } catch (err) {
+      if (err instanceof DuplicateProductError) {
+        catalogDb
+          .prepare(
+            `UPDATE catalog_products SET error = ?, status = 'duplicate', updated_at = unixepoch()
+             WHERE folder_path = ?`,
+          )
+          .run(err.message, folder.folderPath);
+        console.log(`  skipped duplicate — ${err.message}`);
+        duplicates++;
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       catalogDb
         .prepare(

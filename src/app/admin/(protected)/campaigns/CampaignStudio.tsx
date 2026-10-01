@@ -217,6 +217,7 @@ export function CampaignStudio({
   const [saved, setSaved] = useState(false);
   const confirmDialogRef = useRef<HTMLDivElement>(null);
   const deleteDialogRef = useRef<HTMLDivElement>(null);
+  const launchCardRef = useRef<HTMLDivElement>(null);
   const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
   const headingInputRef = useRef<HTMLInputElement>(null);
   const dismissConfirmation = useCallback(() => {
@@ -238,7 +239,7 @@ export function CampaignStudio({
     );
   }, []);
 
-  useBodyScrollLock(confirmOpen || Boolean(deleteTarget));
+  useBodyScrollLock(confirmOpen || Boolean(deleteTarget) || busy === "prepare");
   useModalFocusTrap(confirmDialogRef, confirmOpen, dismissConfirmation);
   useModalFocusTrap(
     deleteDialogRef,
@@ -255,6 +256,7 @@ export function CampaignStudio({
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
   }, [dirty]);
 
+  const working = pending || busy !== null;
   const selectedProduct =
     products.find((product) => product.id === selectedProductId) ?? null;
   const heroReferenceProducts = heroReferenceIds
@@ -394,19 +396,36 @@ export function CampaignStudio({
   function begin(
     kind: NonNullable<typeof busy>,
     operation: () => Promise<void>,
+    options: { transition?: boolean } = {},
   ) {
     clearMessages();
     setBusy(kind);
-    startTransition(async () => {
+    const run = async () => {
       try {
         await operation();
       } catch {
         setError(
           "The request could not be completed. Refresh and try again safely.",
         );
+        if (kind === "prepare") {
+          launchCardRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }
       } finally {
         setBusy(null);
       }
+    };
+    // Audience review must not run inside startTransition: a 30–80s Server
+    // Action plus revalidate/refresh remounts this studio and swallows the
+    // confirmation dialog, which looks like a dead button.
+    if (options.transition === false) {
+      void run();
+      return;
+    }
+    startTransition(() => {
+      void run();
     });
   }
 
@@ -617,35 +636,54 @@ export function CampaignStudio({
     });
   }
 
+  function showLaunchError(message: string) {
+    setError(message);
+    requestAnimationFrame(() => {
+      launchCardRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+  }
+
   function prepare() {
     if (sendBlockers.length > 0) {
-      setError(sendBlockers[0]!.message);
+      showLaunchError(sendBlockers[0]!.message);
       return;
     }
     if (!tested) {
-      setError("Send a test of the current version first.");
+      showLaunchError("Send a test of the current version first.");
       return;
     }
     if (!reviewed) {
-      setError("Complete the final review acknowledgement first.");
+      showLaunchError("Complete the final review acknowledgement first.");
       return;
     }
     if (sendMode === "schedule" && !scheduledLocal) {
-      setError("Choose a date and time for the scheduled send.");
+      showLaunchError("Choose a date and time for the scheduled send.");
       return;
     }
-    begin("prepare", async () => {
-      const result = await prepareCampaignAudience(campaignId, draft, reviewed);
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setPreparedCount(result.recipientCount);
-      setPreparedFingerprint(result.audienceFingerprint);
-      setConfirmation("");
-      setConfirmOpen(true);
-      setNotice(result.message);
-    });
+    selectTab("compose");
+    begin(
+      "prepare",
+      async () => {
+        const result = await prepareCampaignAudience(
+          campaignId,
+          draft,
+          reviewed,
+        );
+        if (!result.ok) {
+          showLaunchError(result.message);
+          return;
+        }
+        setPreparedCount(result.recipientCount);
+        setPreparedFingerprint(result.audienceFingerprint);
+        setConfirmation("");
+        setConfirmOpen(true);
+        setNotice(result.message);
+      },
+      { transition: false },
+    );
   }
 
   function launch() {
@@ -847,7 +885,7 @@ export function CampaignStudio({
           <button
             type="button"
             onClick={newCampaign}
-            disabled={pending}
+            disabled={working}
             className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-bold text-foreground transition hover:brightness-95 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
@@ -942,6 +980,7 @@ export function CampaignStudio({
         aria-label="Email workspace"
         className="mb-6 flex gap-1 rounded-xl border border-border bg-card p-1"
         onKeyDown={(event) => {
+          if (working) return;
           if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
           event.preventDefault();
           const index = EMAIL_STUDIO_VIEWS.indexOf(tab);
@@ -964,7 +1003,7 @@ export function CampaignStudio({
           aria-selected={tab === "compose"}
           tabIndex={tab === "compose" ? 0 : -1}
           onClick={() => selectTab("compose")}
-          disabled={pending}
+          disabled={working}
           className={cn(
             "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition disabled:opacity-50",
             tab === "compose"
@@ -982,7 +1021,7 @@ export function CampaignStudio({
           aria-selected={tab === "cadence"}
           tabIndex={tab === "cadence" ? 0 : -1}
           onClick={() => selectTab("cadence")}
-          disabled={pending}
+          disabled={working}
           className={cn(
             "inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition disabled:opacity-50",
             tab === "cadence"
@@ -1001,7 +1040,7 @@ export function CampaignStudio({
           aria-selected={tab === "history"}
           tabIndex={tab === "history" ? 0 : -1}
           onClick={() => selectTab("history")}
-          disabled={pending}
+          disabled={working}
           className={cn(
             "flex-1 rounded-lg px-4 py-2.5 text-sm font-bold transition disabled:opacity-50",
             tab === "history"
@@ -1837,11 +1876,41 @@ export function CampaignStudio({
                 )}
               </ReviewCard>
 
+              <div ref={launchCardRef}>
               <ReviewCard
                 number="3"
                 title="Confirm the audience"
-                detail="Resend opt-outs win, unknown contacts are excluded, and any membership change stops the launch."
+                detail="Resend opt-outs win, unknown contacts are excluded, and any membership change stops the launch. Audience review talks to Resend and can take a short wait."
               >
+                <p className="mb-3 text-xs leading-5 text-foreground/55">
+                  {activeSubscriberCount} active Club member
+                  {activeSubscriberCount === 1 ? "" : "s"}. Sends are capped at{" "}
+                  {capabilities.maxRecipients} until background audience sync
+                  exists.
+                </p>
+                {activeSubscriberCount > capabilities.maxRecipients && (
+                  <div
+                    role="status"
+                    className="mb-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs leading-5 text-rose-800"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Active Club is larger than the send ceiling of{" "}
+                      {capabilities.maxRecipients}. Raise{" "}
+                      <code className="font-mono">MARKETING_MAX_RECIPIENTS</code>{" "}
+                      or wait for quiet-window holdouts before reviewing.
+                    </span>
+                  </div>
+                )}
+                {error && (
+                  <div
+                    role="alert"
+                    className="mb-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs leading-5 text-rose-800"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
                 <div className="mb-3 flex gap-2">
                   <button
                     type="button"
@@ -1851,7 +1920,7 @@ export function CampaignStudio({
                       setReviewed(false);
                       invalidatePreparedAudience();
                     }}
-                    disabled={pending}
+                    disabled={working}
                     className={cn(
                       "rounded-full px-3 py-1.5 text-xs font-bold disabled:opacity-50",
                       sendMode === "now"
@@ -1872,7 +1941,7 @@ export function CampaignStudio({
                       setReviewed(false);
                       invalidatePreparedAudience();
                     }}
-                    disabled={pending || !MARKETING_SCHEDULING_ENABLED}
+                    disabled={working || !MARKETING_SCHEDULING_ENABLED}
                     title={
                       MARKETING_SCHEDULING_ENABLED
                         ? undefined
@@ -1901,7 +1970,7 @@ export function CampaignStudio({
                     <input
                       type="datetime-local"
                       value={scheduledLocal}
-                      disabled={pending}
+                      disabled={working}
                       onChange={(event) => {
                         setScheduledLocal(event.target.value);
                         setReviewed(false);
@@ -1918,7 +1987,7 @@ export function CampaignStudio({
                   <input
                     type="checkbox"
                     checked={reviewed}
-                    disabled={pending}
+                    disabled={working}
                     onChange={(event) => {
                       setReviewed(event.target.checked);
                       invalidatePreparedAudience();
@@ -1936,7 +2005,7 @@ export function CampaignStudio({
                   onClick={prepare}
                   disabled={
                     locked ||
-                    pending ||
+                    working ||
                     blockingConfiguration ||
                     sendBlockers.length > 0 ||
                     !tested ||
@@ -1955,9 +2024,12 @@ export function CampaignStudio({
                   ) : (
                     <ShieldCheck className="h-4 w-4" />
                   )}
-                  Review audience & {sendMode === "schedule" ? "schedule" : "send"}
+                  {busy === "prepare"
+                    ? "Reconciling audience…"
+                    : `Review audience & ${sendMode === "schedule" ? "schedule" : "send"}`}
                 </button>
               </ReviewCard>
+              </div>
             </div>
           </section>
         </div>
@@ -2199,6 +2271,34 @@ export function CampaignStudio({
                 )}
                 Delete draft
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {busy === "prepare" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black">
+                  Reconciling the Club audience
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-foreground/60">
+                  Checking Resend opt-outs and segment membership for{" "}
+                  {activeSubscriberCount} active subscriber
+                  {activeSubscriberCount === 1 ? "" : "s"}. Keep this tab open —
+                  this can take up to a minute.
+                </p>
+              </div>
             </div>
           </div>
         </div>

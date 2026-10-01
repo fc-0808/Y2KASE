@@ -140,6 +140,7 @@ export function ProductPageView({
           values: o.values,
         }))}
         customStyles={product.customStyles}
+        stylePrices={product.stylePrices}
         trackCommerce={!isPreview}
       />
 

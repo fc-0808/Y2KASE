@@ -452,6 +452,7 @@ function offerFor(product: SeoProduct): JsonLdObject {
     storedPrice: product.price,
     currency,
     customStyles: product.customStyles,
+    stylePrices: product.stylePrices,
   });
 
   return {

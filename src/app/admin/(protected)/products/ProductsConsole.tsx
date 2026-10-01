@@ -65,6 +65,7 @@ import {
   assignProductsToCollection,
   removeProductsFromCollection,
   bulkSetMagsafe,
+  setMagneticRingHolders,
   syncCollectionTaxonomy,
   type BulkUpdatePayload,
 } from "./actions";
@@ -75,6 +76,21 @@ import {
   type DeviceCounts,
 } from "./ProductsDeviceNav";
 import { CollectionNavBar } from "./ProductsCollectionNav";
+import { UploadDateBar, UploadSortButton } from "./UploadDateBar";
+import {
+  compareProductsByUpload,
+  countInWindow,
+  matchesUploadWindow,
+  parseUploadSort,
+  parseUploadWindow,
+  uploadBatches,
+  uploadWindowParam,
+  uploadWindowSummary,
+  formatUploadDay,
+  formatUploadTime,
+  type UploadSort,
+  type UploadWindow,
+} from "@/lib/admin/upload-date";
 
 type StatusFilter = "all" | "draft" | "active" | "archived";
 
@@ -84,6 +100,26 @@ const STATUS_TABS: { id: StatusFilter; label: string }[] = [
   { id: "active", label: "Live" },
   { id: "archived", label: "Archived" },
 ];
+
+const PRODUCT_ROW_GRID =
+  "xl:grid-cols-[40px_minmax(0,2.15fr)_minmax(0,1.7fr)_minmax(0,1.1fr)_6.75rem_7.5rem]";
+
+function writeCatalogQuery(patch: {
+  uploaded?: string | null;
+  sort?: string | null;
+}) {
+  const params = new URLSearchParams(window.location.search);
+  if ("uploaded" in patch) {
+    if (patch.uploaded) params.set("uploaded", patch.uploaded);
+    else params.delete("uploaded");
+  }
+  if ("sort" in patch) {
+    if (patch.sort && patch.sort !== "review") params.set("sort", patch.sort);
+    else params.delete("sort");
+  }
+  const qs = params.toString();
+  return qs ? `/admin/products?${qs}` : "/admin/products";
+}
 
 export function ProductsConsole({
   products,
@@ -95,6 +131,8 @@ export function ProductsConsole({
   titleHealth = {},
   classification = {},
   brandOptions = [],
+  initialUploaded,
+  initialUploadSort,
 }: {
   products: AdminProductOverview[];
   collectionOptions: AdminCollectionOption[];
@@ -109,6 +147,10 @@ export function ProductsConsole({
   classification?: Record<number, ClassificationHealth>;
   /** The brand registry, for the inline classification editor. */
   brandOptions?: BrandOption[];
+  /** `uploaded` query: today, 7d, 30d, or YYYY-MM-DD. */
+  initialUploaded?: string;
+  /** `sort` query: review, newest, or oldest. */
+  initialUploadSort?: string;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -123,6 +165,12 @@ export function ProductsConsole({
   const [titleIssuesOnly, setTitleIssuesOnly] = useState(false);
   const [brandIssuesOnly, setBrandIssuesOnly] = useState(false);
   const [multiProductOnly, setMultiProductOnly] = useState(false);
+  const [uploadWindow, setUploadWindowState] = useState<UploadWindow>(() =>
+    parseUploadWindow(initialUploaded),
+  );
+  const [uploadSort, setUploadSortState] = useState<UploadSort>(() =>
+    parseUploadSort(initialUploadSort),
+  );
   const [brandManagerOpen, setBrandManagerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
@@ -136,6 +184,24 @@ export function ProductsConsole({
   );
   const bulkBarRef = useRef<HTMLDivElement>(null);
   const hasSelection = selected.size > 0;
+
+  function setUploadWindow(next: UploadWindow) {
+    setUploadWindowState(next);
+    syncUploadQuery(next, uploadSort);
+  }
+
+  function setUploadSort(next: UploadSort) {
+    setUploadSortState(next);
+    syncUploadQuery(uploadWindow, next);
+  }
+
+  function syncUploadQuery(nextWindow: UploadWindow, nextSort: UploadSort) {
+    const href = writeCatalogQuery({
+      uploaded: uploadWindowParam(nextWindow),
+      sort: nextSort === "review" ? null : nextSort,
+    });
+    window.history.replaceState(null, "", href);
+  }
 
   // Reserve exactly the space claimed by the fixed bulk-action bar. Its height
   // varies substantially as actions wrap on narrow screens, so a fixed padding
@@ -314,12 +380,33 @@ export function ProductsConsole({
     return counts;
   }, [collectionOptions, baseForCollections]);
 
-  const filtered = useMemo(() => {
+  const scoped = useMemo(() => {
     if (!collectionMatchIds) return baseForCollections;
     return baseForCollections.filter((p) =>
       p.collectionIds.some((id) => collectionMatchIds.has(id)),
     );
   }, [baseForCollections, collectionMatchIds]);
+
+  const uploadDayBatches = useMemo(
+    () => uploadBatches(scoped),
+    [scoped],
+  );
+  const uploadSummary = useMemo(() => {
+    if (uploadWindow.kind === "all") return null;
+    const count = countInWindow(scoped, uploadWindow);
+    const phrase = uploadWindowSummary(uploadWindow);
+    return `${count} ${count === 1 ? "listing" : "listings"} ${phrase}`;
+  }, [scoped, uploadWindow]);
+
+  const filtered = useMemo(() => {
+    const matched =
+      uploadWindow.kind === "all"
+        ? scoped
+        : scoped.filter((p) => matchesUploadWindow(p.createdAt, uploadWindow));
+    return [...matched].sort((a, b) =>
+      compareProductsByUpload(a, b, uploadSort),
+    );
+  }, [scoped, uploadWindow, uploadSort]);
 
   const filteredIds = useMemo(() => filtered.map((p) => p.id), [filtered]);
   const allFilteredSelected =
@@ -465,6 +552,19 @@ export function ProductsConsole({
     });
   }
 
+  function runMagneticRing(enabled: boolean) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      const res = await setMagneticRingHolders(ids, enabled);
+      flash(res);
+      if (res.ok) {
+        clearSelection();
+        router.refresh();
+      }
+    });
+  }
+
   // ── Result handler for the bulk editor modal (both modes) ──────────────────
   function handleSaved(result: { ok: boolean; message: string }) {
     flash(result);
@@ -544,7 +644,8 @@ export function ProductsConsole({
     collectionFilter !== "all" ||
     titleIssuesOnly ||
     brandIssuesOnly ||
-    multiProductOnly;
+    multiProductOnly ||
+    uploadWindow.kind !== "all";
 
   function resetFilters() {
     setQuery("");
@@ -554,6 +655,13 @@ export function ProductsConsole({
     setTitleIssuesOnly(false);
     setBrandIssuesOnly(false);
     setMultiProductOnly(false);
+    setUploadWindowState({ kind: "all" });
+    setUploadSortState("review");
+    window.history.replaceState(
+      null,
+      "",
+      writeCatalogQuery({ uploaded: null, sort: null }),
+    );
   }
 
   return (
@@ -759,6 +867,18 @@ export function ProductsConsole({
             onSelect={setCollectionFilter}
           />
         )}
+        <UploadDateBar
+          batches={uploadDayBatches}
+          total={scoped.length}
+          todayCount={countInWindow(scoped, { kind: "today" })}
+          weekCount={countInWindow(scoped, { kind: "7d" })}
+          monthCount={countInWindow(scoped, { kind: "30d" })}
+          window={uploadWindow}
+          sort={uploadSort}
+          summary={uploadSummary}
+          onWindow={setUploadWindow}
+          onSort={setUploadSort}
+        />
       </section>
 
       {/* ── Toolbar: search + status filter ─────────────────────────────── */}
@@ -832,16 +952,17 @@ export function ProductsConsole({
       {/* ── Table ───────────────────────────────────────────────────────── */}
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         {/* Column headers (xl+); narrower admin shells use labeled card rows. */}
-        <div className="hidden grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] items-center gap-3 border-b border-border bg-muted/60 px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-foreground/50 xl:grid">
+        <div className={`hidden ${PRODUCT_ROW_GRID} items-center gap-3 border-b border-border bg-muted/60 px-3 py-2.5 text-[11px] font-bold text-foreground/50 xl:grid`}>
           <span />
-          <span>Product</span>
-          <span className="flex items-center gap-1">
+          <span className="uppercase tracking-wide">Product</span>
+          <span className="flex items-center gap-1 uppercase tracking-wide">
             <Layers className="h-3.5 w-3.5" /> Variations
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 uppercase tracking-wide">
             <Smartphone className="h-3.5 w-3.5" /> Device fit
           </span>
-          <span className="text-right">Actions</span>
+          <UploadSortButton sort={uploadSort} onSort={setUploadSort} />
+          <span className="text-right uppercase tracking-wide">Actions</span>
         </div>
 
         {filtered.length === 0 ? (
@@ -902,7 +1023,7 @@ export function ProductsConsole({
           style={{
             bottom: "calc(var(--bottom-bar-h, 0px) + 1rem)",
           }}
-          className={`fixed left-1/2 z-40 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold shadow-lg ${
+          className={`fixed left-1/2 z-[90] -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold shadow-lg ${
             toast.ok ? "bg-green-600 text-white" : "bg-red-500 text-white"
           }`}
         >
@@ -961,6 +1082,24 @@ export function ProductsConsole({
                   onClick={() => runMagsafe(false)}
                   disabled={pending}
                   title="Remove MagSafe from selected"
+                  className="rounded-full px-2 py-1 text-xs font-bold text-[var(--foreground)]/60 hover:bg-[var(--muted)] disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              </div>
+              <div className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--background)] p-1">
+                <button
+                  onClick={() => runMagneticRing(true)}
+                  disabled={pending}
+                  title="You choose this. Marks a raised ring holder on the back and also marks MagSafe. Vision is not used."
+                  className="rounded-full bg-[var(--primary)] px-2.5 py-1 text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  Ring holder
+                </button>
+                <button
+                  onClick={() => runMagneticRing(false)}
+                  disabled={pending}
+                  title="Remove the magnetic ring holder. MagSafe is left as it is."
                   className="rounded-full px-2 py-1 text-xs font-bold text-[var(--foreground)]/60 hover:bg-[var(--muted)] disabled:opacity-50"
                 >
                   Remove
@@ -1206,7 +1345,7 @@ function ProductRow({
   const showFit = hasCompatibilityAxis(product.productType);
   return (
     <li
-      className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3.5 transition xl:grid-cols-[40px_minmax(0,2.4fr)_minmax(0,2fr)_minmax(0,1.4fr)_120px] xl:items-center ${
+      className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3.5 transition ${PRODUCT_ROW_GRID} xl:items-center ${
         selected ? "bg-primary/5" : "hover:bg-muted/40"
       }`}
     >
@@ -1272,6 +1411,14 @@ function ProductRow({
             {showTypeBadge && (
               <ClassBadge title="Product type">
                 {product.productTypeLabel}
+              </ClassBadge>
+            )}
+            {product.hasMagneticRing && (
+              <ClassBadge
+                tone="fuchsia"
+                title="Operator marked a magnetic ring holder on the back"
+              >
+                Ring holder
               </ClassBadge>
             )}
             {product.isMagsafe && (
@@ -1344,6 +1491,7 @@ function ProductRow({
                 s,
                 product.currency,
                 product.customStyles,
+                product.stylePrices,
               );
               return (
                 <li
@@ -1383,6 +1531,22 @@ function ProductRow({
             models={product.availableModels}
           />
         )}
+      </div>
+
+      <div className="col-start-2 min-w-0 xl:col-start-auto">
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-foreground/40 xl:hidden">
+          Uploaded
+        </p>
+        <time
+          dateTime={product.createdAt}
+          title={product.createdAt}
+          className="block text-xs font-semibold leading-tight text-foreground/70"
+        >
+          <span className="block">{formatUploadDay(product.createdAt)}</span>
+          <span className="block tabular-nums text-foreground/45">
+            {formatUploadTime(product.createdAt)}
+          </span>
+        </time>
       </div>
 
       {/* actions */}

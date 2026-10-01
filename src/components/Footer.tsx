@@ -48,6 +48,7 @@ export async function Footer() {
           },
         ]
       : []),
+    { href: "/collections/magnetic-ring", label: "Magnetic Ring Holder" },
     { href: "/collections/magsafe", label: "MagSafe" },
     { href: "/collections", label: "Collections" },
     { href: "/products?tag=phone_charm", label: "Charms" },

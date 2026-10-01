@@ -16,6 +16,7 @@ export const COLLECTION_COVER_SLUGS: ReadonlySet<string> = new Set<string>([
   "keroppi",
   "kuromi",
   "little-twin-stars",
+  "magnetic-ring",
   "magsafe",
   "miffy",
   "monchhichi",
@@ -34,7 +35,7 @@ export const COLLECTION_COVER_SLUGS: ReadonlySet<string> = new Set<string>([
  * stable filenames, this query param forces browsers to re-fetch the art
  * whenever it's regenerated instead of serving a stale cached image.
  */
-export const COLLECTION_COVERS_VERSION = "mtxx9fb8";
+export const COLLECTION_COVERS_VERSION = "mudoeghg";
 
 /** Public path to a collection's generated cover image (cache-busted). */
 export function collectionCoverSrc(slug: string): string {

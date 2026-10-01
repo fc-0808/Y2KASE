@@ -43,6 +43,18 @@ export function formatPrice(
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+/** "Style: Case Only · iPhone Model: iPhone 18 Pro", or null when unset. */
+export function formatOptionValues(
+  values?: Record<string, string> | null,
+): string | null {
+  if (!values) return null;
+  const text = Object.entries(values)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(" · ");
+  return text || null;
+}
+
 /** Format an integer amount of minor units (cents) as a currency string. */
 export function formatCents(
   cents: number,

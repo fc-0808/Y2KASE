@@ -198,6 +198,7 @@ export default async function AdminDashboardPage() {
             <ul className="divide-y divide-[var(--border)]">
               {recentOrders.map((o) => {
                 const customer = orderCustomerLabel(o);
+                const placed = formatPlacedAt(o.createdAt);
                 return (
                   <li key={o.id}>
                     <Link
@@ -205,7 +206,7 @@ export default async function AdminDashboardPage() {
                       className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--muted)]/40 sm:px-5"
                     >
                       {/* Stack identity under the order # so long emails never
-                          compete with status/price for horizontal space. */}
+                          compete with status/price/date for horizontal space. */}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="shrink-0 font-mono text-sm font-bold">
@@ -222,9 +223,18 @@ export default async function AdminDashboardPage() {
                           {customer.text}
                         </p>
                       </div>
-                      <span className="shrink-0 self-start text-sm font-bold tabular-nums sm:self-center">
-                        {formatCents(o.totalCents, o.currency)}
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-bold tabular-nums">
+                          {formatCents(o.totalCents, o.currency)}
+                        </p>
+                        <time
+                          dateTime={placed.iso}
+                          title={placed.title}
+                          className="mt-0.5 block whitespace-nowrap text-xs tabular-nums text-[var(--foreground)]/45"
+                        >
+                          {placed.label}
+                        </time>
+                      </div>
                     </Link>
                   </li>
                 );
@@ -320,4 +330,41 @@ function timeAgo(date: Date): string {
   if (hrs < 24) return `${hrs}h`;
   const days = Math.floor(hrs / 24);
   return `${days}d`;
+}
+
+/** Compact placed-at stamp. Hong Kong wall clock, same TZ as inbox/visitors. */
+const ADMIN_TZ = "Asia/Hong_Kong";
+const placedAtFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: ADMIN_TZ,
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+const placedAtWithYearFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: ADMIN_TZ,
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+function yearInAdminTz(date: Date): number {
+  return Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: ADMIN_TZ,
+      year: "numeric",
+    }).format(date),
+  );
+}
+
+function formatPlacedAt(date: Date | string) {
+  const d = new Date(date);
+  const sameYear = yearInAdminTz(d) === yearInAdminTz(new Date());
+  return {
+    iso: d.toISOString(),
+    label: (sameYear ? placedAtFmt : placedAtWithYearFmt).format(d),
+    title: placedAtWithYearFmt.format(d),
+  };
 }

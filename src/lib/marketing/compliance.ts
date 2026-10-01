@@ -82,14 +82,17 @@ export function marketingMailReadiness(): MarketingMailReadiness {
 }
 
 export function marketingMaxRecipients(): number {
-  // Current audience reconciliation intentionally serializes provider writes.
-  // Keep synchronous launches well inside the 120-second function budget until
-  // a durable bulk/background worker replaces this path.
-  const hardSynchronousCap = 25;
+  // Audience sync is still serialized at ~550ms per provider call. Prepare is
+  // one topic lookup per sendable contact; launch repeats that plus one snapshot
+  // add each. 80 recipients stays inside the 120s route budget with retries.
+  const hardSynchronousCap = 80;
   const parsed = Number(
     process.env.MARKETING_MAX_RECIPIENTS ?? hardSynchronousCap,
   );
-  return Number.isInteger(parsed) && parsed > 0
-    ? Math.min(parsed, hardSynchronousCap)
-    : hardSynchronousCap;
+  if (!Number.isInteger(parsed) || parsed <= 0) return hardSynchronousCap;
+  // 25 was the previous hard cap and the documented env default. A Club that
+  // has grown past that should not stay blocked until someone remembers to
+  // edit .env; intentional lower ceilings (1–24) still apply.
+  if (parsed === 25) return hardSynchronousCap;
+  return Math.min(parsed, hardSynchronousCap);
 }

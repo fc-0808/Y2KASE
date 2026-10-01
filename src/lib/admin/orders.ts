@@ -68,7 +68,20 @@ function viewWhere(view?: string): SQL | undefined {
   return eq(orders.status, view);
 }
 
-export type OrderRow = Order & { itemCount: number };
+/** The cart lines an admin needs in the orders table — title, options, qty. */
+export type OrderLineSummary = Pick<
+  OrderItem,
+  | "id"
+  | "productId"
+  | "productSlug"
+  | "productTitle"
+  | "imageUrl"
+  | "optionValues"
+  | "quantity"
+  | "unitCents"
+>;
+
+export type OrderRow = Order & { items: OrderLineSummary[] };
 
 export type OrderStats = {
   total: number;
@@ -81,20 +94,31 @@ export type OrderStats = {
   revenue7dCents: number;
 };
 
-/** Orders for a given admin view, newest first, with a line-item count. */
+/** Orders for a given admin view, newest first, including each cart line. */
 export async function getOrders(view?: string): Promise<OrderRow[]> {
   if (!isDbConfigured()) return [];
 
   const rows = await db.query.orders.findMany({
     where: viewWhere(view),
     orderBy: desc(orders.createdAt),
-    with: { items: { columns: { id: true } } },
+    with: {
+      items: {
+        columns: {
+          id: true,
+          productId: true,
+          productSlug: true,
+          productTitle: true,
+          imageUrl: true,
+          optionValues: true,
+          quantity: true,
+          unitCents: true,
+        },
+        orderBy: (item, { asc }) => asc(item.id),
+      },
+    },
   });
 
-  return rows.map((o) => {
-    const { items, ...rest } = o;
-    return { ...rest, itemCount: items.length };
-  });
+  return rows;
 }
 
 export type OrderWithDetail = Order & {

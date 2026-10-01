@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     const url = await uploadWebpToR2(r2, bucket, key, normalized);
     await setUploadedProposal(productId, url);
     revalidatePath("/admin/products/thumbnails");
+    revalidatePath(`/admin/products/${productId}`);
     return NextResponse.json({ ok: true, message: "Uploaded — review it below." });
   } catch (err) {
     return NextResponse.json(

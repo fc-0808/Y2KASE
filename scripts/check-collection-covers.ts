@@ -15,8 +15,11 @@ import path from "node:path";
 import sharp from "sharp";
 import {
   flattenTaxonomy,
+  MAGNETIC_RING_SLUG,
   ORIGINALS_SLUG,
   RAIL_HIDDEN_SLUGS,
+  RAIL_PINNED_SLUGS,
+  orderRailCategories,
 } from "../src/lib/catalog/collections-config";
 import {
   COLLECTION_COVER_SLUGS,
@@ -48,6 +51,29 @@ function requiredRailCoverCollections() {
 function coverFile(slug: string): string {
   return path.join(COVER_DIR, `${slug}.webp`);
 }
+
+test("the magnetic ring holder leads Shop the universe when it has stock", () => {
+  assert.equal(RAIL_PINNED_SLUGS[0], MAGNETIC_RING_SLUG);
+  const ordered = orderRailCategories(
+    [
+      { slug: "sanrio", count: 200 },
+      { slug: "magsafe", count: 100 },
+      { slug: MAGNETIC_RING_SLUG, count: 12 },
+    ],
+    14,
+  );
+  assert.equal(ordered[0]?.slug, MAGNETIC_RING_SLUG);
+  assert.equal(ordered[1]?.slug, "sanrio");
+
+  const empty = orderRailCategories(
+    [
+      { slug: "sanrio", count: 10 },
+      { slug: MAGNETIC_RING_SLUG, count: 0 },
+    ],
+    14,
+  );
+  assert.equal(empty[0]?.slug, "sanrio");
+});
 
 test("Originals is featured and not rail-hidden", () => {
   const originals = flattenTaxonomy().find((n) => n.slug === ORIGINALS_SLUG);

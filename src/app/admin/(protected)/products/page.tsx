@@ -18,7 +18,7 @@ export const maxDuration = 180;
 export default async function AdminProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ collection?: string }>;
+  searchParams: Promise<{ collection?: string; uploaded?: string; sort?: string }>;
 }) {
   const sp = await searchParams;
   const initialCollectionId = sp.collection ? Number(sp.collection) : undefined;
@@ -70,6 +70,8 @@ export default async function AdminProductsPage({
       titleHealth={Object.fromEntries(titleHealth)}
       classification={Object.fromEntries(classification)}
       brandOptions={listBrandOptions()}
+      initialUploaded={sp.uploaded}
+      initialUploadSort={sp.sort}
     />
   );
 }

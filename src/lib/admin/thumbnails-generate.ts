@@ -11,7 +11,11 @@ import sharp from "sharp";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products, thumbnailProposals } from "@/lib/db/schema";
-import { productScopeFilter } from "./thumbnails";
+import {
+  autoRetryableProposalFilter,
+  productScopeFilter,
+  saveProposalPreview,
+} from "./thumbnails";
 import {
   DEFAULT_THUMBNAIL_SCOPE,
   type ThumbnailScope,
@@ -23,6 +27,11 @@ import {
   removeBackgroundKie,
   NoUsableReferencesError,
 } from "@/lib/catalog/ai-cleanup";
+import { findLocalFrame } from "@/lib/catalog/thumbnail-framing";
+import {
+  localFrameReason,
+  nextAutoFailureReason,
+} from "@/lib/catalog/thumbnail-route";
 import { loadImage, type LoadedImage } from "@/lib/catalog/image-source";
 import { makeR2Client, uploadWebpToR2 } from "@/lib/catalog/r2";
 import { mapWithConcurrency } from "@/lib/catalog/concurrency";
@@ -84,15 +93,6 @@ const UNSCORED: ThumbnailScore = {
   reason: "unscored",
 };
 
-type ProposalPatch = {
-  status: "proposed" | "flagged";
-  proposalUrl?: string | null;
-  sourceImageId?: number | null;
-  score?: number | null;
-  category?: string | null;
-  reason?: string | null;
-};
-
 /** Pick the image a cleanup should operate on: the one the proposal was derived
  *  from, else the highest-positioned (thumbnail) image. */
 function pickSourceImage<T extends { id: number; position: number }>(
@@ -106,47 +106,42 @@ function pickSourceImage<T extends { id: number; position: number }>(
   return images[0];
 }
 
-async function upsertProposal(productId: number, patch: ProposalPatch) {
-  const row = {
-    productId,
-    status: patch.status,
-    proposalUrl: patch.proposalUrl ?? null,
-    sourceImageId: patch.sourceImageId ?? null,
-    score: patch.score != null ? String(patch.score) : null,
-    category: patch.category ?? null,
-    reason: patch.reason ?? null,
-    updatedAt: new Date(),
-  };
-  await db
-    .insert(thumbnailProposals)
-    .values(row)
-    .onConflictDoUpdate({
-      target: thumbnailProposals.productId,
-      set: {
-        status: row.status,
-        proposalUrl: row.proposalUrl,
-        sourceImageId: row.sourceImageId,
-        score: row.score,
-        category: row.category,
-        reason: row.reason,
-        updatedAt: row.updatedAt,
-      },
-    });
+function upsertProposal(
+  productId: number,
+  patch: Parameters<typeof saveProposalPreview>[1],
+) {
+  return saveProposalPreview(productId, patch);
 }
 
 export type GenerateResult = {
   processed: number;
   proposed: number;
   flagged: number;
+  /** Proposals framed from a clean white shot, with no image-model call. */
+  local: number;
+  /** Proposals that paid for Nano Banana Pro (or the configured fallback). */
+  generative: number;
+};
+
+type ProductOutcome = {
+  status: "proposed" | "flagged";
+  engine: "local" | "generative" | "none";
+  message: string;
 };
 
 /** Generate (or flag) a single product's thumbnail. Self-contained so the batch
- *  can run many of these in parallel. Never throws — returns the outcome. */
+ *  can run many of these in parallel. Never throws — returns the outcome.
+ *
+ *  Clean product shots on flat paper white are framed locally (Sharp only).
+ *  Everything else — hands, props, scenes, tinted backdrops, a vision miss —
+ *  still goes through Nano Banana Pro. `previousReason` is the row's current
+ *  failure text, so a retry can count attempts without another read. */
 async function processProduct(
   id: number,
   r2: ReturnType<typeof makeR2Client>,
   bucket: string,
-): Promise<"proposed" | "flagged"> {
+  previousReason: string | null,
+): Promise<ProductOutcome> {
   const product = await db.query.products.findFirst({
     where: eq(products.id, id),
     columns: { id: true, slug: true, title: true },
@@ -159,11 +154,13 @@ async function processProduct(
   });
 
   if (!product || product.images.length === 0) {
-    await upsertProposal(id, {
-      status: "flagged",
-      reason: "No images on this product.",
-    });
-    return "flagged";
+    const reason = nextAutoFailureReason(
+      previousReason,
+      "No images on this product.",
+      true,
+    );
+    await upsertProposal(id, { status: "flagged", reason });
+    return { status: "flagged", engine: "none", message: reason };
   }
 
   try {
@@ -174,8 +171,8 @@ async function processProduct(
       })),
     );
 
-    // Scoring only chooses the best PRIMARY reference (framing); every product
-    // is generated — Nano Banana Pro removes any hand, so we no longer flag.
+    // The winning score picks the primary reference when we do have to
+    // generate. It does not, by itself, authorize a Nano Banana Pro call.
     let best = product.images[0];
     let bestScore = scores[String(best.id)] ?? UNSCORED;
     for (const img of product.images) {
@@ -186,10 +183,44 @@ async function processProduct(
       }
     }
 
-    const normalized = await buildThumbnail(
-      orderedImageUrls(product.images, best.id),
-      "hand",
+    const local = await findLocalFrame(
+      product.images.map((img) => ({
+        id: img.id,
+        url: img.url,
+        score: scores[String(img.id)] ?? UNSCORED,
+      })),
     );
+
+    let normalized: Buffer;
+    let engine: "local" | "generative";
+    let sourceId = best.id;
+    let sourceScore = bestScore;
+    let reason = bestScore.reason;
+
+    if (local) {
+      try {
+        normalized = await normalizeThumbnail(local.bytes);
+        engine = "local";
+        sourceId = local.id;
+        sourceScore = local.score;
+        reason = localFrameReason(local.score.reason);
+      } catch (err) {
+        console.warn(
+          `[thumbnails] product ${id} local framing failed (${err instanceof Error ? err.message : err}); using generative cleanup`,
+        );
+        normalized = await buildThumbnail(
+          orderedImageUrls(product.images, best.id),
+          "hand",
+        );
+        engine = "generative";
+      }
+    } else {
+      normalized = await buildThumbnail(
+        orderedImageUrls(product.images, best.id),
+        "hand",
+      );
+      engine = "generative";
+    }
 
     const key = `products/${sanitise(product.slug)}/thumbnail-proposal-${Date.now()}.webp`;
     const proposalUrl = await uploadWebpToR2(r2, bucket, key, normalized);
@@ -197,45 +228,80 @@ async function processProduct(
     await upsertProposal(id, {
       status: "proposed",
       proposalUrl,
-      sourceImageId: best.id,
-      score: bestScore.score,
-      category: bestScore.category,
-      reason: bestScore.reason,
+      sourceImageId: sourceId,
+      score: sourceScore.score,
+      category: sourceScore.category,
+      reason,
     });
-    return "proposed";
+    console.info(
+      `[thumbnails] product ${id} engine=${engine} score=${sourceScore.score.toFixed(2)} ${sourceScore.category}`,
+    );
+    return {
+      status: "proposed",
+      engine,
+      message:
+        engine === "local"
+          ? "Framed from the clean product shot."
+          : "Thumbnail generated.",
+    };
   } catch (err) {
-    await upsertProposal(id, { status: "flagged", reason: failureReason(err) });
-    return "flagged";
+    const reason = nextAutoFailureReason(
+      previousReason,
+      failureReason(err),
+      err instanceof NoUsableReferencesError,
+    );
+    await upsertProposal(id, { status: "flagged", reason });
+    console.info(`[thumbnails] product ${id} flagged: ${reason}`);
+    return { status: "flagged", engine: "none", message: reason };
   }
 }
 
 /**
- * Process the next `limit` products in `scope` that still need a thumbnail —
- * those with no proposal yet, plus any previously "flagged" (retried, since
- * Nano Banana Pro can now remove hands). Runs up to CONCURRENCY products in
- * parallel. Each product is independent — one failure flags that product; the
- * run continues.
+ * Cost-aware generation for one product — the per-card Generate button and
+ * the batch share this. Explicit Regenerate stays on {@link
+ * regenerateProposalWithAiCleanup}, which always uses the generative engine:
+ * that button means the free framing was not good enough.
+ */
+export async function generateProposalForProduct(
+  productId: number,
+): Promise<{ ok: boolean; message: string }> {
+  const bucket = process.env.R2_BUCKET_NAME;
+  if (!bucket) throw new Error("R2_BUCKET_NAME is not set.");
+
+  const existing = await db.query.thumbnailProposals.findFirst({
+    where: eq(thumbnailProposals.productId, productId),
+    columns: { reason: true },
+  });
+  const outcome = await processProduct(
+    productId,
+    makeR2Client(),
+    bucket,
+    existing?.reason ?? null,
+  );
+  return { ok: outcome.status === "proposed", message: outcome.message };
+}
+
+/**
+ * Process the next `limit` products in `scope` that still need a thumbnail:
+ * no proposal yet, plus system failures that have not exhausted their
+ * automatic attempts. Human flags are not in this set — Generate all must
+ * not re-bill a decision the operator already made.
  *
- * Never-attempted products are ordered ahead of flagged retries. A flagged
- * product stays a candidate forever, so ordering by id alone let a permanently
- * failing product sit at the head of the queue and consume the same slot on
- * every batch, starving everything behind it.
+ * Never-attempted products are ordered ahead of retries, so a failing row
+ * cannot sit at the head of the queue and starve the catalog behind it.
  */
 export async function generateProposalsForPending(
   limit: number,
   scope: ThumbnailScope = DEFAULT_THUMBNAIL_SCOPE,
 ): Promise<GenerateResult> {
   const candidates = await db
-    .select({ id: products.id })
+    .select({ id: products.id, reason: thumbnailProposals.reason })
     .from(products)
     .leftJoin(thumbnailProposals, eq(thumbnailProposals.productId, products.id))
     .where(
       and(
         productScopeFilter(scope),
-        or(
-          isNull(thumbnailProposals.id),
-          eq(thumbnailProposals.status, "flagged"),
-        ),
+        or(isNull(thumbnailProposals.id), autoRetryableProposalFilter()),
       ),
     )
     .orderBy(
@@ -245,21 +311,24 @@ export async function generateProposalsForPending(
     )
     .limit(Math.max(1, Math.min(limit, 50)));
 
-  const ids = candidates.map((c) => c.id);
-  if (ids.length === 0) return { processed: 0, proposed: 0, flagged: 0 };
+  if (candidates.length === 0) {
+    return { processed: 0, proposed: 0, flagged: 0, local: 0, generative: 0 };
+  }
 
   const bucket = process.env.R2_BUCKET_NAME;
   if (!bucket) throw new Error("R2_BUCKET_NAME is not set.");
   const r2 = makeR2Client();
 
-  const outcomes = await mapWithConcurrency(ids, CONCURRENCY, (id) =>
-    processProduct(id, r2, bucket),
+  const outcomes = await mapWithConcurrency(candidates, CONCURRENCY, (row) =>
+    processProduct(row.id, r2, bucket, row.reason),
   );
 
   return {
-    processed: ids.length,
-    proposed: outcomes.filter((o) => o === "proposed").length,
-    flagged: outcomes.filter((o) => o === "flagged").length,
+    processed: candidates.length,
+    proposed: outcomes.filter((o) => o.status === "proposed").length,
+    flagged: outcomes.filter((o) => o.status === "flagged").length,
+    local: outcomes.filter((o) => o.engine === "local").length,
+    generative: outcomes.filter((o) => o.engine === "generative").length,
   };
 }
 

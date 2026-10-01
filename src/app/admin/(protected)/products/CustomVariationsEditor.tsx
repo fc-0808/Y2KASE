@@ -15,20 +15,20 @@ import {
   ArrowDown,
   ArrowUp,
   Boxes,
+  Crop,
   Image as ImageIcon,
   Plus,
   Trash2,
-  TriangleAlert,
   X,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
+import { StylePriceSelect } from "./StylePriceSelect";
 import { STYLE_OPTION_NAME } from "@/lib/pricing";
 import { priceAxisFor } from "@/lib/catalog/product-types";
 import {
   CUSTOM_STYLE_MAX_COUNT,
   CUSTOM_STYLE_MAX_LABEL,
   customStylePricePresets,
-  customStylesNeedPhoto,
   emptyCustomStyleDraft,
   isDevicePricePreset,
   pricesMatch,
@@ -52,6 +52,7 @@ export function CustomVariationsEditor({
   images,
   productType,
   currency,
+  onEditPhoto,
 }: {
   flagged: boolean;
   onFlagChange: (flagged: boolean) => void;
@@ -60,16 +61,14 @@ export function CustomVariationsEditor({
   images: CustomVariationImage[];
   productType: string;
   currency: string;
+  /** Opens the crop studio for this gallery photo. Omitted outside bulk edit. */
+  onEditPhoto?: (image: CustomVariationImage) => void;
 }) {
   const [pickingId, setPickingId] = useState<string | null>(null);
   const axisName = priceAxisFor(productType)?.name ?? STYLE_OPTION_NAME;
   const pricePresets = useMemo(
     () => customStylePricePresets(productType, currency),
     [productType, currency],
-  );
-  const missingPhotos = useMemo(
-    () => customStylesNeedPhoto(customStyles),
-    [customStyles],
   );
   const byId = useMemo(
     () => new Map(images.map((image) => [image.id, image])),
@@ -140,7 +139,7 @@ export function CustomVariationsEditor({
           <p className="mt-1 text-xs leading-relaxed text-[var(--foreground)]/60">
             Turn this on when the photos show distinct physical products — two
             cases, or a case and a separately named charm. Each one becomes a{" "}
-            {axisName} option with its own price and linked photo.
+            {axisName} option with its own price. A photo is optional.
           </p>
         </div>
         <button
@@ -163,22 +162,10 @@ export function CustomVariationsEditor({
 
       {flagged && (
         <div className="mt-3 space-y-2">
-          {missingPhotos.length > 0 && customStyles.length > 0 && (
-            <p className="flex items-start gap-1.5 text-[11px] text-amber-800">
-              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              No photo linked to{" "}
-              <span className="font-semibold">
-                {missingPhotos.length > 2
-                  ? `${missingPhotos.slice(0, 2).join(", ")} +${missingPhotos.length - 2} more`
-                  : missingPhotos.join(", ")}
-              </span>
-            </p>
-          )}
-
           {customStyles.length === 0 && (
             <p className="rounded-xl bg-[var(--muted)] px-3 py-2 text-xs text-[var(--foreground)]/60">
-              Add a named variation for each product in this listing, then tap
-              its photo to link the matching image.
+              Add a named variation for each product in this listing. Tap a
+              photo to link it, or leave it blank and save anyway.
             </p>
           )}
 
@@ -282,30 +269,16 @@ export function CustomVariationsEditor({
                       />
                       <label className="flex items-center gap-1.5 text-xs text-[var(--foreground)]/55">
                         <span className="font-semibold">{currency}</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={Number.isFinite(row.price) ? row.price : ""}
-                          onChange={(event) =>
-                            patch(row.id, {
-                              price: Number(event.target.value),
-                            })
+                        <StylePriceSelect
+                          style={row.label || "custom variation"}
+                          currency={currency}
+                          value={
+                            Number.isFinite(row.price) ? row.price.toFixed(2) : ""
                           }
-                          className="w-28 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm tabular-nums outline-none focus:border-[var(--primary)]"
-                          aria-label={`Price for ${row.label || "custom variation"}`}
+                          onChange={(price) =>
+                            patch(row.id, { price: Number(price) })
+                          }
                         />
-                        {Number.isFinite(row.price) &&
-                          row.price > 0 &&
-                          !isDevicePricePreset(
-                            productType,
-                            currency,
-                            row.price,
-                          ) && (
-                            <span className="tabular-nums">
-                              {formatPrice(row.price, currency)} custom
-                            </span>
-                          )}
                       </label>
                     </div>
                   </div>
@@ -363,7 +336,7 @@ export function CustomVariationsEditor({
                   {images.map((image, index) => {
                     const selected = picking.imageId === image.id;
                     return (
-                      <li key={image.id}>
+                      <li key={image.id} className="relative">
                         <button
                           type="button"
                           onClick={() => linkPhoto(picking.id, image.id)}
@@ -384,6 +357,17 @@ export function CustomVariationsEditor({
                             {index + 1}
                           </span>
                         </button>
+                        {onEditPhoto && (
+                          <button
+                            type="button"
+                            onClick={() => onEditPhoto(image)}
+                            className="absolute bottom-1 right-1 z-10 grid h-6 w-6 place-items-center rounded-full bg-white text-[var(--foreground)] shadow ring-1 ring-black/10"
+                            aria-label={`Crop photo ${index + 1}`}
+                            title="Crop and rotate"
+                          >
+                            <Crop className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </li>
                     );
                   })}

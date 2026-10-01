@@ -11,7 +11,10 @@ import {
 import { selectDiverseRail } from "@/lib/catalog/rail-mix";
 import { getCollectionTree } from "@/lib/collections";
 import { DEVICE_FAMILIES, deviceBrowseHref, deviceIsLive } from "@/lib/catalog/devices";
-import { RAIL_HIDDEN_SLUGS } from "@/lib/catalog/collections-config";
+import {
+  RAIL_HIDDEN_SLUGS,
+  orderRailCategories,
+} from "@/lib/catalog/collections-config";
 import { BUNDLE } from "@/lib/promotions";
 import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
 import { SHIPPING_COUNTRIES } from "@/lib/shipping";
@@ -100,7 +103,7 @@ export default async function HomePage() {
   cats.sort(
     (a, b) => Number(b.count > 0) - Number(a.count > 0) || b.count - a.count,
   );
-  const railCategories = cats.slice(0, 14);
+  const railCategories = orderRailCategories(cats, 14);
 
   const devices = DEVICE_FAMILIES.flatMap((f) => f.devices).slice(0, 6);
 

@@ -155,6 +155,8 @@ export function revalidateStorefrontListings(): void {
  * The slug is accepted for call-site compatibility; path ISR is not used
  * while Hobby write quota is exhausted.
  */
-export function revalidateStorefrontProduct(_slug: string): void {
+export function revalidateStorefrontProduct(slug: string): void {
+  // Path ISR is intentionally not keyed by slug while Hobby write quota is exhausted.
+  void slug;
   revalidateStorefrontCatalog();
 }

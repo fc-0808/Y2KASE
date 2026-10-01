@@ -6,7 +6,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint --max-warnings=0",
@@ -18,7 +18,7 @@
     "analytics:check": "tsx scripts/check-analytics-defense.ts && tsx scripts/check-analytics-route.ts",
     "performance:check": "tsx scripts/check-performance.ts && tsx scripts/check-cache-policy.ts",
     "bundle:check": "tsx scripts/check-bundle-budget.ts",
-    "check:guards": "tsx scripts/check-copy-guard.ts && tsx scripts/check-instagram-strategy.ts && tsx scripts/check-pinterest-strategy.ts && tsx scripts/check-pinterest-hygiene.ts && tsx scripts/check-pin-card.ts && tsx scripts/check-folder-sort.ts && tsx scripts/check-catalog-discovery.ts && tsx scripts/check-analytics-defense.ts && tsx scripts/check-analytics-route.ts && tsx scripts/check-colors.ts && tsx scripts/check-motifs.ts && tsx scripts/check-airpods.ts && tsx scripts/check-devices.ts && tsx scripts/check-rail-mix.ts && tsx scripts/check-style-classify.ts && tsx scripts/check-product-page.ts && tsx scripts/check-storefront-media.ts && tsx scripts/check-inbox-attachments.ts && tsx scripts/check-auth-redirect.ts && tsx scripts/check-custom-styles.ts && tsx scripts/check-cache-policy.ts",
+    "check:guards": "tsx scripts/check-copy-guard.ts && tsx scripts/check-instagram-strategy.ts && tsx scripts/check-pinterest-strategy.ts && tsx scripts/check-pinterest-hygiene.ts && tsx scripts/check-pin-card.ts && tsx scripts/check-folder-sort.ts && tsx scripts/check-catalog-discovery.ts && tsx scripts/check-analytics-defense.ts && tsx scripts/check-analytics-route.ts && tsx scripts/check-colors.ts && tsx scripts/check-motifs.ts && tsx scripts/check-airpods.ts && tsx scripts/check-devices.ts && tsx scripts/check-rail-mix.ts && tsx scripts/check-style-classify.ts && tsx scripts/check-product-page.ts && tsx scripts/check-storefront-media.ts && tsx scripts/check-inbox-attachments.ts && tsx scripts/check-auth-redirect.ts && tsx scripts/check-custom-styles.ts && tsx scripts/check-cache-policy.ts && tsx scripts/check-duplicates.ts && tsx scripts/check-thumbnail-route.ts && tsx scripts/check-thumbnail-studio.ts && tsx scripts/check-thumbnail-history.ts && tsx scripts/check-upload-date.ts && tsx scripts/check-crop-geometry.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -38,6 +38,8 @@
     "db:colors": "tsx scripts/apply-colors-schema.ts",
     "db:motifs": "tsx scripts/apply-motifs-schema.ts",
     "db:custom-styles": "tsx scripts/apply-custom-styles-schema.ts",
+    "db:style-prices": "tsx scripts/apply-style-prices-schema.ts",
+    "db:image-edits": "tsx scripts/apply-image-edit-schema.ts",
     "db:featured": "tsx scripts/apply-featured-schema.ts",
     "db:thumbnails": "tsx scripts/apply-thumbnail-schema.ts",
     "db:brand": "tsx scripts/apply-brand-schema.ts",

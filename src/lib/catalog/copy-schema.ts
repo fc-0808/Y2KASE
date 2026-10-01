@@ -2,9 +2,10 @@
  * The contract for AI-generated product copy: its shape, its language, and the
  * coercion that turns untrusted model output into something safe to persist.
  *
- * This module has no dependencies beyond `./magsafe` (itself a leaf), so it is
- * cheap to import from both the generation layer and the remediation scripts,
- * and is pure/synchronous — every rule here is unit-testable without a model.
+ * This module has no dependencies beyond `./magsafe` and `./magnetic-ring`
+ * (both leaves), so it is cheap to import from the generation layer and the
+ * remediation scripts, and is pure/synchronous — every rule here is
+ * unit-testable without a model.
  *
  * ── Why a language guard exists ─────────────────────────────────────────────
  * Our source photography comes from Chinese supplier listings: the images carry
@@ -28,6 +29,7 @@ import {
   type MagSafeConfidence,
   type MagSafeEvidence,
 } from "./magsafe";
+import { MAGNETIC_RING_TAG } from "./magnetic-ring";
 import { parseColorFamilies, type ColorFamilySlug } from "./colors";
 import { parseMotifFamilies, type MotifFamilySlug } from "./motifs";
 
@@ -261,8 +263,10 @@ export function sanitizeTag(raw: unknown): string | null {
   if (tag.length < 2 || tag.length > MAX_TAG_CHARS) return null;
   if (!/[a-z]/.test(tag)) return null; // purely numeric / punctuation
 
-  // `magsafe` is reserved: only a verified decision may apply it (see ./magsafe).
+  // `magsafe` and `magnetic-ring` are reserved: only a verified decision may
+  // apply them. The model must not file a flat magnet as a ring holder.
   if (tag === MAGSAFE_TAG || /^mag[_-]?safe$/.test(tag)) return null;
+  if (tag === MAGNETIC_RING_TAG || tag === "magnetic_ring") return null;
 
   // Device-model dumps are mostly digits and are never useful search terms.
   const digits = (tag.match(/\d/g) ?? []).length;

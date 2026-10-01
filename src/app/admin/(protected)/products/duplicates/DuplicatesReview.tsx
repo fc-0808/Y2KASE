@@ -22,11 +22,9 @@ import { scanPhashBatch } from "./actions";
 
 export function DuplicatesReview({
   clusters,
-  threshold,
   coverage,
 }: {
   clusters: DuplicateCluster[];
-  threshold: number;
   coverage: PhashCoverage;
 }) {
   const router = useRouter();
@@ -79,12 +77,13 @@ export function DuplicatesReview({
     let hashed = 0;
     let failed = 0;
     let aborted = false;
+    let afterId = 0;
 
     try {
       if (initialMissing > 0) {
         for (;;) {
           if (stopRef.current) break;
-          const res = await scanPhashBatch();
+          const res = await scanPhashBatch(afterId);
           if (!res.ok) {
             flash(res);
             aborted = true;
@@ -92,6 +91,7 @@ export function DuplicatesReview({
           }
           hashed += res.hashed;
           failed += res.failed;
+          afterId = res.lastId;
           const done = hashed + failed;
           setScan({
             running: true,
@@ -99,19 +99,11 @@ export function DuplicatesReview({
             total: Math.max(initialMissing, done + res.remaining),
             failed,
           });
-          // Stuck batch (every URL failing) — abort rather than loop forever.
-          if (res.remaining > 0 && res.hashed === 0) {
-            flash({
-              ok: false,
-              message:
-                failed > 0
-                  ? `Stopped — ${failed} image(s) could not be hashed (unreachable URL or bad file).`
-                  : "Stopped — no images hashed in this batch.",
-            });
-            aborted = true;
-            break;
-          }
-          if (res.remaining === 0) break;
+          // Cursor walked off the end — including a pass that only skipped
+          // previously-unreadable rows. Do not treat "hashed === 0" as stuck:
+          // that was how a rate-limited public fetch aborted the first v2 scan
+          // while 1,600 reachable photos were still queued behind it.
+          if (res.scanned === 0) break;
         }
       }
 
@@ -121,8 +113,10 @@ export function DuplicatesReview({
           message: stopRef.current
             ? `Stopped after hashing ${hashed} image(s).`
             : hashed > 0
-              ? `Scanned ${hashed} image(s)${failed ? ` · ${failed} failed` : ""}. Refreshing matches…`
-              : "Catalogue already scanned — refreshing matches…",
+              ? `Scanned ${hashed} image(s)${failed ? ` · ${failed} skipped` : ""}. Refreshing matches…`
+              : failed > 0
+                ? `No new fingerprints — ${failed} photo(s) could not be read. Refreshing matches…`
+                : "Catalogue already scanned — refreshing matches…",
         });
       }
     } catch (err) {
@@ -154,9 +148,11 @@ export function DuplicatesReview({
           <p className="mt-0.5 text-xs text-[var(--foreground)]/55">
             {scanning
               ? "Downloading and hashing product photos. Duplicates appear when the scan finishes."
-              : needsScan
-                ? "Click Find duplicates to fingerprint remaining photos, then match near-identical main images."
-                : "Click Find duplicates anytime to re-check the catalogue."}
+              : coverage.staleImages > 0
+                ? "The matcher was upgraded — click Find duplicates to re-fingerprint photos with the new algorithm."
+                : needsScan
+                  ? "Click Find duplicates to fingerprint remaining photos, then match near-identical listings."
+                  : "Click Find duplicates anytime to re-check the catalogue."}
           </p>
           {scanning && scan.total > 0 && (
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--muted)]">
@@ -214,8 +210,8 @@ export function DuplicatesReview({
                   {cluster.products.length} matching products
                 </span>
                 <ConfidenceBadge
-                  distance={cluster.minDistance}
-                  threshold={threshold}
+                  confidence={cluster.confidence}
+                  maxDistance={cluster.maxDistance}
                 />
               </div>
 
@@ -357,9 +353,9 @@ function EmptyState({
         </div>
         <h2 className="text-lg font-bold">Ready to scan</h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-[var(--foreground)]/60">
-          Some product photos don&apos;t have a perceptual fingerprint yet.
-          Click <span className="font-semibold">Find duplicates</span> above to
-          hash them and surface near-identical main photos — no terminal
+          Some product photos don&apos;t have a current fingerprint yet. Click{" "}
+          <span className="font-semibold">Find duplicates</span> above to hash
+          them — near-identical listings then show up here. No terminal
           required.
         </p>
       </div>
@@ -381,18 +377,18 @@ function EmptyState({
   );
 }
 
-/** Translates Hamming distance into a human-friendly confidence label. */
+/** Translates matcher confidence into a human-friendly badge. */
 function ConfidenceBadge({
-  distance,
-  threshold,
+  confidence,
+  maxDistance,
 }: {
-  distance: number;
-  threshold: number;
+  confidence: DuplicateCluster["confidence"];
+  maxDistance: number;
 }) {
   const { label, cls } =
-    distance <= 2
+    confidence === "identical"
       ? { label: "Identical", cls: "bg-red-100 text-red-700" }
-      : distance <= Math.round(threshold / 2)
+      : confidence === "very_likely"
         ? { label: "Very likely", cls: "bg-amber-100 text-amber-700" }
         : {
             label: "Possible",
@@ -401,7 +397,7 @@ function ConfidenceBadge({
   return (
     <span
       className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${cls}`}
-      title={`Closest match: ${distance}/64 bits differ (lower = more similar)`}
+      title={`Cluster diameter (combined visual cost): ${maxDistance}. Lower is tighter.`}
     >
       {label} match
     </span>

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { getProductForAdmin } from "@/lib/products";
+import { getThumbnailProposalForProduct } from "@/lib/admin/thumbnails";
 import { isDbConfigured } from "@/lib/db";
 import {
   offeredCompatibilityValues,
@@ -15,12 +16,16 @@ import { ProductEditor } from "./ProductEditor";
 import type { BrandState } from "./BrandReassignmentCard";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
+import { MAGNETIC_RING_TAG } from "@/lib/catalog/magnetic-ring";
 import { hydrateCustomStyles } from "@/lib/catalog/custom-styles";
 
 export const metadata: Metadata = { title: "Admin · Edit product" };
 export const dynamic = "force-dynamic";
-/** Vision style detection reads every photo; 14 high-detail images can take a minute. */
-export const maxDuration = 180;
+/**
+ * Style detection reads every photo, and thumbnail rebuilds call the image
+ * model. Both run as server actions from this page, so they share its limit.
+ */
+export const maxDuration = 300;
 
 export default async function AdminProductEditPage({
   params,
@@ -32,12 +37,15 @@ export default async function AdminProductEditPage({
 
   if (!isDbConfigured() || !Number.isFinite(productId)) notFound();
 
-  const [product, titleState, filedIn] = await Promise.all([
+  const [product, titleState, filedIn, thumbnailProposal] = await Promise.all([
     getProductForAdmin(productId),
     loadProductTitleState(productId),
     currentCollectionSlugs(productId),
+    getThumbnailProposalForProduct(productId),
   ]);
   if (!product) notFound();
+
+  const listingImage = product.images[0] ?? null;
 
   const brand = resolveStoredBrand(
     product.brandName,
@@ -88,10 +96,17 @@ export default async function AdminProductEditPage({
           product.images,
           product.productType,
         )}
+        initialStylePrices={product.stylePrices}
         colors={(product.colors ?? []).filter(isColorFamilySlug)}
         colorsLocked={product.colorsLocked}
         motifs={(product.motifs ?? []).filter(isMotifFamilySlug)}
         motifsLocked={product.motifsLocked}
+        thumbnail={{
+          currentUrl: listingImage?.url ?? null,
+          currentFilename: listingImage?.sourceFilename ?? null,
+          proposal: thumbnailProposal,
+        }}
+        hasMagneticRing={(product.tags ?? []).includes(MAGNETIC_RING_TAG)}
       />
     </div>
   );

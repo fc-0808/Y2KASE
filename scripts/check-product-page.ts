@@ -152,7 +152,8 @@ test("thumbnail approve publishes drafts only when the operator asks", () => {
 
 test("thumbnail review keeps publish-on-approve opt-in for cards and bulk", () => {
   assert.match(review, /publishDraftsOnApprove/);
-  assert.match(
+  assert.match(review, /useState\(false\)/);
+  assert.doesNotMatch(
     review,
     /y2kase\.admin\.thumbnails\.publish-drafts-on-approve/,
   );

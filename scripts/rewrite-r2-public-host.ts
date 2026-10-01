@@ -56,6 +56,18 @@ async function main() {
       ),
     ],
     [
+      "thumbnail_proposals.previous_proposal_urls",
+      await countLike(
+        sql`SELECT count(*)::int AS count FROM thumbnail_proposals WHERE previous_proposal_urls::text LIKE ${"%" + FROM + "%"}`,
+      ),
+    ],
+    [
+      "thumbnail_proposals.next_proposal_urls",
+      await countLike(
+        sql`SELECT count(*)::int AS count FROM thumbnail_proposals WHERE next_proposal_urls::text LIKE ${"%" + FROM + "%"}`,
+      ),
+    ],
+    [
       "collections.image_url",
       await countLike(
         sql`SELECT count(*)::int AS count FROM collections WHERE image_url LIKE ${LIKE}`,
@@ -119,6 +131,8 @@ async function main() {
   await sql`UPDATE product_images SET url = replace(url, ${FROM}, ${TO}) WHERE url LIKE ${LIKE}`;
   await sql`UPDATE products SET video_url = replace(video_url, ${FROM}, ${TO}) WHERE video_url LIKE ${LIKE}`;
   await sql`UPDATE thumbnail_proposals SET proposal_url = replace(proposal_url, ${FROM}, ${TO}) WHERE proposal_url LIKE ${LIKE}`;
+  await sql`UPDATE thumbnail_proposals SET previous_proposal_urls = replace(previous_proposal_urls::text, ${FROM}, ${TO})::jsonb WHERE previous_proposal_urls::text LIKE ${"%" + FROM + "%"}`;
+  await sql`UPDATE thumbnail_proposals SET next_proposal_urls = replace(next_proposal_urls::text, ${FROM}, ${TO})::jsonb WHERE next_proposal_urls::text LIKE ${"%" + FROM + "%"}`;
   await sql`UPDATE collections SET image_url = replace(image_url, ${FROM}, ${TO}) WHERE image_url LIKE ${LIKE}`;
   await sql`UPDATE social_creatives SET image_url = replace(image_url, ${FROM}, ${TO}) WHERE image_url LIKE ${LIKE}`;
   await sql`UPDATE social_creatives SET video_url = replace(video_url, ${FROM}, ${TO}) WHERE video_url LIKE ${LIKE}`;

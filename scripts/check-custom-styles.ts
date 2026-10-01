@@ -94,6 +94,18 @@ test("a custom label cannot collide with a canonical bundle", () => {
   assert.equal(invalid.ok, false);
 });
 
+test("a named variation without a photo can be saved", () => {
+  const result = validateCustomStylesDraft([
+    { label: "Hello Kitty + Charm", price: 24.99, imageId: 1 },
+    { label: "Charm strap", price: 12.99, imageId: null },
+  ]);
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected the unlinked variation to save");
+  assert.equal(result.styles.length, 2);
+  assert.equal(result.styles[1].imageId, null);
+  assert.equal(result.styles[1].label, "Charm strap");
+});
+
 test("a named row without a price is an operator error, not silent drop", () => {
   const invalid = validateCustomStylesDraft([{ label: "Kuromi Case Only" }]);
   assert.equal(invalid.ok, false);
@@ -338,6 +350,50 @@ test("hydrateCustomStyles fills imageId from an already-tagged photo", () => {
     "airpod_case",
   );
   assert.equal(rows[0].imageId, 11);
+});
+
+test("a canonical bundle override replaces the shared table, including at checkout", () => {
+  const overrides = { "Case + Charm": 29.5 };
+  assert.equal(
+    listingUnitPrice({
+      productType: "iphone_case",
+      currency: "USD",
+      selected: { Style: "Case + Charm" },
+      stylePrices: overrides,
+      basePrice: "24.99",
+    }),
+    29.5,
+  );
+  assert.equal(
+    listingUnitPrice({
+      productType: "iphone_case",
+      currency: "USD",
+      selected: { Style: "Case Only" },
+      stylePrices: overrides,
+      basePrice: "24.99",
+    }),
+    24.99,
+  );
+  assert.equal(
+    listingEntryPrice({
+      productType: "iphone_case",
+      storedPrice: "24.99",
+      currency: "USD",
+      stylePrices: { "Case Only": 19.99 },
+    }),
+    19.99,
+  );
+  assert.equal(
+    minOfferedPrice({
+      productType: "iphone_case",
+      currency: "USD",
+      canonicalStyles: ["Case + Charm", "Case Only"],
+      customStyles: [],
+      basePrice: "24.99",
+      stylePrices: { "Case Only": 19.99 },
+    }),
+    19.99,
+  );
 });
 
 const failedOut = failed;

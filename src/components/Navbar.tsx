@@ -8,7 +8,7 @@ import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
 import { DEVICE_FAMILIES, deviceBrowseHref, deviceIsLive } from "@/lib/catalog/devices";
 import { MAGSAFE_FACETS, magsafeFacetHref } from "@/lib/catalog/magsafe";
-import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
+import { MAGNETIC_RING_SLUG, ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 import { Wordmark } from "@/components/brand/Decor";
 import { useSession } from "@/lib/auth-client";
 import { isSignedInUser } from "@/lib/auth-redirect";
@@ -81,6 +81,9 @@ export function Navbar({
 
   const brands = collections.filter((c) => c.kind === "brand");
   const genres = collections.filter((c) => c.kind === "genre");
+  const magneticRing = collections.find(
+    (c) => c.slug === MAGNETIC_RING_SLUG && c.count > 0,
+  );
 
   return (
     <header
@@ -175,6 +178,7 @@ export function Navbar({
         <CollectionsPanel
           brands={brands}
           genres={genres}
+          magsafe={magneticRing}
           onNavigate={() => setPanel(null)}
         />
       )}
@@ -184,6 +188,7 @@ export function Navbar({
         <MobileMenu
           brands={brands}
           originals={genres.find((genre) => genre.slug === ORIGINALS_SLUG)}
+          magsafe={magneticRing}
           deviceCounts={deviceCounts}
         />
       )}
@@ -298,20 +303,26 @@ function DevicesPanel({
 function CollectionsPanel({
   brands,
   genres,
+  magsafe,
   onNavigate,
 }: {
   brands: MenuCollection[];
   genres: MenuCollection[];
+  magsafe?: MenuCollection;
   onNavigate: () => void;
 }) {
-  const empty = brands.length === 0 && genres.length === 0;
+  const empty = brands.length === 0 && genres.length === 0 && !magsafe;
   const originals = genres.find((genre) => genre.slug === ORIGINALS_SLUG);
 
   return (
     <PanelShell
       footer={
         empty ? undefined : (
-          <CollectionsFooter originals={originals} onNavigate={onNavigate} />
+          <CollectionsFooter
+            originals={originals}
+            magsafe={magsafe}
+            onNavigate={onNavigate}
+          />
         )
       }
     >
@@ -375,11 +386,30 @@ function CollectionsPanel({
  * Featured originals + catalog index. Lives in the pinned panel chrome so
  * the two destinations keep matching hit targets and never collide.
  */
+/** Circle ring — a magnetic ring holder, not a jewelry emoji. */
+function RingMark() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      className="h-4 w-4 shrink-0 text-[var(--primary)]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    >
+      <circle cx="8" cy="8" r="4.25" />
+      <circle cx="8" cy="8" r="1.35" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function CollectionsFooter({
   originals,
+  magsafe,
   onNavigate,
 }: {
   originals?: MenuCollection;
+  magsafe?: MenuCollection;
   onNavigate: () => void;
 }) {
   const showOriginals = (originals?.count ?? 0) > 0;
@@ -391,20 +421,36 @@ function CollectionsFooter({
       aria-label="More collections"
       className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3"
     >
-      {showOriginals && originals && (
-        <Link
-          href={`/collections/${ORIGINALS_SLUG}`}
-          onClick={onNavigate}
-          aria-label={`Original designs, ${originals.count} products`}
-          className={`group inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold whitespace-nowrap shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:text-[var(--primary)] ${focusRing}`}
-        >
-          <span aria-hidden>{originals.icon ?? "✨"}</span>
-          Original designs
-          <span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[var(--foreground)]/45">
-            {originals.count}
-          </span>
-        </Link>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {magsafe && (
+          <Link
+            href={`/collections/${MAGNETIC_RING_SLUG}`}
+            onClick={onNavigate}
+            aria-label={`Magnetic ring holder, ${magsafe.count} products`}
+            className={`group inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold whitespace-nowrap shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:text-[var(--primary)] ${focusRing}`}
+          >
+            <RingMark />
+            Magnetic ring holder
+            <span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[var(--foreground)]/45">
+              {magsafe.count}
+            </span>
+          </Link>
+        )}
+        {showOriginals && originals && (
+          <Link
+            href={`/collections/${ORIGINALS_SLUG}`}
+            onClick={onNavigate}
+            aria-label={`Original designs, ${originals.count} products`}
+            className={`group inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-bold whitespace-nowrap shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:text-[var(--primary)] ${focusRing}`}
+          >
+            <span aria-hidden>{originals.icon ?? "✨"}</span>
+            Original designs
+            <span className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[var(--foreground)]/45">
+              {originals.count}
+            </span>
+          </Link>
+        )}
+      </div>
 
       <Link
         href="/collections"
@@ -421,15 +467,17 @@ function CollectionsFooter({
   );
 }
 
-type MobileSectionId = "devices" | "brands" | "compat";
+type MobileSectionId = "devices" | "brands" | "ring" | "compat";
 
 function MobileMenu({
   brands,
   originals,
+  magsafe,
   deviceCounts,
 }: {
   brands: MenuCollection[];
   originals?: MenuCollection;
+  magsafe?: MenuCollection;
   deviceCounts?: Record<string, number>;
 }) {
   // Sections are collapsed by default and expand one at a time — dumping every
@@ -559,6 +607,31 @@ function MobileMenu({
             </ul>
           </MobileAccordion>
         )}
+
+        <MobileAccordion
+          title="Magnetic ring holder"
+          open={openSection === "ring"}
+          onToggle={() => toggleSection("ring")}
+        >
+          <div className="pb-4">
+            {magsafe ? (
+              <Link
+                href={`/collections/${MAGNETIC_RING_SLUG}`}
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-semibold"
+              >
+                <RingMark />
+                Magnetic ring holder
+                <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/40">
+                  {magsafe.count}
+                </span>
+              </Link>
+            ) : (
+              <p className="pb-1 text-sm text-[var(--foreground)]/55">
+                No ring-holder cases are listed yet.
+              </p>
+            )}
+          </div>
+        </MobileAccordion>
 
         <MobileAccordion
           title="Shop by compatibility"

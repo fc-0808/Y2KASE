@@ -9,10 +9,15 @@ import {
   countryFlag,
   countryName,
   formatCents,
+  formatOptionValues,
   orderCustomerLabel,
 } from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { ORDER_STATUSES, type OrderRow } from "@/lib/admin/orders";
+import {
+  ORDER_STATUSES,
+  type OrderLineSummary,
+  type OrderRow,
+} from "@/lib/admin/orders";
 import { updateOrderStatus } from "./actions";
 
 const dateFmt = new Intl.DateTimeFormat("en-US", {
@@ -40,13 +45,13 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[980px] text-sm">
           <thead className="bg-[var(--muted)]/50 text-left text-xs uppercase tracking-wide text-[var(--foreground)]/50">
             <tr>
               <th className="px-4 py-3 font-semibold">Order</th>
               <th className="px-4 py-3 font-semibold">Customer</th>
               <th className="px-4 py-3 font-semibold">Date</th>
-              <th className="px-4 py-3 font-semibold">Items</th>
+              <th className="px-4 py-3 font-semibold">Cart</th>
               <th className="px-4 py-3 font-semibold">Total</th>
               <th className="px-4 py-3 font-semibold">Status</th>
               <th className="px-4 py-3 font-semibold">Update</th>
@@ -83,8 +88,8 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
                 <td className="whitespace-nowrap px-4 py-3 text-[var(--foreground)]/60">
                   {dateFmt.format(new Date(o.createdAt))}
                 </td>
-                <td className="px-4 py-3 text-[var(--foreground)]/60">
-                  {o.itemCount}
+                <td className="max-w-md px-4 py-3">
+                  <OrderCartLines items={o.items} />
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 font-bold">
                   {formatCents(o.totalCents, o.currency)}
@@ -118,5 +123,46 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
         </table>
       </div>
     </div>
+  );
+}
+
+function OrderCartLines({ items }: { items: OrderLineSummary[] }) {
+  if (items.length === 0) {
+    return <span className="text-[var(--foreground)]/40">Empty cart</span>;
+  }
+
+  return (
+    <ul className="space-y-2">
+      {items.map((item) => {
+        const options = formatOptionValues(item.optionValues);
+        return (
+          <li key={item.id} className="flex min-w-0 items-start gap-2">
+            {item.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.imageUrl}
+                alt=""
+                className="mt-0.5 h-9 w-9 shrink-0 rounded-lg object-cover"
+              />
+            ) : (
+              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--muted)] text-sm">
+                🎀
+              </span>
+            )}
+            <div className="min-w-0">
+              <p className="leading-snug">
+                <span className="font-semibold text-[var(--foreground)]/45">
+                  {item.quantity}×{" "}
+                </span>
+                {item.productTitle}
+              </p>
+              {options && (
+                <p className="text-xs text-[var(--foreground)]/50">{options}</p>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

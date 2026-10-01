@@ -72,10 +72,13 @@ Prices can change. The product page and checkout are always authoritative.
 
 ### MagSafe
 
-Any case marked MagSafe has a built-in magnetic ring aligned to Apple's MagSafe
-standard, so MagSafe chargers, wallets and other MagSafe accessories snap
-straight on. Cases not marked MagSafe do not contain magnets. The pop grip
-included in the bundle styles is MagSafe-compatible. Browse them all at
+Any case marked MagSafe snaps to MagSafe chargers, wallets and other MagSafe
+accessories. That magnet is often a flat disc. A magnetic ring holder is the
+raised ring on the back of the case — those cases are MagSafe, and they are
+listed separately at https://y2kase.com/collections/magnetic-ring. A MagSafe
+case does not necessarily have that ring. Cases not marked MagSafe do not
+contain magnets. The pop grip included in the bundle styles is
+MagSafe-compatible. Browse MagSafe at
 https://y2kase.com/collections/magsafe
 
 ### Charms

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, MapPin, User as UserIcon, CreditCard, Truck } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { getOrderById } from "@/lib/admin/orders";
-import { formatCents, countryFlag, countryName } from "@/lib/utils";
+import { formatCents, formatOptionValues, countryFlag, countryName } from "@/lib/utils";
 import { trackingLink } from "@/lib/carriers";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ShipForm } from "./ShipForm";
@@ -38,14 +38,22 @@ export default async function AdminOrderDetailPage({
   if (!order) notFound();
 
   const addr = order.shippingAddress;
+  const isIncompleteCheckout =
+    !order.stripePaymentIntentId &&
+    (order.status === "pending" || order.status === "cancelled");
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
       <Link
-        href="/admin/orders"
+        href={
+          isIncompleteCheckout
+            ? "/admin/orders?status=incomplete"
+            : "/admin/orders"
+        }
         className="mb-6 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--foreground)]/60 hover:text-[var(--primary)]"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to orders
+        <ArrowLeft className="h-4 w-4" />{" "}
+        {isIncompleteCheckout ? "Back to incomplete checkouts" : "Back to orders"}
       </Link>
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -71,9 +79,25 @@ export default async function AdminOrderDetailPage({
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Line items */}
         <section className="lg:col-span-2">
+          <div className="mb-3">
+            <h2 className="text-lg font-black">Cart</h2>
+            {isIncompleteCheckout && (
+              <p className="mt-0.5 text-sm text-[var(--foreground)]/60">
+                What this shopper had in the cart when they left checkout.
+                Nothing was charged.
+              </p>
+            )}
+          </div>
           <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
             <ul className="divide-y divide-[var(--border)]">
-              {order.items.map((item) => (
+              {order.items.length === 0 && (
+                <li className="p-4 text-sm text-[var(--foreground)]/50">
+                  No items were saved with this checkout.
+                </li>
+              )}
+              {order.items.map((item) => {
+                const options = formatOptionValues(item.optionValues);
+                return (
                 <li key={item.id} className="flex items-center gap-3 p-3">
                   {item.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -88,12 +112,21 @@ export default async function AdminOrderDetailPage({
                     </span>
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{item.productTitle}</p>
-                    {item.optionValues && (
-                      <p className="truncate text-xs text-[var(--foreground)]/50">
-                        {Object.entries(item.optionValues)
-                          .map(([k, v]) => `${k}: ${v}`)
-                          .join(" · ")}
+                    {item.productId ? (
+                      <Link
+                        href={`/products/${item.productSlug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="break-words font-semibold hover:text-[var(--primary)]"
+                      >
+                        {item.productTitle}
+                      </Link>
+                    ) : (
+                      <p className="break-words font-semibold">{item.productTitle}</p>
+                    )}
+                    {options && (
+                      <p className="text-xs text-[var(--foreground)]/50">
+                        {options}
                       </p>
                     )}
                     <p className="text-xs text-[var(--foreground)]/50">
@@ -105,7 +138,8 @@ export default async function AdminOrderDetailPage({
                     {formatCents(item.unitCents * item.quantity, order.currency)}
                   </p>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
 

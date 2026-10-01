@@ -42,6 +42,7 @@ import {
   getAirpodsStylePrice,
   getBasePrice,
   getStylePrice,
+  stylePriceChoices,
 } from "../src/lib/pricing";
 
 let passed = 0;
@@ -104,6 +105,9 @@ test("AirPods style prices are the phone-case prices for the same styles", () =>
     34.99,
   );
   assert.equal(priceForOfferedStyle("airpod_case", "Case Only", "USD"), 24.99);
+  assert.deepEqual(stylePriceChoices("USD"), ["39.99", "34.99", "24.99", "12.99"]);
+  assert.equal(stylePriceChoices("CAD").length, 4);
+  assert.equal(stylePriceChoices("nope")[0], "39.99");
 });
 
 test("a grip style is not an AirPods SKU and prices as Case Only", () => {

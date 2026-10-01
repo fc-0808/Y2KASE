@@ -86,6 +86,7 @@ export function ProductDetailClient({
   images,
   options,
   customStyles: customStylesInput,
+  stylePrices,
   trackCommerce = true,
 }: {
   productId: number;
@@ -102,6 +103,8 @@ export function ProductDetailClient({
   images: Img[];
   options: Option[];
   customStyles?: unknown;
+  /** Canonical bundle prices that differ from the shared table. */
+  stylePrices?: unknown;
   /**
    * Commerce pixels (view + add-to-cart). Off on unpublished admin previews
    * so draft inspections do not pollute storefront analytics.
@@ -202,9 +205,10 @@ export function ProductDetailClient({
         currency,
         selected,
         customStyles,
+        stylePrices,
         basePrice: price,
       }),
-    [productType, currency, selected, customStyles, price],
+    [productType, currency, selected, customStyles, stylePrices, price],
   );
   const onSale =
     compareAtPrice !== null &&
@@ -337,6 +341,7 @@ export function ProductDetailClient({
                       ? { ...selected, [priceAxis.name]: style }
                       : { ...selected, [STYLE_OPTION_NAME]: style },
                     customStyles,
+                    stylePrices,
                     basePrice: price,
                   })
               : undefined

@@ -17,7 +17,7 @@ import {
   getProductType,
   priceAxisFor,
 } from "./product-types";
-import { orderModels, orderStyles, summarizeModels } from "../pricing";
+import { STYLES, effectiveStylePrice, orderModels, orderStyles, summarizeModels } from "../pricing";
 import {
   customStyleByLabel,
   mergeOfferedStyleValues,
@@ -140,6 +140,7 @@ export function priceForOfferedStyle(
   style: string,
   currency: string,
   customStyles?: readonly CustomStyleInput[] | null,
+  stylePrices?: unknown,
 ): number | null {
   const matched = customStyleByLabel(
     normalizeCustomStyles(customStyles, { productType: productTypeId }),
@@ -148,6 +149,9 @@ export function priceForOfferedStyle(
   if (matched) return matched.price;
   const axis = priceAxisFor(productTypeId);
   if (!axis) return null;
+  if ((STYLES as readonly string[]).includes(style)) {
+    return effectiveStylePrice(style, currency, stylePrices);
+  }
   return getProductType(productTypeId).getPriceFromOptions(
     { [axis.name]: style },
     currency,

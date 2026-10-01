@@ -49,7 +49,7 @@ const BODIES: Record<string, CollectionEditorial> = {
   sanrio: {
     paragraphs: [
       `Sanrio phone cases at Y2KASE cover the characters people actually search for — Hello Kitty, Kuromi, My Melody, Cinnamoroll and the rest of the crew — on ${IPHONE_FIT.through}, including Pro and Pro Max. Each character has its own landing page so a Kuromi shopper is not stuck filtering a mixed Sanrio grid.`,
-      "Designs run from classic red-bow Hello Kitty to darker Kuromi palettes. Cases marked MagSafe have a verified magnetic ring for chargers and wallets; unmarked cases are sold as regular snap-on covers. Charms and grips are sold as styles on the product page, not as a separate Sanrio-only SKU.",
+      "Designs run from classic red-bow Hello Kitty to darker Kuromi palettes. Cases marked MagSafe snap to chargers and wallets; unmarked cases are sold as regular snap-on covers. A magnetic ring holder is a separate collection. Charms and grips are sold as styles on the product page, not as a separate Sanrio-only SKU.",
     ],
     related: [
       { href: "/collections/hello-kitty", label: "Hello Kitty phone cases" },
@@ -159,15 +159,23 @@ const BODIES: Record<string, CollectionEditorial> = {
   },
   magsafe: {
     paragraphs: [
-      "MagSafe phone cases on this page are the ones we have actually classified as MagSafe — a visible magnet ring or equivalent evidence, not a keyword stuffed into the title. Unmarked cases stay off this URL on purpose so a shopper buying a charger or wallet is not guessing.",
-      `Alignment follows Apple's MagSafe layout on ${IPHONE_FIT.throughShort} (including Pro and Pro Max). Wallets and chargers from other brands still vary; the badge means the case has the ring, not that every third-party accessory will feel identical.`,
+      "MagSafe phone cases on this page snap to MagSafe chargers and wallets. The magnet is often only a flat disc. A raised ring holder is a different shop — see Magnetic Ring Holder — and a MagSafe case does not have to include one. Unmarked cases stay off this URL so a shopper is not guessing.",
+      `Alignment follows Apple's MagSafe layout on ${IPHONE_FIT.throughShort} (including Pro and Pro Max). Wallets and chargers from other brands still vary; the badge means the case can snap, not that it has a ring holder.`,
     ],
     related: [
+      { href: "/collections/magnetic-ring", label: "Magnetic ring holders" },
       { href: "/blog/how-we-verify-magsafe", label: "How we verify MagSafe" },
       IPHONE,
       KAWAII,
       INSIGHTS,
     ],
+  },
+  "magnetic-ring": {
+    paragraphs: [
+      "These iPhone cases have a raised magnetic ring holder on the back — a hoop you can see, often with a character in the middle. Every case here is MagSafe, because that ring sits on the magnet. The MagSafe collection is wider: most MagSafe cases have only a flat magnet and no ring holder.",
+      "Pop sockets, kickstand flaps, camera rings and printed circles are not this shop. If the photos do not show the raised hoop, the case stays on the MagSafe page or off both.",
+    ],
+    related: [MAGSAFE, IPHONE, KAWAII, INSIGHTS],
   },
   originals: {
     paragraphs: [

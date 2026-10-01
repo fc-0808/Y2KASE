@@ -24,6 +24,7 @@ import {
   offeredPriceValues,
 } from "@/lib/catalog/offered-options";
 import { MAGSAFE_TAG } from "@/lib/catalog/magsafe";
+import { MAGNETIC_RING_TAG } from "@/lib/catalog/magnetic-ring";
 import {
   deviceProductTypes,
   rollupDeviceCounts,
@@ -41,6 +42,7 @@ import {
 import { resolveCollectionFilterIds } from "@/lib/collections";
 import { getReviewSummaries } from "@/lib/reviews";
 import { canonicalizePublicR2Url } from "@/lib/catalog/r2-public";
+import { compareProductsByUpload } from "@/lib/admin/upload-date";
 
 /**
  * The "from" price shown on listing cards / rails.
@@ -57,12 +59,14 @@ function listingPriceFor(
   storedPrice: string,
   currency: string,
   customStyles?: unknown,
+  stylePrices?: unknown,
 ): string {
   return listingEntryPrice({
     productType,
     storedPrice,
     currency,
     customStyles: Array.isArray(customStyles) ? customStyles : [],
+    stylePrices,
   }).toFixed(2);
 }
 
@@ -1094,7 +1098,7 @@ async function computeCatalogFeedItems(): Promise<CatalogFeedItem[]> {
     description: p.description,
     productType: p.productType,
     productTypeLabel: productTypeLabel(p.productType),
-    price: listingPriceFor(p.productType, p.price, p.currency, p.customStyles),
+    price: listingPriceFor(p.productType, p.price, p.currency, p.customStyles, p.stylePrices),
     compareAtPrice: p.compareAtPrice,
     currency: p.currency,
     tags: p.tags ?? [],
@@ -1139,20 +1143,20 @@ export type AdminProductOverview = {
     price: number;
     imageId: number | null;
   }[];
+  /** Canonical bundle prices that differ from the shared table. */
+  stylePrices: Partial<Record<string, number>>;
   /** Collection ids this product is assigned to (for facet filtering). */
   collectionIds: number[];
   /** Closed motif vocabulary currently on the product. Empty until classified. */
   motifs: MotifFamilySlug[];
   /** True when the product is classified as MagSafe (has the `magsafe` tag). */
   isMagsafe: boolean;
+  /** Operator marked a raised ring holder on the back. Not inferred. */
+  hasMagneticRing: boolean;
   /** True when MagSafe was a low-confidence guess awaiting human review. */
   needsMagsafeReview: boolean;
-};
-
-const STATUS_RANK: Record<string, number> = {
-  draft: 0,
-  active: 1,
-  archived: 2,
+  /** ISO timestamp the listing was created. This is the upload date. */
+  createdAt: string;
 };
 
 export async function getAdminProductOverviews(): Promise<
@@ -1195,17 +1199,21 @@ export async function getAdminProductOverviews(): Promise<
       customStyles: normalizeCustomStyles(p.customStyles, {
         productType: p.productType,
       }),
+      stylePrices: p.stylePrices ?? {},
       collectionIds: p.collections.map((c) => c.collectionId),
       motifs: (p.motifs ?? []).filter(isMotifFamilySlug),
       isMagsafe: (p.tags ?? []).includes(MAGSAFE_TAG),
+      hasMagneticRing: (p.tags ?? []).includes(MAGNETIC_RING_TAG),
       needsMagsafeReview: p.needsMagsafeReview,
+      createdAt:
+        p.createdAt instanceof Date
+          ? p.createdAt.toISOString()
+          : new Date(p.createdAt).toISOString(),
     };
   });
 
   // Drafts first (they need review), then live, then archived; newest within.
-  return overviews.sort(
-    (a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9),
-  );
+  return overviews.sort((a, b) => compareProductsByUpload(a, b, "review"));
 }
 
 /** A product as shown in the Bestsellers curation admin. */
@@ -1322,6 +1330,7 @@ function toListItem(p: {
   featured: boolean;
   images: { url: string }[];
   customStyles?: unknown;
+  stylePrices?: unknown;
 }): ProductListItem {
   return {
     id: p.id,
@@ -1332,6 +1341,7 @@ function toListItem(p: {
       p.price,
       p.currency,
       p.customStyles,
+      p.stylePrices,
     ),
     compareAtPrice: p.compareAtPrice,
     currency: p.currency,

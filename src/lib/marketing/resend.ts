@@ -22,6 +22,8 @@ import type { MarketingDraft } from "./types";
 
 const DEFAULT_SEGMENT_NAME = "Y2KASE Subscribers";
 const DEFAULT_TOPIC_NAME = "Y2KASE News & Offers";
+/** One reusable snapshot slot so Club sends do not burn a new Resend segment. */
+const DELIVERY_SEGMENT_NAME = "Y2KASE Campaign Delivery";
 const MIN_REQUEST_INTERVAL_MS = 550;
 /**
  * Hard ceiling on per-run provider calls. At 550ms pacing this stays inside the
@@ -354,6 +356,18 @@ async function setContactTopic(
   }
 }
 
+async function getContactByEmail(
+  resend: Resend,
+  email: string,
+): Promise<Contact | null> {
+  const response = await resendApi(() => resend.contacts.get({ email }));
+  if (response.error?.name === "not_found") return null;
+  if (response.error) {
+    throw providerError(`Loading contact ${email}`, response.error.message);
+  }
+  return response.data;
+}
+
 /**
  * Reconcile the database consent ledger into a dedicated Resend segment.
  *
@@ -361,11 +375,10 @@ async function setContactTopic(
  * ledger are removed from an app-owned segment, preventing a legacy Resend
  * contact from accidentally entering a campaign.
  *
- * Cost is dominated by per-contact provider calls. Ineligible rows that have
- * never existed on the provider are skipped entirely, and contacts that are
- * already globally unsubscribed never pay for a topic lookup — otherwise the
- * sync scales with total list size rather than with the eligible recipient
- * ceiling and times out inside the launch claim.
+ * Scope the provider walk to the marketing segment plus sendable locals.
+ * Listing the entire Resend contact book (transactional receipts included)
+ * and topic-looking-up every unsubscribed row made launch review hang long
+ * enough that the admin UI looked frozen.
  */
 export async function syncMarketingAudience(): Promise<{
   segmentId: string;
@@ -382,13 +395,13 @@ export async function syncMarketingAudience(): Promise<{
     resolveTopic(resend),
     db.query.emailSubscribers.findMany(),
   ]);
-  const [providerContacts, segmentContacts] = await Promise.all([
-    allContacts(resend),
-    allContacts(resend, segment.id),
-  ]);
+  const segmentContacts = await allContacts(resend, segment.id);
 
   const providerByEmail = new Map(
-    providerContacts.map((contact) => [contact.email.trim().toLowerCase(), contact]),
+    segmentContacts.map((contact) => [
+      contact.email.trim().toLowerCase(),
+      contact,
+    ]),
   );
   const segmentEmails = new Set(
     segmentContacts.map((contact) => contact.email.trim().toLowerCase()),
@@ -396,6 +409,7 @@ export async function syncMarketingAudience(): Promise<{
   const localEmails = new Set(
     localSubscribers.map((subscriber) => subscriber.email.trim().toLowerCase()),
   );
+  const mayPrune = owned || process.env.RESEND_MARKETING_PRUNE_SEGMENT === "true";
   let recipientCount = 0;
   let synchronizedCount = 0;
   let providerCalls = 0;
@@ -420,12 +434,21 @@ export async function syncMarketingAudience(): Promise<{
     let currentTopic: "opt_in" | "opt_out" | null = null;
 
     // Never create provider contacts for people who cannot receive mail. A
-    // previous opt-out that never reached Resend has nothing to reconcile.
+    // previous opt-out that never reached Resend has nothing to reconcile,
+    // and they are already excluded from the marketing segment.
     if (!sendable && !contact) {
       continue;
     }
 
     synchronizedCount += 1;
+
+    if (sendable && !contact) {
+      const existing = await track(() => getContactByEmail(resend, email));
+      if (existing) {
+        contact = existing;
+        providerByEmail.set(email, existing);
+      }
+    }
 
     if (!contact) {
       const created = await track(() =>
@@ -509,12 +532,34 @@ export async function syncMarketingAudience(): Promise<{
       continue;
     }
 
+    if (!sendable) {
+      await track(() => setContactTopic(resend, email, topic.id, "opt_out"));
+      if (mayPrune && segmentEmails.has(email)) {
+        const removed = await track(() =>
+          resendApi(() =>
+            resend.contacts.segments.remove({
+              email,
+              segmentId: segment.id,
+            }),
+          ),
+        );
+        if (removed.error) {
+          throw providerError(
+            `Removing ${email} from the marketing segment`,
+            removed.error.message,
+          );
+        }
+        segmentEmails.delete(email);
+      }
+      continue;
+    }
+
     currentTopic ??= await track(() =>
       contactTopicSubscription(resend, email, topic.id),
     );
     const providerOptedOut = currentTopic === "opt_out";
 
-    if (sendable && providerOptedOut) {
+    if (providerOptedOut) {
       await db
         .update(emailSubscribers)
         .set({
@@ -525,23 +570,16 @@ export async function syncMarketingAudience(): Promise<{
         .where(eq(emailSubscribers.id, subscriber.id));
       continue;
     }
-    if (!sendable && currentTopic !== "opt_out") {
-      await track(() => setContactTopic(resend, email, topic.id, "opt_out"));
-      continue;
-    }
-    if (sendable && currentTopic !== "opt_in") {
+    if (currentTopic !== "opt_in") {
       await track(() => setContactTopic(resend, email, topic.id, "opt_in"));
     }
-    if (sendable) {
-      recipientCount += 1;
-      eligibleEmails.push(email);
-    }
+    recipientCount += 1;
+    eligibleEmails.push(email);
   }
 
   const unknownContacts = segmentContacts.filter(
     (contact) => !localEmails.has(contact.email.trim().toLowerCase()),
   );
-  const mayPrune = owned || process.env.RESEND_MARKETING_PRUNE_SEGMENT === "true";
   if (unknownContacts.length > 0 && !mayPrune) {
     throw new Error(
       `The configured Resend segment contains ${unknownContacts.length} contact${
@@ -579,51 +617,162 @@ export async function syncMarketingAudience(): Promise<{
 }
 
 /**
- * Freeze one reviewed audience into a campaign-specific segment. Resend resolves
- * scheduled segment membership at send time, so targeting the rolling master
- * segment would silently include subscribers who joined after final approval.
+ * Freeze one reviewed audience into a campaign delivery segment.
+ *
+ * Resend's starter plan allows only 3 segments. Creating a new `[Campaign] …`
+ * list on every launch blows that quota. Club sends therefore reuse one
+ * delivery slot: prune leftover campaign snapshots, refill membership with
+ * the reviewed addresses, and keep the rolling Club list untouched.
+ *
+ * Immediate sends already freeze the recipient set locally. A recycled
+ * provider segment is safe while scheduled broadcasts remain disabled.
  */
 export async function createMarketingAudienceSnapshot(input: {
   campaignId: string;
   campaignName: string;
   eligibleEmails: string[];
-}): Promise<string> {
+}): Promise<{ segmentId: string; created: boolean }> {
   if (input.eligibleEmails.length === 0) {
     throw new Error("Cannot snapshot an empty marketing audience.");
   }
   const resend = client();
-  const safeName = input.campaignName.replace(/\s+/g, " ").trim().slice(0, 64);
-  const created = await resendApi(() =>
-    resend.segments.create({
-      name: `[Campaign] ${safeName || "Y2KASE"} · ${input.campaignId.slice(0, 8)}`,
-    }),
-    { retry: false },
+  const wanted = [
+    ...new Set(input.eligibleEmails.map((email) => email.trim().toLowerCase())),
+  ];
+  const masterId = configuredMarketingSegmentId();
+  const protectedIds = await protectedSnapshotSegmentIds(input.campaignId);
+  const segments = await allSegments(resend);
+  const reusable = segments.filter(
+    (segment) =>
+      isDeliverySnapshotSegment(segment, masterId) &&
+      !protectedIds.has(segment.id),
   );
-  if (created.error) {
-    throw providerError("Creating the campaign audience snapshot", created.error.message);
-  }
 
-  const segmentId = created.data.id;
-  try {
-    for (const email of input.eligibleEmails) {
-      const added = await resendApi(() =>
-        resend.contacts.segments.add({ email, segmentId }),
-      );
-      if (added.error) {
-        throw providerError("Populating the campaign audience snapshot", added.error.message);
-      }
-    }
-    return segmentId;
-  } catch (error) {
-    // No broadcast points at this incomplete segment yet, so cleanup is safe.
-    const removed = await resendApi(() => resend.segments.remove(segmentId));
-    if (removed.error) {
-      console.error(
-        "[campaigns] could not remove incomplete audience snapshot:",
+  for (const extra of reusable.slice(1)) {
+    const removed = await resendApi(() => resend.segments.remove(extra.id));
+    if (removed.error && removed.error.name !== "not_found") {
+      throw providerError(
+        "Freeing a leftover campaign snapshot segment",
         removed.error.message,
       );
     }
+  }
+
+  let segment = reusable[0] ?? null;
+  let created = false;
+  if (!segment) {
+    const createdSegment = await resendApi(
+      () => resend.segments.create({ name: DELIVERY_SEGMENT_NAME }),
+      { retry: false },
+    );
+    if (createdSegment.error) {
+      if (isSegmentQuotaError(createdSegment.error)) {
+        const names = (await allSegments(resend))
+          .map((item) => item.name)
+          .join(", ");
+        throw new Error(
+          `Resend's plan allows only 3 segments (${names || "none listed"}). Delete unused segments in Resend, keep the Club list, then retry. Campaigns no longer need a new list for every send.`,
+        );
+      }
+      throw providerError(
+        "Creating the campaign audience snapshot",
+        createdSegment.error.message,
+      );
+    }
+    segment = {
+      id: createdSegment.data.id,
+      name: createdSegment.data.name,
+      created_at: new Date().toISOString(),
+    };
+    created = true;
+  }
+
+  try {
+    await replaceSegmentMembership(resend, segment.id, wanted);
+    return { segmentId: segment.id, created };
+  } catch (error) {
+    if (created) {
+      const removed = await resendApi(() => resend.segments.remove(segment.id));
+      if (removed.error) {
+        console.error(
+          "[campaigns] could not remove incomplete audience snapshot:",
+          removed.error.message,
+        );
+      }
+    }
     throw error;
+  }
+}
+
+function isDeliverySnapshotSegment(
+  segment: Segment,
+  masterId: string | null,
+): boolean {
+  if (masterId && segment.id === masterId) return false;
+  const name = segment.name.trim();
+  return name === DELIVERY_SEGMENT_NAME || name.startsWith("[Campaign] ");
+}
+
+function isSegmentQuotaError(error: { message?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return message.includes("upgrade to add more") || /\bsegments?\b/.test(message) && message.includes("plan");
+}
+
+async function protectedSnapshotSegmentIds(
+  exceptCampaignId: string,
+): Promise<Set<string>> {
+  const rows = await db.query.marketingCampaigns.findMany({
+    where: inArray(marketingCampaigns.status, [
+      "queued",
+      "scheduled",
+      "preparing",
+    ]),
+    columns: { id: true, resendSegmentId: true },
+  });
+  return new Set(
+    rows
+      .filter(
+        (row) => row.id !== exceptCampaignId && Boolean(row.resendSegmentId),
+      )
+      .map((row) => row.resendSegmentId as string),
+  );
+}
+
+async function replaceSegmentMembership(
+  resend: Resend,
+  segmentId: string,
+  eligibleEmails: string[],
+): Promise<void> {
+  const wanted = new Set(eligibleEmails);
+  const current = await allContacts(resend, segmentId);
+  const currentEmails = new Set(
+    current.map((contact) => contact.email.trim().toLowerCase()),
+  );
+
+  for (const email of currentEmails) {
+    if (wanted.has(email)) continue;
+    const removed = await resendApi(() =>
+      resend.contacts.segments.remove({ email, segmentId }),
+    );
+    if (removed.error) {
+      throw providerError(
+        `Removing ${email} from the campaign snapshot`,
+        removed.error.message,
+      );
+    }
+  }
+
+  for (const email of wanted) {
+    if (currentEmails.has(email)) continue;
+    const added = await resendApi(() =>
+      resend.contacts.segments.add({ email, segmentId }),
+    );
+    if (added.error) {
+      throw providerError(
+        "Populating the campaign audience snapshot",
+        added.error.message,
+      );
+    }
   }
 }
 

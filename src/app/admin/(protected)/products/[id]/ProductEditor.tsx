@@ -21,32 +21,37 @@ import {
   addonsFromStyles,
   orderStyles,
   normalizeImageStyleTags,
+  displayedStylePrices,
+  getStylePrice,
 } from "@/lib/pricing";
 import { compareFilenamesNatural, formatPrice } from "@/lib/utils";
 import type { BrandOption } from "@/lib/catalog/brands";
 import type { TitleIssue } from "@/lib/catalog/listing-title";
 import { StyleTagPicker, StyleCoverageHint } from "../StyleTagPicker";
+import { StylePriceSelect } from "../StylePriceSelect";
 import { DeviceFitPicker } from "../DeviceFitPicker";
 import {
   CustomVariationsEditor,
   mediaTagStyles,
 } from "../CustomVariationsEditor";
 import { BrandReassignmentCard, type BrandState } from "./BrandReassignmentCard";
+import { MagneticRingCard } from "./MagneticRingCard";
 import { ColorEditorCard } from "./ColorEditorCard";
 import { MotifEditorCard } from "./MotifEditorCard";
 import { ListingTitleEditor } from "./ListingTitleEditor";
+import { ProductThumbnailStudio } from "./ProductThumbnailStudio";
 import { saveProduct, detectProductImageStyles, type SaveProductPayload } from "./actions";
+import type { ThumbnailProposalView } from "@/lib/admin/thumbnail-studio";
 import type { ColorFamilySlug } from "@/lib/catalog/colors";
 import type { MotifFamilySlug } from "@/lib/catalog/motifs";
 import { compatibilityAxisFor } from "@/lib/catalog/product-types";
+import { productTypeOffersMagSafe } from "@/lib/catalog/devices";
 import {
   hasCompatibilityAxis,
   hasPriceAxis,
   normalizeOfferedCompatibility,
-  priceForOfferedStyle,
 } from "@/lib/catalog/offered-options";
 import {
-  mergeOfferedStyleValues,
   setImageVariationTag,
   syncCustomDraftMedia,
   taggingStylesFor,
@@ -76,6 +81,51 @@ type MediaItem =
     }
   | { kind: "video"; url: string };
 
+type ThumbnailStudioInput = {
+  currentUrl: string | null;
+  currentFilename: string | null;
+  proposal: ThumbnailProposalView | null;
+};
+
+/**
+ * Gallery rows in saved order, with the video spliced into its slot.
+ * When `previous` is passed, photos that are still in the gallery keep the
+ * tags the operator already chose — a thumbnail approval inserts a new first
+ * image and must not wipe in-progress tags on the photos around it.
+ */
+function buildMediaItems(
+  images: ImageInput[],
+  videoUrl: string | null,
+  videoPosition: number | null,
+  styles: string[],
+  customStyles: CustomStyle[],
+  previous?: MediaItem[],
+): MediaItem[] {
+  const keptTags = new Map<number, string[]>();
+  if (previous) {
+    for (const item of previous) {
+      if (item.kind === "image") keptTags.set(item.id, item.styleTags);
+    }
+  }
+  const tagging = taggingStylesFor(styles, customStyles);
+  const imgs: MediaItem[] = images.map((image) => ({
+    kind: "image",
+    id: image.id,
+    url: image.url,
+    filename: image.filename,
+    styleTags:
+      keptTags.get(image.id) ??
+      normalizeImageStyleTags(image.styleTags, tagging),
+  }));
+  if (!videoUrl) return imgs;
+  const slot = Math.max(0, Math.min(videoPosition ?? 1, imgs.length));
+  return [
+    ...imgs.slice(0, slot),
+    { kind: "video", url: videoUrl },
+    ...imgs.slice(slot),
+  ];
+}
+
 export function ProductEditor({
   productId,
   title,
@@ -94,10 +144,13 @@ export function ProductEditor({
   availableModels: initialModels,
   containsMultipleProducts: initialFlagged,
   customStyles: initialCustomStyles,
+  initialStylePrices = {},
   colors,
   colorsLocked,
   motifs,
   motifsLocked,
+  thumbnail,
+  hasMagneticRing,
 }: {
   productId: number;
   title: string;
@@ -117,10 +170,13 @@ export function ProductEditor({
   availableModels: string[];
   containsMultipleProducts: boolean;
   customStyles: CustomStyle[];
+  initialStylePrices?: Partial<Record<string, number>>;
   colors: ColorFamilySlug[];
   colorsLocked: boolean;
   motifs: MotifFamilySlug[];
   motifsLocked: boolean;
+  thumbnail: ThumbnailStudioInput;
+  hasMagneticRing: boolean;
 }) {
   const isIphoneCase = productType === "iphone_case";
   const isAirpodsCase = productType === "airpod_case";
@@ -142,6 +198,13 @@ export function ProductEditor({
     }
     return [];
   });
+  const [stylePrices, setStylePrices] = useState<Record<string, string>>(() =>
+    displayedStylePrices(
+      isIphoneCase ? STYLES : AIRPODS_STYLES,
+      currency,
+      initialStylePrices,
+    ),
+  );
   const [models, setModels] = useState<string[]>(() =>
     normalizeOfferedCompatibility(productType, initialModels),
   );
@@ -152,23 +215,16 @@ export function ProductEditor({
   const tagStyles = mediaTagStyles(showStyles ? styles : [], customStyles);
 
   // ── Media list: images in saved order with the video spliced into its slot ──
-  const [media, setMedia] = useState<MediaItem[]>(() => {
-    // Legacy rows can carry several tags per image; collapse to the single
-    // configuration the photo shows so the control never renders two actives.
-    const imgs: MediaItem[] = images.map((i) => ({
-      kind: "image",
-      id: i.id,
-      url: i.url,
-      filename: i.filename,
-      styleTags: normalizeImageStyleTags(
-        i.styleTags,
-        taggingStylesFor(styles, customStyles),
-      ),
-    }));
-    if (!videoUrl) return imgs;
-    const slot = Math.max(0, Math.min(videoPosition ?? 1, imgs.length));
-    return [...imgs.slice(0, slot), { kind: "video", url: videoUrl }, ...imgs.slice(slot)];
-  });
+  const [media, setMedia] = useState<MediaItem[]>(() =>
+    buildMediaItems(images, videoUrl, videoPosition, styles, customStyles),
+  );
+  // Approving a thumbnail inserts a new position-0 image on the server. The
+  // editor keeps its own order until that identity changes, then adopts the
+  // saved gallery so the new thumbnail shows up without a full reload.
+  const gallerySignature = images
+    .map((image) => `${image.id}:${image.url}:${image.filename ?? ""}`)
+    .join("|");
+  const [seenGallery, setSeenGallery] = useState(gallerySignature);
   const [advanced, setAdvanced] = useState(false);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -261,6 +317,13 @@ export function ProductEditor({
    */
   function applyStyles(nextStyles: string[]) {
     setStyles(nextStyles);
+    setStylePrices((prev) => {
+      const next = { ...prev };
+      for (const style of nextStyles) {
+        if (!next[style]) next[style] = getStylePrice(style, currency).toFixed(2);
+      }
+      return next;
+    });
     const offered = taggingStylesFor(nextStyles, customStyles);
     setMedia((prev) =>
       prev.map((m) =>
@@ -368,6 +431,7 @@ export function ProductEditor({
       videoSlot,
       styleTags,
       availableStyles: styles,
+      stylePrices,
       containsMultipleProducts: flagged,
       customStyles,
       ...(showFit ? { availableModels: models } : {}),
@@ -380,10 +444,34 @@ export function ProductEditor({
     });
   }
 
+  if (seenGallery !== gallerySignature) {
+    setSeenGallery(gallerySignature);
+    setMedia(
+      buildMediaItems(
+        images,
+        videoUrl,
+        videoPosition,
+        styles,
+        customStyles,
+        media,
+      ),
+    );
+  }
+
   const imageCount = media.filter((m) => m.kind === "image").length;
+  const listingThumbnailIndex = media.findIndex((item) => item.kind === "image");
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
+      <div className="flex min-w-0 flex-col gap-8">
+      <ProductThumbnailStudio
+        productId={productId}
+        title={title}
+        productStatus={status}
+        currentUrl={thumbnail.currentUrl}
+        currentFilename={thumbnail.currentFilename}
+        proposal={thumbnail.proposal}
+      />
       {/* ── Media manager ─────────────────────────────────────────────────── */}
       <section>
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -479,7 +567,13 @@ export function ProductEditor({
                   </button>
                 </div>
 
-                <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)]">
+                <div
+                  className={`relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-[var(--muted)] ${
+                    index === listingThumbnailIndex
+                      ? "ring-2 ring-[var(--primary)]"
+                      : ""
+                  }`}
+                >
                   {item.kind === "video" ? (
                     <>
                       <video
@@ -517,8 +611,18 @@ export function ProductEditor({
                     </p>
                   ) : (
                     <>
-                      <p className="truncate text-xs text-[var(--foreground)]/50">
-                        {item.filename ?? `image #${item.id}`}
+                      <p className="flex min-w-0 items-center gap-2 text-xs text-[var(--foreground)]/50">
+                        <span className="truncate">
+                          {item.filename ?? `image #${item.id}`}
+                        </span>
+                        {index === listingThumbnailIndex && (
+                          <a
+                            href="#listing-thumbnail"
+                            className="shrink-0 rounded-full bg-[var(--primary)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--primary)] hover:underline"
+                          >
+                            Thumbnail
+                          </a>
+                        )}
                       </p>
                       {tagStyles.length > 0 && (
                         <div className="mt-1.5">
@@ -540,6 +644,7 @@ export function ProductEditor({
           })}
         </ul>
       </section>
+      </div>
 
       {/* ── Sidebar: product info + variations + save ─────────────────────── */}
       <aside className="flex flex-col gap-5 lg:sticky lg:top-20 lg:self-start">
@@ -569,6 +674,13 @@ export function ProductEditor({
             <ExternalLink className="h-3.5 w-3.5" />
           </Link>
         </div>
+
+        {productTypeOffersMagSafe(productType) && (
+          <MagneticRingCard
+            productId={productId}
+            initialOn={hasMagneticRing}
+          />
+        )}
 
         <BrandReassignmentCard
           productId={productId}
@@ -645,29 +757,39 @@ export function ProductEditor({
               <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--foreground)]/40">
                 Offered styles
               </p>
-              <div className="flex flex-wrap gap-1.5">
-                {mergeOfferedStyleValues(styles, customStyles).map((s) => {
-                  const price = priceForOfferedStyle(
-                    productType,
-                    s,
-                    currency,
-                    customStyles,
-                  );
-                  return (
+              <ul className="space-y-1.5">
+                {styles.map((s) => (
+                  <li key={s} className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 text-[11px] font-semibold">{s}</span>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-[var(--foreground)]/45">
+                      <span>{currency}</span>
+                      <StylePriceSelect
+                        style={s}
+                        currency={currency}
+                        value={stylePrices[s] ?? ""}
+                        onChange={(price) =>
+                          setStylePrices((prev) => ({ ...prev, [s]: price }))
+                        }
+                      />
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              {customStyles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {customStyles.map((s) => (
                     <span
-                      key={s}
+                      key={s.id}
                       className="rounded-full bg-[var(--card)] px-2 py-0.5 text-[11px] font-semibold"
                     >
-                      {s}
-                      {price != null && (
-                        <span className="ml-1 tabular-nums text-[var(--foreground)]/55">
-                          {formatPrice(price, currency)}
-                        </span>
-                      )}
+                      {s.label}
+                      <span className="ml-1 tabular-nums text-[var(--foreground)]/55">
+                        {formatPrice(s.price, currency)}
+                      </span>
                     </span>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <button

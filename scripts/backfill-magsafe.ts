@@ -79,7 +79,9 @@ async function main() {
       images: {
         columns: { url: true, position: true },
         orderBy: (img, { asc }) => asc(img.position),
-        limit: 3,
+        // The verifier samples up to 8 frames and needs the back-of-case shot.
+        // A prefix of 3 is usually the front lifestyle photos, which hides the ring.
+        limit: 8,
       },
       collections: { columns: { collectionId: true } },
     },
@@ -216,7 +218,10 @@ ${dryRun ? "\n  Re-run with `npm run magsafe:revalidate:apply` to commit.\n" : "
     }
 
     const decision = decideMagSafe({ human, verifier });
-    if (decision === "none") return;
+    if (decision === "none") {
+      console.log(`  – #${p.id} not MagSafe`);
+      return;
+    }
 
     // ── Low-confidence lone guess → review queue (don't touch live copy) ──
     if (decision === "review") {
@@ -249,7 +254,7 @@ ${dryRun ? "\n  Re-run with `npm run magsafe:revalidate:apply` to commit.\n" : "
     if (!needsWrite) return; // already fully classified
 
     console.log(
-      `  ${dryRun ? "would confirm" : "✓"} #${p.id} ${applied.title.slice(0, 54)}`,
+      `  ${dryRun ? "would confirm" : "✓"} #${p.id} ${verifier?.evidence ?? "already-labelled"} ${applied.title.slice(0, 54)}`,
     );
     if (dryRun) {
       updated++;
