@@ -7,13 +7,13 @@ import { revalidateTag, unstable_cache } from "next/cache";
  * under the included allowance:
  *
  *  - **ISR Writes** are 8 KB units of *changed* output stored in durable ISR /
- *    Data Cache. Unique URLs, short timers, and `revalidatePath` of every PDP
- *    run the meter up. The 200K Hobby write budget is exhausted this cycle, so
- *    storefront routes must not `export const revalidate`. HTML is rendered on
- *    demand and held at the CDN (`cache-headers.ts`). Data Cache is reserved
- *    for bounded keys (one collection tree, one PDP slug, page-1 listings).
+ *    Data Cache. A shared `catalog:products` tag on every PDP meant one edit
+ *    rewrote every product entry on the next crawl. Per-product tags avoid
+ *    that. HTML stays force-dynamic and is held at the CDN (`cache-headers.ts`).
  *  - **Fluid Active CPU** is milliseconds of actual JS execution. Waiting on
  *    Neon does not count; rendering and serializing large RSC trees does.
+ *    Short CDN lifetimes (listings every 2 minutes, PDPs every hour) made
+ *    crawlers re-execute those trees all month.
  *
  * @see https://vercel.com/docs/incremental-static-regeneration/limits-and-pricing
  * @see https://vercel.com/docs/caching/cdn-cache
@@ -38,13 +38,23 @@ export const DATA_CACHE_REVALIDATE = false;
  * call.
  */
 export const CACHE_TAGS = {
-  /** Anything derived from the products table (cards, featured, counts). */
+  /**
+   * Shared listing reads only (shop grid, rails, facet counts, featured).
+   * Do not put a per-product payload on this tag. One edit used to mark every
+   * PDP's Data Cache entry stale, and the next crawl rewrote each of them —
+   * that is what filled Hobby's ISR write units.
+   */
   products: "catalog:products",
   /** The collection taxonomy + per-collection image pools (mega-menu, rails). */
   collections: "catalog:collections",
   /** Published-review summaries that feed listing-card star ratings. */
   reviews: "catalog:reviews",
 } as const;
+
+/** One Data Cache entry. Invalidating it does not touch the other products. */
+export function productCacheTag(slug: string): string {
+  return `catalog:product:${slug}`;
+}
 
 /**
  * `unstable_cache` requires a Next.js incremental cache, which only exists
@@ -157,6 +167,12 @@ export function revalidateStorefrontListings(): void {
  */
 export function revalidateStorefrontProduct(slug: string): void {
   // Path ISR is intentionally not keyed by slug while Hobby write quota is exhausted.
-  void slug;
-  revalidateStorefrontCatalog();
+  // Only this product's Data Cache entry is marked stale. Listing tags stay
+  // with {@link revalidateStorefrontListings} so a single save cannot force
+  // a rewrite of every other PDP the next time a crawler walks the sitemap.
+  try {
+    revalidateTag(productCacheTag(slug), "max");
+  } catch (err) {
+    console.warn("[catalog-cache] product tag revalidation skipped", err);
+  }
 }

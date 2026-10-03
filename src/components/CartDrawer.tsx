@@ -82,7 +82,7 @@ export function CartDrawer() {
           <button
             onClick={close}
             aria-label="Close cart"
-            className="grid h-9 w-9 place-items-center rounded-full hover:bg-[var(--muted)]"
+            className="grid h-11 w-11 place-items-center rounded-full hover:bg-[var(--muted)]"
           >
             <X className="h-5 w-5" />
           </button>
@@ -114,7 +114,7 @@ export function CartDrawer() {
         )}
 
         {items.length > 0 && (
-          <div className="space-y-3 border-t border-[var(--border)] px-5 py-4">
+          <div className="space-y-3 border-t border-[var(--border)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {/* Bundle nudge — "Buy 2, Get 2 Free" progress. */}
             <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]/70">
               {bundleActive ? (
@@ -209,7 +209,7 @@ function CartLine({
           <button
             onClick={onRemove}
             aria-label="Remove item"
-            className="text-[var(--foreground)]/40 hover:text-[var(--primary)]"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--foreground)]/40 hover:bg-[var(--muted)] hover:text-[var(--primary)]"
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -226,7 +226,7 @@ function CartLine({
             <button
               onClick={() => onQty(item.quantity - 1)}
               aria-label="Decrease quantity"
-              className="grid h-7 w-7 place-items-center"
+              className="grid h-10 w-10 place-items-center"
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
@@ -236,7 +236,7 @@ function CartLine({
             <button
               onClick={() => onQty(item.quantity + 1)}
               aria-label="Increase quantity"
-              className="grid h-7 w-7 place-items-center"
+              className="grid h-10 w-10 place-items-center"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>

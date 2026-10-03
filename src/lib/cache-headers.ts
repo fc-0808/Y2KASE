@@ -12,22 +12,24 @@
  */
 
 /**
- * 120s is long enough that a shopper refining filters in one session still
- * hits CDN on back/forward, and short enough that an admin merchandising
- * change is visible on listings within two minutes even if tag invalidation
- * does not purge this layer.
+ * One hour. A 2-minute window re-ran the catalog function for every bot hit
+ * on `/products` and each collection URL — that origin work is Fluid Active
+ * CPU, and Hobby's included 4 hours was down to 10 minutes. Filter changes
+ * still show up within the hour; the CDN keeps serving the previous HTML
+ * while that refresh happens.
  */
-export const FACETED_CDN_MAX_AGE_SECONDS = 120;
+export const FACETED_CDN_MAX_AGE_SECONDS = 3_600;
 export const FACETED_CDN_STALE_WHILE_REVALIDATE_SECONDS = 86_400;
 
 export const FACETED_CDN_CACHE_CONTROL = `public, s-maxage=${FACETED_CDN_MAX_AGE_SECONDS}, stale-while-revalidate=${FACETED_CDN_STALE_WHILE_REVALIDATE_SECONDS}`;
 
 /**
- * Home, PDP, blog, collections index, insights. One origin render per hour
- * per path; CDN keeps serving stale for a week so a crawler wave cannot
- * reopen ISR writes or burn the remaining Fluid CPU.
+ * Home, PDP, blog, collections index, insights. One origin render per day
+ * per path. An hourly crawl of a few hundred product URLs was enough to
+ * spend most of the Hobby Fluid CPU allowance. CDN keeps serving stale for
+ * a week so a crawler wave cannot reopen that bill.
  */
-export const CANONICAL_CDN_MAX_AGE_SECONDS = 3_600;
+export const CANONICAL_CDN_MAX_AGE_SECONDS = 86_400;
 export const CANONICAL_CDN_STALE_WHILE_REVALIDATE_SECONDS = 604_800;
 
 export const CANONICAL_CDN_CACHE_CONTROL = `public, s-maxage=${CANONICAL_CDN_MAX_AGE_SECONDS}, stale-while-revalidate=${CANONICAL_CDN_STALE_WHILE_REVALIDATE_SECONDS}`;
@@ -37,7 +39,7 @@ export const OG_CDN_MAX_AGE_SECONDS = 86_400;
 
 export const OG_CDN_CACHE_CONTROL = `public, s-maxage=${OG_CDN_MAX_AGE_SECONDS}, stale-while-revalidate=${CANONICAL_CDN_STALE_WHILE_REVALIDATE_SECONDS}`;
 
-/** Merchant / Pinterest feeds: origin only on CDN miss. Builds must not bake an empty catalog. */
-export const FEED_CDN_MAX_AGE_SECONDS = 3_600;
+/** Merchant / Pinterest feeds and the sitemap. One origin build per day. */
+export const FEED_CDN_MAX_AGE_SECONDS = 86_400;
 
 export const FEED_CDN_CACHE_CONTROL = `public, s-maxage=${FEED_CDN_MAX_AGE_SECONDS}, stale-while-revalidate=${FACETED_CDN_STALE_WHILE_REVALIDATE_SECONDS}`;

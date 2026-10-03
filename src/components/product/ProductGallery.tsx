@@ -255,7 +255,7 @@ export function ProductGallery({
     >
       <div
         className={cn(
-          "relative aspect-square min-w-0 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--product-surface)]",
+          "relative aspect-square min-w-0 overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:-mx-4 max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
           "touch-pan-y",
           hasStrip && "lg:ml-[6rem]",
         )}

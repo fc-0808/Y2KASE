@@ -51,7 +51,7 @@ export default async function HomePage() {
 
   const [featured, tree, sanrioItems, helloKittyItems, originalsItems, deviceCounts] =
     await Promise.all([
-    getFeaturedProducts(8),
+    getFeaturedProducts(),
     getCollectionTree().catch(() => []),
     col("sanrio"),
     col("hello-kitty"),
@@ -116,7 +116,7 @@ export default async function HomePage() {
       <HeroCarousel />
 
       {/* ── Shop the universe (category rail) ─────────────────────────────── */}
-      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-14 sm:px-6">
+      <section className="defer-render order-1 mx-auto w-full max-w-[1800px] px-4 pt-8 sm:px-6 sm:pt-14">
         <SectionHeading
           eyebrow="Find your character"
           title="Shop the universe"
@@ -126,7 +126,9 @@ export default async function HomePage() {
       </section>
 
       {/* ── Featured collection (editorial) ───────────────────────────────── */}
-      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
+      {/* On a phone this follows bestsellers so a shopper sees products before
+          three campaign cards. Desktop keeps the editorial block first. */}
+      <section className="defer-render order-3 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16 md:order-2">
         <SectionHeading
           eyebrow="Editor's picks"
           title="Featured collection"
@@ -136,10 +138,14 @@ export default async function HomePage() {
       </section>
 
       {/* ── Bestsellers ───────────────────────────────────────────────────── */}
-      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
+      <section className="defer-render order-2 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16 md:order-3">
         <SectionHeading eyebrow="Most loved" title="Bestsellers" href="/products" />
         {featured.length > 0 ? (
-          <div className={PRODUCT_MOSAIC}>
+          /* Two rows on a phone. A longer grid pushes Originals and Sanrio
+             off the first few swipes; View all opens the full catalog. */
+          <div
+            className={`${PRODUCT_MOSAIC} max-md:[&>:nth-child(n+5)]:hidden`}
+          >
             {featured.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
@@ -151,6 +157,7 @@ export default async function HomePage() {
 
       {/* ── Originals (no licensed character) ─────────────────────────────── */}
       <CollectionShowcase
+        className="order-4"
         eyebrow="No character needed"
         title="Original designs"
         href="/collections/originals"
@@ -160,6 +167,7 @@ export default async function HomePage() {
 
       {/* ── Sanrio collection ─────────────────────────────────────────────── */}
       <CollectionShowcase
+        className="order-5"
         eyebrow="Fan favourite"
         title="The Sanrio Collection"
         href="/collections/sanrio"
@@ -169,6 +177,7 @@ export default async function HomePage() {
 
       {/* ── Hello Kitty spotlight ─────────────────────────────────────────── */}
       <CollectionShowcase
+        className="order-6"
         eyebrow="Icon status"
         title="Hello Kitty Spotlight"
         href="/collections/hello-kitty"
@@ -177,7 +186,7 @@ export default async function HomePage() {
       />
 
       {/* ── Shop by device ────────────────────────────────────────────────── */}
-      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
+      <section className="defer-render order-7 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
         <SectionHeading eyebrow="Find your fit" title="Shop by device" href="/products" />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {devices.map((d) => {
@@ -221,8 +230,8 @@ export default async function HomePage() {
       </section>
 
       {/* ── Trust strip ───────────────────────────────────────────────────── */}
-      <section className="defer-render mt-16 border-y border-[var(--border)] bg-[var(--card)]/60">
-        <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-6 px-4 py-8 sm:grid-cols-3 sm:px-6">
+      <section className="defer-render order-8 mt-10 border-y border-[var(--border)] bg-[var(--card)]/60 sm:mt-16">
+        <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-4 px-4 py-6 sm:grid-cols-3 sm:gap-6 sm:px-6 sm:py-8">
           <Feature
             icon={<Truck className="h-5 w-5" />}
             title="Tracked international shipping"
@@ -242,7 +251,7 @@ export default async function HomePage() {
       </section>
 
       {/* ── Y2KASE Club band ──────────────────────────────────────────────── */}
-      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 py-12 sm:px-6 sm:py-16">
+      <section className="defer-render order-9 mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 sm:py-16">
         <div className="relative overflow-hidden rounded-[2rem] border-2 border-white bg-holo-shimmer p-6 shadow-xl sm:rounded-[2.5rem] sm:p-10 lg:p-12">
           <div className="bg-grid absolute inset-0 opacity-40" />
           <SparkleField />
@@ -303,7 +312,7 @@ function SectionHeading({
   accent?: string;
 }) {
   return (
-    <div className="mb-7 flex items-end justify-between gap-4">
+    <div className="mb-4 flex items-end justify-between gap-4 sm:mb-7">
       <div>
         <p
           className="font-pixel text-[10px] uppercase tracking-tight"
@@ -311,8 +320,10 @@ function SectionHeading({
         >
           {eyebrow}
         </p>
-        {/* Pixel-arcade title — the Y2KASE signature voice. */}
-        <h2 className="mt-2.5 font-pixel text-base leading-[1.35] sm:text-lg lg:text-xl">
+        {/* Display face on a phone — the pixel cut wraps and is hard to scan
+            at this size. The arcade voice stays on the eyebrow, and returns
+            for the heading from `sm`. */}
+        <h2 className="mt-1.5 text-[1.65rem] font-extrabold leading-[1.05] tracking-tight sm:mt-2.5 sm:font-pixel sm:text-lg sm:leading-[1.35] lg:text-xl">
           {title}
         </h2>
       </div>
@@ -337,16 +348,20 @@ function CollectionShowcase({
   href,
   accent,
   products,
+  className = "",
 }: {
   eyebrow: string;
   title: string;
   href: string;
   accent: string;
   products: ProductListItem[];
+  className?: string;
 }) {
   if (!products || products.length === 0) return null;
   return (
-    <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-16 sm:px-6">
+    <section
+      className={`defer-render mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16 ${className}`}
+    >
       <SectionHeading eyebrow={eyebrow} title={title} href={href} accent={accent} />
       <div className="-mx-4 flex items-stretch gap-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
         {products.slice(0, 12).map((product) => (

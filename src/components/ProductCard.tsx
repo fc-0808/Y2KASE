@@ -124,11 +124,15 @@ export function ProductCard({
         always two lines; the price is pinned to the bottom with `mt-auto`.
       */}
       <div className="flex min-h-0 flex-1 flex-col gap-1 p-2.5 text-left md:gap-2 md:p-4">
-        {showDeviceBadge && (
-          <p className={KICKER_SLOT} aria-hidden={!deviceKicker}>
-            {deviceKicker ?? "\u00a0"}
+        {showDeviceBadge && deviceKicker ? (
+          <p className={KICKER_SLOT}>{deviceKicker}</p>
+        ) : showDeviceBadge ? (
+          // Reserve the line on desktop so a mixed rail stays even. On a phone
+          // an empty kicker is just a blank row above every iPhone title.
+          <p className={`${KICKER_SLOT} hidden md:block`} aria-hidden>
+            {"\u00a0"}
           </p>
-        )}
+        ) : null}
         <Heading className={`${TITLE_SLOT} transition group-hover:text-[var(--primary)]`}>
           {product.title}
         </Heading>

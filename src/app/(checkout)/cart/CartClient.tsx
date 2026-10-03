@@ -9,7 +9,7 @@
  * the cent (no surprise shipping or pricing at the payment step).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -67,9 +67,44 @@ export function CartClient() {
   // `overflow-hidden` (a popover would be clipped) — and a tap target beats a
   // hover-only tooltip on mobile, where most of this traffic converts.
   const [bundleInfoOpen, setBundleInfoOpen] = useState(false);
+  const checkoutRef = useRef<HTMLButtonElement>(null);
+  const stickyRef = useRef<HTMLDivElement>(null);
+  const [stickyCheckout, setStickyCheckout] = useState(false);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
+
+  // The summary CTA sits under the line items on a phone. Mirror it in a
+  // thumb bar once it leaves the screen, and stand down when it comes back
+  // so the shopper never sees two checkout buttons.
+  useEffect(() => {
+    const target = checkoutRef.current;
+    if (!target) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setStickyCheckout(!entry.isIntersecting),
+      { rootMargin: "0px 0px -72px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [mounted, items.length]);
+
+  useEffect(() => {
+    const bar = stickyRef.current;
+    const root = document.documentElement;
+    if (!bar || !stickyCheckout) {
+      root.style.removeProperty("--bottom-bar-h");
+      return;
+    }
+    const publish = () =>
+      root.style.setProperty("--bottom-bar-h", `${bar.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--bottom-bar-h");
+    };
+  }, [stickyCheckout, mounted, items.length]);
 
   if (!mounted) {
     return <CartHydrationSkeleton />;
@@ -270,7 +305,7 @@ export function CartClient() {
                     aria-label={`How ${BUNDLE.label} works`}
                     // Negative margin keeps the icon visually small while giving
                     // it a 24px touch target.
-                    className="-m-1 shrink-0 rounded-full p-1 text-[var(--foreground)]/40 transition hover:text-[var(--primary)]"
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--foreground)]/40 transition hover:text-[var(--primary)]"
                   >
                     <HelpCircle className="h-4 w-4" />
                   </button>
@@ -407,6 +442,7 @@ export function CartClient() {
               )}
 
               <button
+                ref={checkoutRef}
                 onClick={handleCheckout}
                 disabled={checkingOut}
                 className="btn-candy mt-5 flex w-full items-center justify-center gap-2 py-3.5 disabled:opacity-60"
@@ -454,6 +490,38 @@ export function CartClient() {
             </div>
           </div>
         </aside>
+      </div>
+
+      <div
+        ref={stickyRef}
+        inert={!stickyCheckout}
+        className={`fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)]/95 px-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] shadow-[0_-10px_30px_-20px_rgba(52,32,59,0.55)] backdrop-blur-sm transition-transform duration-300 motion-reduce:transition-none lg:hidden ${
+          stickyCheckout ? "translate-y-0" : "translate-y-full"
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-[var(--foreground)]/55">
+              Total
+            </p>
+            <p className="text-lg font-black leading-tight text-[var(--primary)]">
+              {formatPrice(total, currency)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCheckout}
+            disabled={checkingOut}
+            className="btn-candy flex min-h-12 flex-1 items-center justify-center gap-2 px-4 py-3 text-sm disabled:opacity-60"
+          >
+            {checkingOut ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Lock className="h-4 w-4" />
+            )}
+            {checkingOut ? "Redirecting…" : "Checkout"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -593,7 +661,7 @@ function CartRow({
           <button
             onClick={onRemove}
             aria-label="Remove item"
-            className="h-fit text-[var(--foreground)]/40 transition hover:text-[var(--primary)]"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[var(--foreground)]/40 transition hover:bg-[var(--muted)] hover:text-[var(--primary)]"
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -612,7 +680,7 @@ function CartRow({
             <button
               onClick={() => onQty(item.quantity - 1)}
               aria-label="Decrease quantity"
-              className="grid h-8 w-8 place-items-center hover:text-[var(--primary)]"
+              className="grid h-10 w-10 place-items-center hover:text-[var(--primary)]"
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
@@ -622,7 +690,7 @@ function CartRow({
             <button
               onClick={() => onQty(item.quantity + 1)}
               aria-label="Increase quantity"
-              className="grid h-8 w-8 place-items-center hover:text-[var(--primary)]"
+              className="grid h-10 w-10 place-items-center hover:text-[var(--primary)]"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>

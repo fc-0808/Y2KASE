@@ -90,10 +90,10 @@ export function ProductPageView({
   const isPreview = surface === "preview";
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+    <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 sm:py-8">
       <nav
         aria-label="Breadcrumb"
-        className="mb-6 flex min-w-0 items-center gap-1 text-sm text-[var(--foreground)]/60"
+        className="mb-3 flex min-w-0 items-center gap-1 text-sm text-[var(--foreground)]/60 sm:mb-6"
       >
         <Link href="/" className="shrink-0 hover:text-[var(--primary)]">
           Home

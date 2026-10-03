@@ -1,9 +1,13 @@
 "use client";
 
 /**
- * HeroCarousel — full-viewport, auto-rotating brand hero (CASETiFY-style).
+ * HeroCarousel — auto-rotating brand hero (CASETiFY-style).
  *
- * - Fills the viewport below the sticky header on both axes.
+ * Desktop fills the viewport below the sticky header and cross-fades slides
+ * over the art. On a phone the same photo is the hero background all the way
+ * down to the slide dots, with the headline and buttons sitting on a soft
+ * bottom scrim so the type stays readable.
+ *
  * - Cross-fades between slides with a slow Ken-Burns zoom for a premium feel.
  * - Auto-advances every 6s; pauses on hover/focus; respects reduced-motion.
  * - Keyboard + swipe navigable, with dot indicators and edge arrows.
@@ -165,7 +169,7 @@ export function HeroCarousel() {
     <section
       aria-roledescription="carousel"
       aria-label="Featured collections"
-      className="relative h-[calc(100svh-5.75rem)] min-h-[34rem] w-full overflow-hidden"
+      className="relative w-full overflow-hidden md:h-[calc(100svh-5.75rem)] md:min-h-[34rem]"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocusCapture={() => setPaused(true)}
@@ -179,77 +183,83 @@ export function HeroCarousel() {
           <div
             key={i}
             aria-hidden={!active}
-            className={`absolute inset-0 transition-opacity duration-[1100ms] ease-out ${
-              active ? "opacity-100" : "pointer-events-none opacity-0"
+            className={`md:absolute md:inset-0 md:transition-opacity md:duration-[1100ms] md:ease-out ${
+              active
+                ? "relative z-10 opacity-100"
+                : "pointer-events-none hidden opacity-0 md:block"
             }`}
           >
-            {/* Background art with slow zoom while active. The first slide is
-                the deterministic LCP; the rest mount after hydration. */}
-            {(active || loadedSlides.has(i)) && (
-              <Image
-                src={slide.image}
-                alt=""
-                fill
-                loading={i === 0 ? "eager" : "lazy"}
-                fetchPriority={i === 0 ? "high" : "low"}
-                sizes="100vw"
-                className={`object-cover transition-transform duration-[7000ms] ease-out ${
-                  active && autoPlayArmed ? "scale-110" : "scale-100"
+            {/* Photo fills the hero, including the area behind the copy, and
+                stops at the dots. Desktop keeps the full-viewport crop. */}
+            <div className="absolute inset-0">
+              {(active || loadedSlides.has(i)) && (
+                <Image
+                  src={slide.image}
+                  alt=""
+                  fill
+                  loading={i === 0 ? "eager" : "lazy"}
+                  fetchPriority={i === 0 ? "high" : "low"}
+                  sizes="100vw"
+                  className={`object-cover object-[center_32%] transition-transform duration-[7000ms] ease-out md:object-center ${
+                    active && autoPlayArmed ? "md:scale-110" : "scale-100"
+                  }`}
+                />
+              )}
+              {/* Phone: fade the lower half so the headline can sit on the
+                  photo. Desktop: directional wash matching the copy side. */}
+              <div className="absolute inset-0 bg-[linear-gradient(to_top,#fff6fb_0%,rgba(255,246,251,0.94)_30%,rgba(255,246,251,0.45)_48%,transparent_66%)] md:hidden" />
+              <div
+                className={`absolute inset-0 hidden md:block ${
+                  slide.align === "left"
+                    ? "bg-gradient-to-r from-white/80 via-white/30 to-transparent"
+                    : slide.align === "right"
+                      ? "bg-gradient-to-l from-white/80 via-white/30 to-transparent"
+                      : "bg-gradient-to-t from-white/85 via-white/25 to-transparent"
                 }`}
               />
-            )}
+            </div>
 
-            {/* Legibility scrim — directional to match the copy side */}
-            <div
-              className={`absolute inset-0 ${
-                slide.align === "left"
-                  ? "bg-gradient-to-r from-white/80 via-white/30 to-transparent"
-                  : slide.align === "right"
-                    ? "bg-gradient-to-l from-white/80 via-white/30 to-transparent"
-                    : "bg-gradient-to-t from-white/85 via-white/25 to-transparent"
-              }`}
-            />
-
-            {/* Copy */}
-            <div className="absolute inset-0">
+            {/* Copy. In normal flow on a phone so the photo (absolute) has a
+                height to cover, down to the dots. */}
+            <div className="relative z-10 md:absolute md:inset-0">
               <div
-                className={`mx-auto flex h-full max-w-[1800px] flex-col px-4 sm:px-6 lg:px-8 ${
+                className={`mx-auto flex min-h-[34rem] max-w-[1800px] flex-col justify-end px-4 pb-14 pt-28 md:h-full md:min-h-0 md:justify-center md:px-6 md:pb-0 md:pt-0 lg:px-8 ${
                   slide.align === "left"
-                    ? "items-start justify-center text-left"
+                    ? "items-start text-left"
                     : slide.align === "right"
-                      ? "items-end justify-center text-right"
-                      : "items-center justify-end pb-24 text-center sm:pb-28"
+                      ? "items-start text-left md:items-end md:text-right"
+                      : "items-start text-left md:items-center md:justify-end md:pb-28 md:text-center"
                 }`}
               >
                 <div
-                  className={`max-w-xl ${active ? "animate-float-up" : ""}`}
+                  className={`w-full max-w-xl ${active ? "animate-float-up" : ""}`}
                   style={{ animationDelay: active ? "150ms" : undefined }}
                 >
                   <span className="sticker font-pixel text-[9px] uppercase tracking-tight">
                     {slide.eyebrow}
                   </span>
-                  <h2 className="mt-5 font-pixel text-xl leading-[1.5] text-[var(--foreground)] drop-shadow-sm sm:text-3xl sm:leading-[1.45] lg:text-4xl lg:leading-[1.4]">
+                  <h2 className="mt-3 font-pixel text-base leading-snug text-[var(--foreground)] sm:mt-5 sm:text-3xl sm:leading-[1.45] sm:drop-shadow-sm lg:text-4xl lg:leading-[1.4]">
                     {slide.title}
                   </h2>
                   <p
-                    className={`mt-5 text-base text-[var(--foreground)]/75 sm:text-lg ${
-                      slide.align === "right" ? "ml-auto" : ""
-                    } ${slide.align === "center" ? "mx-auto" : ""} max-w-md`}
+                    className={`mt-2 text-sm leading-relaxed text-[var(--foreground)]/75 sm:mt-5 sm:text-lg ${
+                      slide.align === "right" ? "md:ml-auto" : ""
+                    } ${slide.align === "center" ? "md:mx-auto" : ""} max-w-md`}
                   >
                     {slide.subtitle}
                   </p>
                   <div
-                    className={`mt-8 flex flex-wrap items-center gap-3 ${
+                    className={`mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:mt-8 ${
                       slide.align === "right"
-                        ? "justify-end"
+                        ? "md:justify-end"
                         : slide.align === "center"
-                          ? "justify-center"
+                          ? "md:justify-center"
                           : ""
                     }`}
                   >
                     <Link
                       href={slide.cta.href}
-                      className="btn-candy inline-flex items-center gap-2 px-7 py-3.5 text-base"
+                      className="btn-candy inline-flex w-full items-center justify-center gap-2 px-7 py-3 text-base sm:w-auto sm:py-3.5"
                       tabIndex={active ? 0 : -1}
                     >
                       {slide.cta.label} <ArrowRight className="h-4 w-4" />
@@ -258,7 +268,7 @@ export function HeroCarousel() {
                       <Link
                         href={slide.secondary.href}
                         tabIndex={active ? 0 : -1}
-                        className="inline-flex items-center gap-2 rounded-full border-2 border-[var(--border)] bg-[var(--card)]/80 px-6 py-3 font-bold backdrop-blur transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-full border-2 border-[var(--border)] bg-[var(--card)] px-6 py-3 font-bold transition hover:border-[var(--primary)] hover:text-[var(--primary)] sm:w-auto md:bg-[var(--card)]/80 md:backdrop-blur"
                       >
                         {slide.secondary.label}
                       </Link>
@@ -273,7 +283,7 @@ export function HeroCarousel() {
 
       {/* Controls live in the bottom band so they never overlap the headline. */}
       {/* Dot indicators — bottom centre */}
-      <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2.5">
+      <div className="absolute bottom-1 left-1/2 z-20 flex -translate-x-1/2 items-center justify-center md:bottom-6">
         {SLIDES.map((_, i) => (
           <button
             key={i}
@@ -281,12 +291,17 @@ export function HeroCarousel() {
             onClick={() => go(i)}
             aria-label={`Go to slide ${i + 1}`}
             aria-current={i === index}
-            className={`h-2.5 rounded-full transition-all duration-300 ${
-              i === index
-                ? "w-8 bg-[var(--primary)]"
-                : "w-2.5 bg-[var(--foreground)]/25 hover:bg-[var(--foreground)]/50"
-            }`}
-          />
+            className="grid h-10 w-10 place-items-center md:h-8 md:w-8"
+          >
+            <span
+              aria-hidden
+              className={`h-2.5 rounded-full shadow-[0_1px_4px_rgba(52,32,59,0.25)] transition-all duration-300 ${
+                i === index
+                  ? "w-8 bg-[var(--primary)]"
+                  : "w-2.5 bg-white/80"
+              }`}
+            />
+          </button>
         ))}
       </div>
 

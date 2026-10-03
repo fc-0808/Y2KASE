@@ -97,11 +97,11 @@ const BLAST_PATHS = [
 
 test("Data Cache is event-driven and storefront HTML uses CDN not ISR", () => {
   assert.equal(DATA_CACHE_REVALIDATE, false);
-  assert.equal(FACETED_CDN_MAX_AGE_SECONDS, 120);
-  assert.equal(CANONICAL_CDN_MAX_AGE_SECONDS, 3_600);
-  assert.match(FACETED_CDN_CACHE_CONTROL, /s-maxage=120/);
-  assert.match(CANONICAL_CDN_CACHE_CONTROL, /s-maxage=3600/);
-  assert.match(FEED_CDN_CACHE_CONTROL, /s-maxage=3600/);
+  assert.equal(FACETED_CDN_MAX_AGE_SECONDS, 3_600);
+  assert.equal(CANONICAL_CDN_MAX_AGE_SECONDS, 86_400);
+  assert.match(FACETED_CDN_CACHE_CONTROL, /s-maxage=3600/);
+  assert.match(CANONICAL_CDN_CACHE_CONTROL, /s-maxage=86400/);
+  assert.match(FEED_CDN_CACHE_CONTROL, /s-maxage=86400/);
   assert.match(OG_CDN_CACHE_CONTROL, /s-maxage=86400/);
 });
 
@@ -133,7 +133,9 @@ test("next.config sets targeted CDN headers for storefront routes and feeds", ()
   assert.match(src, /source:\s*"\/products\/:slug"/);
   assert.match(src, /source:\s*"\/products"/);
   assert.match(src, /source:\s*"\/collections\/:slug"/);
-  assert.match(src, /source:\s*"\/devices\/:slug"/);
+  assert.match(src, /source:\s*"\/products\/:slug\/opengraph-image"/);
+  assert.match(src, /source:\s*"\/collections\/:slug\/opengraph-image"/);
+  assert.match(src, /source:\s*"\/devices\/:slug\/opengraph-image"/);
   assert.match(src, /source:\s*"\/feed\.xml"/);
   assert.match(src, /source:\s*"\/api\/feed\/pinterest"/);
   assert.match(src, /source:\s*"\/sitemap\.xml"/);
@@ -216,6 +218,7 @@ test("no leftover timed ISR segment config on app routes", () => {
 test("storefront invalidation does not persist ISR paths", () => {
   const cache = read("src/lib/cache.ts");
   assert.match(cache, /export function revalidateStorefrontProduct/);
+  assert.match(cache, /revalidateTag\(productCacheTag\(slug\), "max"\)/);
   assert.match(cache, /revalidateStorefrontCatalog\(\)/);
   const pathWrites = liveLines(cache, (l) => /revalidatePath\(/.test(l));
   assert.deepEqual(pathWrites, []);
@@ -226,6 +229,7 @@ test("storefront invalidation does not persist ISR paths", () => {
 
   const products = read("src/lib/products.ts");
   assert.match(products, /export async function getProductSlugById/);
+  assert.match(products, /productCacheTag\(slug\)/);
 
   const reviews = read("src/lib/reviews.ts");
   assert.match(reviews, /export async function getReviewProductRef/);

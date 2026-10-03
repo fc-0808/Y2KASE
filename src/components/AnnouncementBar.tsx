@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
-import { bundleStorefrontOffer } from "@/lib/promotions";
+import { BUNDLE, bundleStorefrontOffer } from "@/lib/promotions";
 
 /**
  * Both offers are DERIVED from the pricing and promotions engines rather than
@@ -9,7 +10,7 @@ import { bundleStorefrontOffer } from "@/lib/promotions";
 const BUNDLE_OFFER = `Y2KASE Special: ${bundleStorefrontOffer()}`;
 
 const OFFER_TEXT =
-  "text-[11px] font-semibold leading-5 text-[var(--foreground)] md:text-xs";
+  "text-[11px] font-semibold leading-5 text-[var(--foreground)] underline-offset-2 hover:underline md:text-xs";
 
 /**
  * Holographic announcement bar. Server-rendered, no client JS.
@@ -31,27 +32,29 @@ export function AnnouncementBar() {
     >
       {/* Mobile — single-line, one offer at a time */}
       <div className="announce-rotate relative mx-auto h-7 overflow-hidden px-4 md:hidden">
-        <p
-          className={`announce-rotate__a absolute inset-x-4 top-1/2 -translate-y-1/2 text-center ${OFFER_TEXT}`}
+        <Link
+          href="/policies/shipping-policy"
+          className={`announce-rotate__a absolute inset-x-3 top-1/2 block max-w-[calc(100%-1.5rem)] -translate-y-1/2 truncate text-center ${OFFER_TEXT}`}
         >
           {FREE_SHIPPING_OFFER}
-        </p>
-        <p
-          className={`announce-rotate__b absolute inset-x-4 top-1/2 -translate-y-1/2 text-center ${OFFER_TEXT}`}
+        </Link>
+        <Link
+          href={BUNDLE.landingPath}
+          className={`announce-rotate__b absolute inset-x-3 top-1/2 block max-w-[calc(100%-1.5rem)] -translate-y-1/2 truncate text-center ${OFFER_TEXT}`}
         >
           {BUNDLE_OFFER}
-        </p>
+        </Link>
       </div>
 
       {/* Desktop — both offers, pipe-separated */}
       <p
         className={`mx-auto hidden max-w-6xl flex-wrap items-center justify-center gap-x-3 gap-y-0 px-4 py-1 text-center md:flex ${OFFER_TEXT}`}
       >
-        <span>{FREE_SHIPPING_OFFER}</span>
+        <Link href="/policies/shipping-policy">{FREE_SHIPPING_OFFER}</Link>
         <span aria-hidden="true" className="text-[var(--foreground)]/35">
           |
         </span>
-        <span>{BUNDLE_OFFER}</span>
+        <Link href={BUNDLE.landingPath}>{BUNDLE_OFFER}</Link>
       </p>
     </div>
   );

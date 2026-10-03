@@ -283,7 +283,7 @@ export function ProductDetailClient({
   }
 
   return (
-    <div className="grid gap-8 pb-[max(5rem,calc(80px+env(safe-area-inset-bottom)))] lg:grid-cols-2 lg:pb-0">
+    <div className="grid gap-5 pb-[max(5rem,calc(80px+env(safe-area-inset-bottom)))] sm:gap-8 lg:grid-cols-2 lg:pb-0">
       <ProductGallery
         slides={slides}
         activeIndex={Math.min(activeSlide, lastSlide)}
@@ -293,7 +293,7 @@ export function ProductDetailClient({
 
       <div className="flex min-w-0 flex-col gap-5 sm:gap-6">
         <div>
-          <h1 className="text-2xl font-black leading-tight sm:text-3xl">
+          <h1 className="text-balance text-xl font-black leading-snug sm:text-3xl sm:leading-tight">
             {title}
           </h1>
           {ratingCount > 0 && (

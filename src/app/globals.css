@@ -169,6 +169,7 @@ html {
   border: 1px solid var(--border);
   padding: 0.5rem 0.75rem;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 .legal-prose th {
   background: var(--muted);

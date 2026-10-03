@@ -48,17 +48,18 @@ const EDITORIAL: Entry[] = [
 export function FeaturedEditorial() {
   const [hero, ...rest] = EDITORIAL;
   return (
-    <div className="grid gap-4 lg:grid-cols-2 lg:grid-rows-2">
-      {/* Tall hero card */}
+    <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 md:mx-0 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:px-0 md:pb-0 lg:grid-rows-2 [&::-webkit-scrollbar]:hidden">
+      {/* Tall hero card. On a phone the three campaigns are one swipe row
+          instead of three stacked screens. */}
       <EditorialCard
         entry={hero}
-        className="min-h-[22rem] lg:row-span-2 lg:min-h-full"
+        className="min-h-[18.5rem] w-[86%] shrink-0 snap-start md:w-auto md:min-h-[22rem] lg:row-span-2 lg:min-h-full"
       />
       {rest.map((entry) => (
         <EditorialCard
           key={entry.kicker}
           entry={entry}
-          className="min-h-[16rem]"
+          className="min-h-[18.5rem] w-[86%] shrink-0 snap-start md:min-h-[16rem] md:w-auto"
         />
       ))}
     </div>

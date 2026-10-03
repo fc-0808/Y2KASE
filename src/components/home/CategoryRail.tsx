@@ -75,8 +75,8 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
               aria-label={c.name}
               className="group w-64 shrink-0 snap-start sm:w-80"
             >
-              {/* Banner cover — the collection name is baked into the art
-                  (CaseBang style). Falls back to a name-on-gradient tile. */}
+              {/* The collection name is baked into the cover art, so a second
+                  caption under the tile only repeats it. */}
               <CategoryArtwork
                 name={c.name}
                 src={hasCover ? collectionCoverSrc(c.slug) : null}

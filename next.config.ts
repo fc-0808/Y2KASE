@@ -10,6 +10,7 @@ import {
   CANONICAL_CDN_CACHE_CONTROL,
   FACETED_CDN_CACHE_CONTROL,
   FEED_CDN_CACHE_CONTROL,
+  OG_CDN_CACHE_CONTROL,
 } from "./src/lib/cache-headers";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -87,9 +88,14 @@ const nextConfig: NextConfig = {
       { key: "CDN-Cache-Control", value: FEED_CDN_CACHE_CONTROL },
       { key: "Vercel-CDN-Cache-Control", value: FEED_CDN_CACHE_CONTROL },
     ];
+    const ogCdn = [
+      { key: "CDN-Cache-Control", value: OG_CDN_CACHE_CONTROL },
+      { key: "Vercel-CDN-Cache-Control", value: OG_CDN_CACHE_CONTROL },
+    ];
     return [
       { source: "/", headers: canonicalCdn },
       { source: "/products/:slug", headers: canonicalCdn },
+      { source: "/products/:slug/opengraph-image", headers: ogCdn },
       { source: "/collections", headers: canonicalCdn },
       { source: "/insights", headers: canonicalCdn },
       { source: "/blog/rss.xml", headers: feedCdn },
@@ -99,7 +105,9 @@ const nextConfig: NextConfig = {
       { source: "/llms.txt", headers: feedCdn },
       { source: "/products", headers: facetedCdn },
       { source: "/collections/:slug", headers: facetedCdn },
+      { source: "/collections/:slug/opengraph-image", headers: ogCdn },
       { source: "/devices/:slug", headers: facetedCdn },
+      { source: "/devices/:slug/opengraph-image", headers: ogCdn },
       { source: "/feed.xml", headers: feedCdn },
       { source: "/api/feed/pinterest", headers: feedCdn },
     ];

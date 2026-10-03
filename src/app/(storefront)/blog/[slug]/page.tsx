@@ -76,7 +76,7 @@ export default async function BlogPostPage({
   const related = await getRelatedPosts(slug);
 
   return (
-    <article className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
+    <article className="mx-auto w-full max-w-3xl px-4 py-7 sm:px-6 sm:py-10">
       <JsonLd
         data={[
           articleJsonLd({

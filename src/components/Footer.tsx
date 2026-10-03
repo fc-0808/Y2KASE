@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Globe } from "lucide-react";
+import { ChevronDown, Globe } from "lucide-react";
 import { Wordmark, PixelHeart, Sparkle } from "@/components/brand/Decor";
 import { FooterSubscribe } from "@/components/FooterSubscribe";
 import { getDeviceFacetCounts } from "@/lib/products";
@@ -57,7 +57,7 @@ export async function Footer() {
   return (
     <footer className="relative mt-auto overflow-hidden border-t border-[var(--border)] bg-[var(--card)]/60">
       <div className="h-1 w-full bg-holo-vivid" />
-      <div className="mx-auto grid max-w-[1800px] gap-8 px-4 py-12 sm:grid-cols-2 sm:px-6 md:grid-cols-3 lg:grid-cols-5">
+      <div className="mx-auto max-w-[1800px] px-4 py-8 sm:px-6 md:grid md:grid-cols-3 md:gap-8 md:py-12 lg:grid-cols-5">
         <div className="sm:col-span-2 lg:col-span-1">
           <Wordmark className="text-xl" />
           <p className="mt-3 max-w-xs text-sm text-[var(--foreground)]/65">
@@ -81,41 +81,43 @@ export async function Footer() {
           <FooterSubscribe />
         </div>
 
-        <FooterCol title="Shop" links={shopLinks} />
-        <FooterCol
-          title="Characters"
-          links={[
-            { href: "/collections/sanrio", label: "Sanrio" },
-            { href: "/collections/miffy", label: "Miffy" },
-            { href: "/collections/tamagotchi", label: "Tamagotchi" },
-            { href: "/collections/anime", label: "Anime" },
-          ]}
-        />
-        <FooterCol
-          title="Help"
-          links={[
-            { href: "/policies/shipping-policy", label: "Shipping" },
-            { href: "/policies/refund-policy", label: "Returns" },
-            { href: "/faq", label: "FAQ" },
-            { href: "/contact", label: "Contact" },
-            { href: "/sign-in", label: "Sign in" },
-            { href: "/account/orders", label: "My orders" },
-          ]}
-        />
-        <FooterCol
-          title="Company"
-          links={[
-            { href: "/about", label: "About" },
-            { href: "/blog", label: "Blog" },
-            { href: "/insights", label: "What's in the catalog" },
-            { href: "/policies/privacy-policy", label: "Privacy Policy" },
-            { href: "/policies/terms-of-service", label: "Terms of Service" },
-            {
-              href: "https://instagram.com/y2kase.co",
-              label: "@y2kase.co",
-            },
-          ]}
-        />
+        <div className="mt-6 border-t border-[var(--border)] md:contents md:mt-0 md:border-0">
+          <FooterCol title="Shop" links={shopLinks} />
+          <FooterCol
+            title="Characters"
+            links={[
+              { href: "/collections/sanrio", label: "Sanrio" },
+              { href: "/collections/miffy", label: "Miffy" },
+              { href: "/collections/tamagotchi", label: "Tamagotchi" },
+              { href: "/collections/anime", label: "Anime" },
+            ]}
+          />
+          <FooterCol
+            title="Help"
+            links={[
+              { href: "/policies/shipping-policy", label: "Shipping" },
+              { href: "/policies/refund-policy", label: "Returns" },
+              { href: "/faq", label: "FAQ" },
+              { href: "/contact", label: "Contact" },
+              { href: "/sign-in", label: "Sign in" },
+              { href: "/account/orders", label: "My orders" },
+            ]}
+          />
+          <FooterCol
+            title="Company"
+            links={[
+              { href: "/about", label: "About" },
+              { href: "/blog", label: "Blog" },
+              { href: "/insights", label: "What's in the catalog" },
+              { href: "/policies/privacy-policy", label: "Privacy Policy" },
+              { href: "/policies/terms-of-service", label: "Terms of Service" },
+              {
+                href: "https://instagram.com/y2kase.co",
+                label: "@y2kase.co",
+              },
+            ]}
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-[var(--border)] py-4 text-center text-xs font-semibold text-[var(--foreground)]/55">
@@ -158,20 +160,49 @@ function FooterCol({
   title: string;
   links: { href: string; label: string }[];
 }) {
+  const list = (
+    <ul className="space-y-2 pb-3 text-sm text-[var(--foreground)]/70 md:pb-0">
+      {links.map((l) => (
+        <li key={l.label}>
+          <Link href={l.href} className="hover:text-[var(--primary)]">
+            {l.label}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+
   return (
-    <div>
-      <h2 className="mb-3 font-display text-sm font-extrabold uppercase tracking-wide">
-        {title}
-      </h2>
-      <ul className="space-y-2 text-sm text-[var(--foreground)]/70">
-        {links.map((l) => (
-          <li key={l.label}>
-            <Link href={l.href} className="hover:text-[var(--primary)]">
-              {l.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <>
+      <details className="group border-b border-[var(--border)] md:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between py-3.5 font-display text-sm font-extrabold uppercase tracking-wide [&::-webkit-details-marker]:hidden">
+          {title}
+          <ChevronDown className="h-4 w-4 text-[var(--foreground)]/45 transition group-open:rotate-180" />
+        </summary>
+        <ul className="space-y-2 pb-3 text-sm text-[var(--foreground)]/70">
+          {links.map((l) => (
+            <li key={l.label}>
+              <Link href={l.href} className="hover:text-[var(--primary)]">
+                {l.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </details>
+      <div className="hidden md:block">
+        <h2 className="mb-3 font-display text-sm font-extrabold uppercase tracking-wide">
+          {title}
+        </h2>
+        <ul className="space-y-2 text-sm text-[var(--foreground)]/70">
+          {links.map((l) => (
+            <li key={l.label}>
+              <Link href={l.href} className="hover:text-[var(--primary)]">
+                {l.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
   );
 }

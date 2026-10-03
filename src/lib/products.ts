@@ -13,7 +13,7 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
-import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
+import { CACHE_TAGS, cachedCatalogRead, productCacheTag } from "@/lib/cache";
 import { collections, products, productCollections, productImages } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
 import { listingEntryPrice, normalizeCustomStyles } from "@/lib/catalog/custom-styles";
@@ -744,19 +744,40 @@ async function computeDeviceFacetCounts(): Promise<Record<string, number>> {
 }
 
 /**
+ * Uncurated fill for a brand-new store. Once anything is featured, the
+ * homepage shows the full hand-picked set instead (see
+ * {@link FEATURED_CURATED_LIMIT}).
+ */
+const FEATURED_FALLBACK_LIMIT = 8;
+
+/**
+ * Every product pinned in Bestsellers admin, in merchandised order. Matches
+ * {@link getBestsellers} so a pick that appears in the editor also appears
+ * on the homepage. The mosaic is 5-up on desktop; this cap only stops a
+ * mistaken "feature everything" from turning the rail into the whole catalog.
+ */
+const FEATURED_CURATED_LIMIT = 100;
+
+/**
  * Featured (or newest-as-fallback) products for the homepage "Bestsellers"
  * rail. The homepage is the highest-traffic, most cache-worthy surface, and
  * this result only changes when the catalog or its reviews do — so it is served
  * from the Data Cache and invalidated by tag from admin mutations.
+ *
+ * `limit` sizes only the uncurated fallback. The curated set ignores it.
  */
-export function getFeaturedProducts(limit = 8): Promise<ProductListItem[]> {
+export function getFeaturedProducts(
+  limit = FEATURED_FALLBACK_LIMIT,
+): Promise<ProductListItem[]> {
   if (!isDbConfigured()) return Promise.resolve([]);
   return getFeaturedProductsCached(limit);
 }
 
 const getFeaturedProductsCached = cachedCatalogRead(
   computeFeaturedProducts,
-  ["featured-products"],
+  // v2: the rail returns every curated bestseller. v1 cached a hard cap of 8,
+  // which hid anything an operator added past that.
+  ["featured-products-v2"],
   { tags: [CACHE_TAGS.products, CACHE_TAGS.reviews] },
 );
 
@@ -769,7 +790,7 @@ async function computeFeaturedProducts(
   const rows = await db.query.products.findMany({
     where: and(eq(products.status, "active"), eq(products.featured, true)),
     orderBy: (p, { asc, desc }) => [asc(p.featuredPosition), desc(p.createdAt)],
-    limit,
+    limit: FEATURED_CURATED_LIMIT,
     with: {
       images: {
         orderBy: (img, { asc }) => asc(img.position),
@@ -983,23 +1004,18 @@ async function computeProductBySlug(
   return product ?? null;
 }
 
-const getProductBySlugCached = cachedCatalogRead(
-  computeProductBySlug,
-  // v2: iPhone 18 Pro / Pro Max option values + repaired titles. Bump so the
-  // previous hour-long entries cannot keep a 13–17 picker on the PDP.
-  // v3: iPhone 18 Pro / Pro Max option values + repaired titles.
-  // v4: custom variation prices and linked photos on the PDP.
-  ["storefront-product-by-slug-v4"],
-  {
-    tags: [CACHE_TAGS.products],
-  },
-);
-
 export const getProductBySlug = reactCache(async function getProductBySlug(
   slug: string,
 ): Promise<StorefrontProduct | null> {
   if (!isDbConfigured()) return null;
-  return getProductBySlugCached(slug);
+  // Built per slug so the Data Cache tag is this product only. A module-level
+  // wrapper can only carry the shared `catalog:products` tag, and invalidating
+  // that tag rewrote every PDP entry on the next crawl.
+  return cachedCatalogRead(
+    computeProductBySlug,
+    ["storefront-product-by-slug-v5", slug],
+    { tags: [productCacheTag(slug)] },
+  )(slug);
 });
 
 /**

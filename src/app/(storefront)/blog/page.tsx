@@ -23,7 +23,7 @@ export default async function BlogIndexPage() {
   const [featured, ...rest] = posts;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
+    <div className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-6 sm:py-10">
       <JsonLd
         data={[
           breadcrumbJsonLd([
