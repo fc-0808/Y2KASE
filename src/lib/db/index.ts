@@ -1,6 +1,10 @@
 import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { Agent, fetch as undiciFetch } from "undici";
+import {
+  Agent,
+  fetch as undiciFetch,
+  type RequestInfo as UndiciRequestInfo,
+} from "undici";
 import * as schema from "./schema";
 
 /**
@@ -85,10 +89,10 @@ function releaseNeonFetch() {
 }
 
 function neonFetch(input: RequestInfo | URL, init?: RequestInit) {
-  return undiciFetch(input, {
+  return undiciFetch(input as UndiciRequestInfo, {
     ...(init ?? {}),
     dispatcher: neonAgent,
-  });
+  } as Parameters<typeof undiciFetch>[1]);
 }
 
 async function neonFetchWithRetry(input: RequestInfo | URL, init: RequestInit | undefined, pauseMs: number) {

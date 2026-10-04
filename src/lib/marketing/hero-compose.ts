@@ -450,7 +450,7 @@ export async function composeCatalogMarketingHero(
       };
     }),
   );
-  const layers: sharp.OverlayOptions[] = [...productLayers];
+  const layers = [...productLayers];
   if (captionPng) {
     const caption = await sharp(captionPng)
       .resize(
