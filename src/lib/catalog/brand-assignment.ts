@@ -19,7 +19,14 @@ import {
   taxonomySlugChain,
 } from "@/lib/catalog/collections-config";
 import { collectionIdsForSlugs } from "@/lib/catalog/taxonomy-sync";
-import { isUnlicensedProduct, type BrandConfidence } from "@/lib/catalog/brands";
+import {
+  excludedCollectionSlugs,
+  isUnlicensedProduct,
+  mergeAssignmentEvidence,
+  resolveBrandAssignment,
+  withCollectionExclusion,
+  type BrandConfidence,
+} from "@/lib/catalog/brands";
 
 export type BrandCollectionSync = {
   /** Slugs the product is now a member of. */
@@ -54,6 +61,16 @@ export async function syncBrandCollections(
     ...(characterId ? taxonomySlugChain(characterId) : []),
     ...(brandId ? taxonomySlugChain(brandId) : []),
   ]);
+
+  // An operator can remove a filing the title still names ("this bunny is not
+  // Miffy"). The authoritative pass must not put that collection back.
+  const stored = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { brandEvidence: true },
+  });
+  for (const slug of excludedCollectionSlugs(stored?.brandEvidence)) {
+    wanted.delete(slug);
+  }
 
   const current = await db
     .select({
@@ -165,13 +182,26 @@ export async function applyBrandAssignment(
   productId: number,
   assignment: BrandAssignment,
 ): Promise<BrandCollectionSync> {
+  const previous = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { brandEvidence: true },
+  });
+  const wantedSlugs = [
+    ...(assignment.characterId ? taxonomySlugChain(assignment.characterId) : []),
+    ...(assignment.brandId ? taxonomySlugChain(assignment.brandId) : []),
+  ];
+
   await db
     .update(products)
     .set({
       brandName: assignment.brandName,
       characterName: assignment.characterName,
       brandConfidence: assignment.confidence,
-      brandEvidence: assignment.evidence,
+      brandEvidence: mergeAssignmentEvidence(
+        previous?.brandEvidence,
+        assignment.evidence,
+        wantedSlugs,
+      ),
       updatedAt: new Date(),
     })
     .where(eq(products.id, productId));
@@ -187,4 +217,99 @@ export async function applyBrandAssignment(
     assignment.characterName,
   );
   return brandSync;
+}
+
+/**
+ * Remember that an operator took this product out of a brand collection.
+ *
+ * Membership deletion alone does not stick: the next refile reads the title,
+ * sees "Miffy", and files it again. The exclusion marker blocks that. When
+ * the collection *is* the stored character (or the brand, if no finer
+ * character is set), the classification is cleared too — otherwise the
+ * authoritative brand sync puts the product straight back.
+ */
+export async function releaseBrandCollection(
+  productId: number,
+  collection: { slug: string; kind: string },
+): Promise<{ cleared: "brand" | "character" | null }> {
+  if (!BRAND_COLLECTION_KINDS.has(collection.kind)) return { cleared: null };
+
+  const row = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: {
+      brandName: true,
+      characterName: true,
+      brandEvidence: true,
+    },
+  });
+  if (!row) return { cleared: null };
+
+  let brandName = row.brandName;
+  let characterName = row.characterName;
+  let cleared: "brand" | "character" | null = null;
+  const resolved = resolveBrandAssignment(row.brandName, row.characterName);
+  if (resolved.ok) {
+    const characterId = resolved.character?.id ?? null;
+    const brandId = resolved.brand.id;
+    if (characterId && collection.slug === characterId) {
+      if (characterId === brandId) {
+        brandName = null;
+        characterName = null;
+        cleared = "brand";
+      } else {
+        characterName = null;
+        cleared = "character";
+      }
+    } else if (!characterId && collection.slug === brandId) {
+      brandName = null;
+      characterName = null;
+      cleared = "brand";
+    }
+  }
+
+  await db
+    .update(products)
+    .set({
+      brandName,
+      characterName,
+      ...(cleared === "brand" ? { brandConfidence: "none" } : {}),
+      brandEvidence: withCollectionExclusion(
+        row.brandEvidence,
+        collection.slug,
+        true,
+      ),
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId));
+
+  if (brandName !== row.brandName || characterName !== row.characterName) {
+    await syncOriginalsMembership(productId, brandName, characterName);
+  }
+
+  return { cleared };
+}
+
+/**
+ * The operator put the product back in a collection they had ruled out.
+ * Drop the marker so filing is allowed to keep it.
+ */
+export async function allowBrandCollection(
+  productId: number,
+  collection: { slug: string; kind: string },
+): Promise<void> {
+  if (!BRAND_COLLECTION_KINDS.has(collection.kind)) return;
+  const row = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { brandEvidence: true },
+  });
+  if (!row) return;
+  const next = withCollectionExclusion(row.brandEvidence, collection.slug, false);
+  const prev = row.brandEvidence ?? [];
+  if (next.length === prev.length && next.every((entry, i) => entry === prev[i])) {
+    return;
+  }
+  await db
+    .update(products)
+    .set({ brandEvidence: next, updatedAt: new Date() })
+    .where(eq(products.id, productId));
 }

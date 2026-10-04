@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Check,
   Flag,
@@ -24,6 +24,7 @@ import {
   Globe,
   Undo2,
   Redo2,
+  ChevronDown,
 } from "lucide-react";
 import {
   generateThumbnailProposals,
@@ -39,6 +40,7 @@ import {
   removeThumbnailBackground,
   restorePreviousThumbnail,
   redoThumbnail,
+  readThumbnailReviewCard,
 } from "../actions";
 import type { ThumbnailQueueStats } from "@/lib/admin/thumbnails";
 import {
@@ -53,6 +55,7 @@ import {
   productPageHref,
   productPageLinkLabel,
 } from "@/lib/catalog/product-page";
+import { RETRIES_EXHAUSTED_MARK } from "@/lib/catalog/thumbnail-route";
 import { ThumbnailCropModal } from "./ThumbnailCropModal";
 
 type Item = {
@@ -131,6 +134,154 @@ function ProductTitle({ item }: { item: ProductLinkItem }) {
   );
 }
 
+type ReviewCard = NonNullable<
+  Awaited<ReturnType<typeof readThumbnailReviewCard>>
+>;
+
+type ThumbJob = {
+  id: number;
+  productId: number;
+  title: string;
+  label: string;
+  state: "queued" | "running" | "done" | "error";
+  message: string;
+  /** Newest thumbnail once the action has written one. */
+  previewUrl: string | null;
+};
+
+type GeneratedProduct = {
+  productId: number;
+  title: string;
+  ok: boolean;
+  message: string;
+  proposalUrl: string | null;
+};
+
+function jobStillOpen(job: ThumbJob) {
+  return job.state === "running" || job.state === "queued";
+}
+
+type ReviewBucket = ReviewCard["bucket"] | "absent";
+
+function locateBucket(
+  productId: number,
+  items: { productId: number }[],
+  flagged: { productId: number }[],
+  approved: { productId: number }[],
+  pending: { productId: number }[],
+): ReviewBucket {
+  if (items.some((item) => item.productId === productId)) return "proposed";
+  if (flagged.some((item) => item.productId === productId)) return "flagged";
+  if (approved.some((item) => item.productId === productId)) return "approved";
+  if (pending.some((item) => item.productId === productId)) return "pending";
+  return "absent";
+}
+
+function statKey(
+  bucket: ReviewCard["bucket"],
+): "proposed" | "flagged" | "approved" | "pending" | "skipped" {
+  if (bucket === "hidden") return "skipped";
+  return bucket;
+}
+
+/**
+ * Cards the operator just finished stay on the snapshot we read after the
+ * write. A later page refresh can still be from an earlier in-flight action,
+ * and that payload must not put the old thumbnail back.
+ */
+function projectThumbnailBoard(args: {
+  items: Item[];
+  flagged: FlaggedItem[];
+  approved: BasicItem[];
+  pending: BasicItem[];
+  stats: ThumbnailQueueStats;
+  patches: Map<number, ReviewCard>;
+}): {
+  items: Item[];
+  flagged: FlaggedItem[];
+  approved: BasicItem[];
+  pending: BasicItem[];
+  stats: ThumbnailQueueStats;
+} {
+  const { items, flagged, approved, pending, stats, patches } = args;
+  if (patches.size === 0) return { items, flagged, approved, pending, stats };
+
+  const nextItems = items.filter((item) => !patches.has(item.productId));
+  const nextFlagged = flagged.filter((item) => !patches.has(item.productId));
+  const nextApproved = approved.filter((item) => !patches.has(item.productId));
+  const nextPending = pending.filter((item) => !patches.has(item.productId));
+  const nextStats: ThumbnailQueueStats = { ...stats };
+
+  const freshItems: Item[] = [];
+  const freshFlagged: FlaggedItem[] = [];
+  const freshApproved: BasicItem[] = [];
+  const freshPending: BasicItem[] = [];
+
+  for (const card of patches.values()) {
+    const from = locateBucket(card.productId, items, flagged, approved, pending);
+    if (from !== "absent" && from !== card.bucket) {
+      const fromKey = statKey(from);
+      const toKey = statKey(card.bucket);
+      nextStats[fromKey] = Math.max(0, nextStats[fromKey] - 1);
+      nextStats[toKey] += 1;
+    }
+
+    if (card.bucket === "proposed" && card.proposalUrl) {
+      freshItems.push({
+        productId: card.productId,
+        slug: card.slug,
+        title: card.title,
+        productStatus: card.productStatus,
+        currentUrl: card.currentUrl,
+        proposalUrl: card.proposalUrl,
+        previousCount: card.previousCount,
+        nextCount: card.nextCount,
+        score: card.score,
+        category: card.category,
+        reason: card.reason,
+      });
+    } else if (card.bucket === "flagged") {
+      freshFlagged.push({
+        productId: card.productId,
+        slug: card.slug,
+        title: card.title,
+        productStatus: card.productStatus,
+        currentUrl: card.currentUrl,
+        proposalUrl: card.proposalUrl,
+        previousCount: card.previousCount,
+        nextCount: card.nextCount,
+        score: card.score,
+        category: card.category,
+        reason: card.reason,
+      });
+    } else if (card.bucket === "approved") {
+      freshApproved.push({
+        productId: card.productId,
+        slug: card.slug,
+        title: card.title,
+        productStatus: card.productStatus,
+        currentUrl: card.currentUrl,
+      });
+    } else if (card.bucket === "pending") {
+      freshPending.push({
+        productId: card.productId,
+        slug: card.slug,
+        title: card.title,
+        productStatus: card.productStatus,
+        currentUrl: card.currentUrl,
+      });
+    }
+  }
+
+  return {
+    items: [...freshItems, ...nextItems],
+    flagged: [...freshFlagged, ...nextFlagged],
+    approved: [...freshApproved, ...nextApproved],
+    pending: [...freshPending, ...nextPending],
+    stats: nextStats,
+  };
+}
+
 export function ThumbnailsReview({
   scope,
   scopeCounts,
@@ -150,48 +301,156 @@ export function ThumbnailsReview({
 }) {
   const router = useRouter();
   const [transitionPending, startTransition] = useTransition();
-  const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+  const [refreshing, startRefresh] = useTransition();
+  const [jobs, setJobs] = useState<ThumbJob[]>([]);
+  const [patches, setPatches] = useState<Map<number, ReviewCard>>(new Map());
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batch, setBatch] = useState(5);
   const [toast, setToast] = useState<ActionResult | null>(null);
   const [adjust, setAdjust] = useState<Item | null>(null);
-  const [activeAction, setActiveAction] = useState<{
-    productId: number;
-    label: string;
-  } | null>(null);
 
   const stopRef = useRef(false);
+  const jobsRef = useRef<ThumbJob[]>([]);
+  const jobSeq = useRef(0);
+  /** Job ids created by Generate / Generate all, so cleanup doesn't touch a per-card Generate. */
+  const batchJobIds = useRef<Set<number>>(new Set());
+  const refreshQueued = useRef(false);
+  const refreshActive = useRef(false);
+  const refreshToken = useRef(0);
+  const sawRefresh = useRef(false);
+  const refreshingRef = useRef(false);
+  const settleRef = useRef<() => void>(() => {});
   const [auto, setAuto] = useState({ running: false, done: 0, total: 0 });
   const [bulk, setBulk] = useState({ running: false, done: 0, total: 0, verb: "" });
   // Always starts off. A previous visit must not publish drafts on the next open.
   const [publishDraftsOnApprove, setPublishDrafts] = useState(false);
 
   const globalBusy = auto.running || bulk.running;
+  const busyIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const job of jobs) if (jobStillOpen(job)) ids.add(job.productId);
+    return ids;
+  }, [jobs]);
+
+  const board = useMemo(
+    () => projectThumbnailBoard({ items, flagged, approved, pending, stats, patches }),
+    [items, flagged, approved, pending, stats, patches],
+  );
+
+  useEffect(() => {
+    refreshingRef.current = refreshing;
+  }, [refreshing]);
+
+  // One refresh at a time. A refresh that started before a later write finished
+  // used to land last and put the old thumbnail back on screen.
+  const pumpRefresh = useCallback(() => {
+    if (refreshActive.current || !refreshQueued.current) return;
+    refreshQueued.current = false;
+    refreshActive.current = true;
+    const token = ++refreshToken.current;
+    startRefresh(() => {
+      router.refresh();
+    });
+    // If the refresh transition never flips to pending, don't leave the queue stuck.
+    window.setTimeout(() => {
+      if (refreshToken.current !== token) return;
+      if (refreshingRef.current) return;
+      settleRef.current();
+    }, 1500);
+  }, [router, startRefresh]);
+
+  const settleRefresh = useCallback(() => {
+    if (!refreshActive.current) return;
+    refreshActive.current = false;
+    pumpRefresh();
+  }, [pumpRefresh]);
+
+  useEffect(() => {
+    settleRef.current = settleRefresh;
+  }, [settleRefresh]);
+
+  const scheduleRefresh = useCallback(() => {
+    refreshQueued.current = true;
+    pumpRefresh();
+  }, [pumpRefresh]);
+
+  useEffect(() => {
+    if (refreshing) {
+      sawRefresh.current = true;
+      return;
+    }
+    // Ignore the first paint. Settling before a refresh has actually started
+    // would mark the in-flight reload as finished.
+    if (!sawRefresh.current) return;
+    sawRefresh.current = false;
+    settleRefresh();
+  }, [refreshing, settleRefresh]);
+
+  useEffect(() => {
+    if (jobs.length === 0 || jobs.some((job) => jobStillOpen(job))) return;
+    const timer = window.setTimeout(() => {
+      jobsRef.current = [];
+      setJobs([]);
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [jobs]);
 
   function flash(result: ActionResult) {
     setToast(result);
     if (result.ok) setTimeout(() => setToast(null), 3500);
   }
 
-  function startAction(productId: number, label: string) {
-    setActiveAction({ productId, label });
-  }
-
-  function finishAction(productId: number) {
-    setBusyIds((prev) => {
-      const next = new Set(prev);
-      next.delete(productId);
-      return next;
-    });
-    setActiveAction((current) =>
-      current?.productId === productId ? null : current,
+  function titleFor(productId: number) {
+    return (
+      items.find((item) => item.productId === productId)?.title ??
+      flagged.find((item) => item.productId === productId)?.title ??
+      approved.find((item) => item.productId === productId)?.title ??
+      pending.find((item) => item.productId === productId)?.title ??
+      patches.get(productId)?.title ??
+      `Product #${productId}`
     );
   }
 
+  function pushJob(job: ThumbJob) {
+    const running = jobsRef.current.some((item) => jobStillOpen(item));
+    const next = running ? [...jobsRef.current, job] : [job];
+    jobsRef.current = next;
+    setJobs(next);
+  }
+
+  function updateJob(id: number, patch: Partial<ThumbJob>) {
+    const next = jobsRef.current.map((job) =>
+      job.id === id ? { ...job, ...patch } : job,
+    );
+    jobsRef.current = next;
+    setJobs(next);
+  }
+
+  async function revealCard(productId: number): Promise<ReviewCard | null> {
+    try {
+      const snap = await readThumbnailReviewCard(productId);
+      if (!snap) return null;
+      setPatches((prev) => {
+        const next = new Map(prev);
+        next.set(productId, snap);
+        return next;
+      });
+      return snap;
+    } catch {
+      // The queued refresh still reconciles the board if this read fails.
+      return null;
+    }
+  }
 
   // ── Selection helpers ──────────────────────────────────────────────────
-  const proposedIds = useMemo(() => new Set(items.map((i) => i.productId)), [items]);
-  const flaggedIds = useMemo(() => new Set(flagged.map((i) => i.productId)), [flagged]);
+  const proposedIds = useMemo(
+    () => new Set(board.items.map((i) => i.productId)),
+    [board.items],
+  );
+  const flaggedIds = useMemo(
+    () => new Set(board.flagged.map((i) => i.productId)),
+    [board.flagged],
+  );
 
   function toggleSelect(id: number) {
     setSelected((prev) => {
@@ -216,96 +475,230 @@ export function ThumbnailsReview({
   const sel = useMemo(() => [...selected], [selected]);
   const regenIds = sel;
   const approveIds = sel.filter((id) => proposedIds.has(id));
-  const approveDraftCount = items.filter(
+  const approveDraftCount = board.items.filter(
     (i) => selected.has(i.productId) && isDraft(i),
   ).length;
   const flagIds = sel.filter((id) => proposedIds.has(id) || flaggedIds.has(id));
   const skipIds = sel.filter((id) => proposedIds.has(id) || flaggedIds.has(id));
 
-  // ── Single-item action (per-item busy; does NOT lock other cards) ──────
+  // ── Single-item action (per-item busy; other cards stay clickable) ─────
   function run(
     productId: number,
     label: string,
     fn: () => Promise<ActionResult>,
   ) {
-    setBusyIds((prev) => new Set(prev).add(productId));
-    startAction(productId, label);
-    startTransition(async () => {
-      try {
-        const res = await fn();
-        flash(
-          res.ok && !res.message.trim()
-            ? { ok: true, message: `${label} complete.` }
-            : res,
-        );
-        if (res.ok) {
-          setTimeout(() => router.refresh(), 0);
-        } else {
-          router.refresh();
-        }
-      } finally {
-        finishAction(productId);
-      }
+    // Generate all keeps running in the background. Only a product still in
+    // that run, or a bulk action, is locked — finished thumbnails stay usable.
+    if (bulk.running) return;
+    if (jobsRef.current.some((job) => job.productId === productId && jobStillOpen(job))) {
+      return;
+    }
+    const id = ++jobSeq.current;
+    pushJob({
+      id,
+      productId,
+      title: titleFor(productId),
+      label,
+      state: "running",
+      message: "",
+      previewUrl: null,
     });
+    void (async () => {
+      let result: ActionResult;
+      try {
+        result = await fn();
+      } catch (err) {
+        result = {
+          ok: false,
+          message: err instanceof Error ? err.message : "Failed.",
+        };
+      }
+      if (!result.ok) {
+        flash(
+          result.message.trim()
+            ? result
+            : { ok: false, message: `${label} failed.` },
+        );
+      } else if (!result.message.trim()) {
+        result = { ok: true, message: `${label} complete.` };
+      }
+      const snap = await revealCard(productId);
+      updateJob(id, {
+        state: result.ok ? "done" : "error",
+        message: result.message,
+        previewUrl: snap?.proposalUrl ?? snap?.currentUrl ?? null,
+      });
+      scheduleRefresh();
+    })();
   }
   const busy = (id: number) => busyIds.has(id);
+  const activityLabel = (id: number) =>
+    jobs.find((job) => job.productId === id && jobStillOpen(job))?.label ?? null;
+  const highlighted = (id: number) =>
+    jobs.some((job) => job.productId === id && job.state === "done");
+
+  function writeJobs(next: ThumbJob[]) {
+    jobsRef.current = next;
+    setJobs(next);
+  }
+
+  /** Same order Generate all uses: never-started products, then automatic retries. */
+  function nextGenerateTargets(limit: number) {
+    const open = new Set(
+      jobsRef.current.filter((job) => jobStillOpen(job)).map((job) => job.productId),
+    );
+    const pending = [...board.pending].sort((a, b) => a.productId - b.productId);
+    const retryable = [...board.flagged]
+      .filter(
+        (item) =>
+          !item.proposalUrl && !(item.reason ?? "").includes(RETRIES_EXHAUSTED_MARK),
+      )
+      .sort((a, b) => a.productId - b.productId);
+    return [...pending, ...retryable]
+      .filter((item) => !open.has(item.productId))
+      .slice(0, limit)
+      .map((item) => ({ productId: item.productId, title: item.title }));
+  }
+
+  function beginGenerate(
+    targets: { productId: number; title: string }[],
+    runNow: number,
+  ) {
+    if (targets.length === 0) return;
+    const incoming: ThumbJob[] = targets.map((target, index) => {
+      const id = ++jobSeq.current;
+      batchJobIds.current.add(id);
+      return {
+        id,
+        productId: target.productId,
+        title: target.title,
+        label: "Generate",
+        state: index < runNow ? "running" : "queued",
+        message: "",
+        previewUrl: null,
+      };
+    });
+    writeJobs([...jobsRef.current, ...incoming]);
+  }
+
+  function dropOpenBatch() {
+    writeJobs(
+      jobsRef.current.filter((job) => {
+        if (!batchJobIds.current.has(job.id) || !jobStillOpen(job)) return true;
+        batchJobIds.current.delete(job.id);
+        return false;
+      }),
+    );
+  }
+
+  function failOpenGenerate(message: string) {
+    writeJobs(
+      jobsRef.current.flatMap((job) => {
+        if (!batchJobIds.current.has(job.id) || !jobStillOpen(job)) return [job];
+        batchJobIds.current.delete(job.id);
+        if (job.state === "queued") return [];
+        return [{ ...job, state: "error" as const, message }];
+      }),
+    );
+  }
+
+  async function settleGenerated(products: GeneratedProduct[]) {
+    const next = jobsRef.current.map((job) => ({ ...job }));
+    for (const product of products) {
+      const job = next.find(
+        (item) =>
+          item.productId === product.productId &&
+          item.label === "Generate" &&
+          jobStillOpen(item),
+      );
+      if (job) {
+        batchJobIds.current.delete(job.id);
+        job.state = product.ok ? "done" : "error";
+        job.message = product.message;
+        job.title = product.title || job.title;
+        job.previewUrl = product.proposalUrl;
+      } else {
+        next.push({
+          id: ++jobSeq.current,
+          productId: product.productId,
+          title: product.title || `Product #${product.productId}`,
+          label: "Generate",
+          state: product.ok ? "done" : "error",
+          message: product.message,
+          previewUrl: product.proposalUrl,
+        });
+      }
+    }
+    writeJobs(next);
+    await Promise.all(products.map((product) => revealCard(product.productId)));
+  }
+
+  function markNextGenerateRunning(count: number) {
+    let left = count;
+    writeJobs(
+      jobsRef.current.map((job) => {
+        if (left > 0 && batchJobIds.current.has(job.id) && job.state === "queued") {
+          left -= 1;
+          return { ...job, state: "running" as const };
+        }
+        return job;
+      }),
+    );
+  }
 
   // ── Manual thumbnail upload (multipart route; no server-action size limit) ─
   function uploadThumbnail(productId: number, file: File) {
-    setBusyIds((prev) => new Set(prev).add(productId));
-    void (async () => {
-      try {
-        const fd = new FormData();
-        fd.append("productId", String(productId));
-        fd.append("file", file);
-        const res = await fetch("/api/admin/thumbnails/upload", {
-          method: "POST",
-          body: fd,
-        });
-        const json = (await res.json().catch(() => null)) as ActionResult | null;
-        flash(json ?? { ok: false, message: "Upload failed." });
-        router.refresh();
-      } catch {
-        flash({ ok: false, message: "Upload failed." });
-      } finally {
-        setBusyIds((prev) => {
-          const next = new Set(prev);
-          next.delete(productId);
-          return next;
-        });
-      }
-    })();
+    run(productId, "Upload", async () => {
+      const fd = new FormData();
+      fd.append("productId", String(productId));
+      fd.append("file", file);
+      const res = await fetch("/api/admin/thumbnails/upload", {
+        method: "POST",
+        body: fd,
+      });
+      const json = (await res.json().catch(() => null)) as ActionResult | null;
+      return json ?? { ok: false, message: "Upload failed." };
+    });
   }
 
   // ── Generate the pending queue (client-orchestrated batches) ───────────
-  const remaining = stats.pending + stats.retryable;
+  const remaining = board.stats.pending + board.stats.retryable;
 
   function generateOnce() {
+    if (globalBusy || remaining === 0) return;
+    beginGenerate(nextGenerateTargets(batch), batch);
     startTransition(async () => {
       const res = await generateThumbnailProposals(batch, scope);
+      if (!res.ok) failOpenGenerate(res.message);
+      else await settleGenerated(res.products);
+      dropOpenBatch();
       flash(res);
-      router.refresh();
+      scheduleRefresh();
     });
   }
   async function generateAll() {
     stopRef.current = false;
-    if (remaining === 0) return;
+    if (remaining === 0 || globalBusy) return;
+    beginGenerate(nextGenerateTargets(remaining), batch);
     setAuto({ running: true, done: 0, total: remaining });
     let done = 0;
     try {
       while (!stopRef.current) {
         const res = await generateThumbnailProposals(batch, scope);
         if (!res.ok) {
+          failOpenGenerate(res.message);
           flash(res);
           break;
         }
+        await settleGenerated(res.products);
         done += res.changed;
         setAuto({ running: true, done, total: Math.max(remaining, done) });
-        router.refresh();
+        scheduleRefresh();
         // Failures are re-flagged and stay eligible only until their automatic
         // attempts are used up. A batch that proposes nothing cannot make
         // progress on the next call either, so stop instead of re-billing it.
         if (res.proposed === 0) break;
+        if (!stopRef.current) markNextGenerateRunning(batch);
       }
       flash({
         ok: true,
@@ -314,10 +707,13 @@ export function ThumbnailsReview({
           : `Done — generated ${done} thumbnail(s).`,
       });
     } catch (err) {
-      flash({ ok: false, message: err instanceof Error ? err.message : "Failed." });
+      const message = err instanceof Error ? err.message : "Failed.";
+      failOpenGenerate(message);
+      flash({ ok: false, message });
     } finally {
+      dropOpenBatch();
       setAuto((a) => ({ ...a, running: false }));
-      router.refresh();
+      scheduleRefresh();
     }
   }
 
@@ -349,7 +745,23 @@ export function ThumbnailsReview({
         done += res.processed;
         published += res.published ?? 0;
         setBulk({ running: true, done, total: ids.length, verb });
-        router.refresh();
+        const snaps = await Promise.all(
+          chunk.map(async (id) => {
+            try {
+              return await readThumbnailReviewCard(id);
+            } catch {
+              return null;
+            }
+          }),
+        );
+        setPatches((prev) => {
+          const next = new Map(prev);
+          for (const snap of snaps) {
+            if (snap) next.set(snap.productId, snap);
+          }
+          return next;
+        });
+        scheduleRefresh();
       }
       flash(
         shortfall
@@ -367,15 +779,15 @@ export function ThumbnailsReview({
     } finally {
       setBulk({ running: false, done: 0, total: 0, verb: "" });
       clearSelection();
-      router.refresh();
+      scheduleRefresh();
     }
   }
 
   const empty =
-    items.length === 0 &&
-    flagged.length === 0 &&
-    approved.length === 0 &&
-    pending.length === 0;
+    board.items.length === 0 &&
+    board.flagged.length === 0 &&
+    board.approved.length === 0 &&
+    board.pending.length === 0;
 
   return (
     <div className="space-y-8 pb-24">
@@ -428,11 +840,11 @@ export function ThumbnailsReview({
         </div>
 
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-sm font-semibold">
-          <StatPill label="Not started" value={stats.pending} tone="muted" />
-          <StatPill label="To review" value={stats.proposed} tone="primary" />
-          <StatPill label="Approved" value={stats.approved} tone="green" />
-          <StatPill label="Flagged" value={stats.flagged} tone="amber" />
-          <StatPill label="Skipped" value={stats.skipped} tone="muted" />
+          <StatPill label="Not started" value={board.stats.pending} tone="muted" />
+          <StatPill label="To review" value={board.stats.proposed} tone="primary" />
+          <StatPill label="Approved" value={board.stats.approved} tone="green" />
+          <StatPill label="Flagged" value={board.stats.flagged} tone="amber" />
+          <StatPill label="Skipped" value={board.stats.skipped} tone="muted" />
         </div>
 
         <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--foreground)]/45">
@@ -447,53 +859,60 @@ export function ThumbnailsReview({
         <PublishDraftsToggle
           checked={publishDraftsOnApprove}
           onChange={setPublishDrafts}
-          disabled={globalBusy}
+          disabled={bulk.running}
         />
-        {activeAction && (
-          <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-[var(--primary)]/20 bg-[var(--primary)]/8 px-3 py-1.5 text-xs font-semibold text-[var(--primary)]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {activeAction.label} in progress for product #{activeAction.productId}
-            — refreshing when complete.
-          </div>
-        )}
+        <JobProgress
+          jobs={jobs}
+          onDismiss={() => {
+            jobsRef.current = [];
+            setJobs([]);
+          }}
+        />
       </div>
 
       {empty && (
         <div className="rounded-2xl border border-dashed border-[var(--border)] px-6 py-20 text-center">
           <p className="text-lg font-bold">Nothing to review right now</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-[var(--foreground)]/60">
-            {stats.pending > 0
-              ? `Click “Generate all” to process the ${stats.pending} pending product(s).`
+            {board.stats.pending > 0
+              ? `Click “Generate all” to process the ${board.stats.pending} pending product(s).`
               : "Every active product has been processed. 🎉"}
           </p>
         </div>
       )}
 
       {/* ── To review ────────────────────────────────────────────────────── */}
-      {items.length > 0 && (
+      {board.items.length > 0 && (
         <section>
           <SectionHeader
             title="To review"
-            count={stats.proposed}
+            count={board.stats.proposed}
             subtitle={`Compare the proposed thumbnail against the current one, then approve, regenerate, flag, or skip. Previous restores the last generated thumbnail; Redo brings that newer one back. Tick cards to act in bulk.${
-              stats.proposed > items.length
-                ? ` Showing the first ${items.length} of ${stats.proposed}.`
+              board.stats.proposed > board.items.length
+                ? ` Showing the first ${board.items.length} of ${board.stats.proposed}.`
                 : ""
             }`}
-            allSelected={items.every((i) => selected.has(i.productId))}
-            onToggleAll={(on) => setSection(items.map((i) => i.productId), on)}
-            disabled={globalBusy}
+            allSelected={board.items.every((i) => selected.has(i.productId))}
+            onToggleAll={(on) =>
+              setSection(
+                board.items.filter((i) => !busy(i.productId)).map((i) => i.productId),
+                on,
+              )
+            }
+            disabled={bulk.running}
           />
           <div className="grid gap-4 sm:grid-cols-2">
-            {items.map((item) => (
+            {board.items.map((item) => (
               <ProposalCard
                 key={item.productId}
                 item={item}
                 busy={busy(item.productId)}
-                disabled={globalBusy}
+                activityLabel={activityLabel(item.productId)}
+                highlighted={highlighted(item.productId)}
+                disabled={bulk.running}
                 checked={selected.has(item.productId)}
                 onSelect={() => toggleSelect(item.productId)}
-                selectDisabled={globalBusy}
+                selectDisabled={bulk.running || busy(item.productId)}
                 onApprove={() =>
                   run(
                     item.productId,
@@ -538,30 +957,37 @@ export function ThumbnailsReview({
       )}
 
       {/* ── Needs attention (flagged) ────────────────────────────────────── */}
-      {flagged.length > 0 && (
+      {board.flagged.length > 0 && (
         <section>
           <SectionHeader
             title="Needs attention"
-            count={stats.flagged}
+            count={board.stats.flagged}
             subtitle={`Generation didn't produce a usable result. Automatic retries stop after two attempts — use Regenerate (Nano Banana Pro) or upload a photo.${
-              stats.flagged > flagged.length
-                ? ` Showing the first ${flagged.length} of ${stats.flagged}.`
+              board.stats.flagged > board.flagged.length
+                ? ` Showing the first ${board.flagged.length} of ${board.stats.flagged}.`
                 : ""
             }`}
-            allSelected={flagged.every((i) => selected.has(i.productId))}
-            onToggleAll={(on) => setSection(flagged.map((i) => i.productId), on)}
-            disabled={globalBusy}
+            allSelected={board.flagged.every((i) => selected.has(i.productId))}
+            onToggleAll={(on) =>
+              setSection(
+                board.flagged.filter((i) => !busy(i.productId)).map((i) => i.productId),
+                on,
+              )
+            }
+            disabled={bulk.running}
           />
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {flagged.map((item) => (
+            {board.flagged.map((item) => (
               <FlaggedCard
                 key={item.productId}
                 item={item}
                 busy={busy(item.productId)}
-                disabled={globalBusy}
+                activityLabel={activityLabel(item.productId)}
+                highlighted={highlighted(item.productId)}
+                disabled={bulk.running}
                 checked={selected.has(item.productId)}
                 onSelect={() => toggleSelect(item.productId)}
-                selectDisabled={globalBusy}
+                selectDisabled={bulk.running || busy(item.productId)}
                 onCleanup={() =>
                   run(item.productId, "Regenerate", () => aiCleanupThumbnail(item.productId))
                 }
@@ -584,31 +1010,38 @@ export function ThumbnailsReview({
       )}
 
       {/* ── Live thumbnails (approved) ───────────────────────────────────── */}
-      {approved.length > 0 && (
+      {board.approved.length > 0 && (
         <section>
           <SectionHeader
             title="Live thumbnails"
-            count={stats.approved}
+            count={board.stats.approved}
             subtitle={`Already live on the storefront. Regenerate to rebuild — the new version goes to “To review” before it replaces the live image.${
-              stats.approved > approved.length
-                ? ` Showing the first ${approved.length} of ${stats.approved}.`
+              board.stats.approved > board.approved.length
+                ? ` Showing the first ${board.approved.length} of ${board.stats.approved}.`
                 : ""
             }`}
-            allSelected={approved.every((i) => selected.has(i.productId))}
-            onToggleAll={(on) => setSection(approved.map((i) => i.productId), on)}
-            disabled={globalBusy}
+            allSelected={board.approved.every((i) => selected.has(i.productId))}
+            onToggleAll={(on) =>
+              setSection(
+                board.approved.filter((i) => !busy(i.productId)).map((i) => i.productId),
+                on,
+              )
+            }
+            disabled={bulk.running}
           />
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {approved.map((item) => (
+            {board.approved.map((item) => (
               <SimpleCard
                 key={item.productId}
                 item={item}
                 badge="Live"
                 busy={busy(item.productId)}
-                disabled={globalBusy || busy(item.productId)}
+                activityLabel={activityLabel(item.productId)}
+                highlighted={highlighted(item.productId)}
+                disabled={bulk.running || busy(item.productId)}
                 checked={selected.has(item.productId)}
                 onSelect={() => toggleSelect(item.productId)}
-                selectDisabled={globalBusy}
+                selectDisabled={bulk.running || busy(item.productId)}
                 actionLabel="Regenerate"
                 actionIcon={<RefreshCw className="h-3.5 w-3.5" />}
                 onAction={() =>
@@ -628,31 +1061,38 @@ export function ThumbnailsReview({
       )}
 
       {/* ── Not started (pending) ────────────────────────────────────────── */}
-      {pending.length > 0 && (
+      {board.pending.length > 0 && (
         <section>
           <SectionHeader
             title="Not started"
-            count={stats.pending}
+            count={board.stats.pending}
             subtitle={`Products without a generated thumbnail yet.${
-              stats.pending > pending.length
-                ? ` Showing the first ${pending.length} — use “Generate all” for the rest.`
+              board.stats.pending > board.pending.length
+                ? ` Showing the first ${board.pending.length} — use “Generate all” for the rest.`
                 : ""
             }`}
-            allSelected={pending.every((i) => selected.has(i.productId))}
-            onToggleAll={(on) => setSection(pending.map((i) => i.productId), on)}
-            disabled={globalBusy}
+            allSelected={board.pending.every((i) => selected.has(i.productId))}
+            onToggleAll={(on) =>
+              setSection(
+                board.pending.filter((i) => !busy(i.productId)).map((i) => i.productId),
+                on,
+              )
+            }
+            disabled={bulk.running}
           />
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {pending.map((item) => (
+            {board.pending.map((item) => (
               <SimpleCard
                 key={item.productId}
                 item={item}
                 badge="Current"
                 busy={busy(item.productId)}
-                disabled={globalBusy || busy(item.productId)}
+                activityLabel={activityLabel(item.productId)}
+                highlighted={highlighted(item.productId)}
+                disabled={bulk.running || busy(item.productId)}
                 checked={selected.has(item.productId)}
                 onSelect={() => toggleSelect(item.productId)}
-                selectDisabled={globalBusy}
+                selectDisabled={bulk.running || busy(item.productId)}
                 actionLabel="Generate"
                 actionIcon={<Sparkles className="h-3.5 w-3.5" />}
                 onAction={() =>
@@ -907,6 +1347,143 @@ function PublishDraftsToggle({
   );
 }
 
+function JobProgress({
+  jobs,
+  onDismiss,
+}: {
+  jobs: ThumbJob[];
+  onDismiss: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (jobs.length === 0) return null;
+  const total = jobs.length;
+  const done = jobs.filter((job) => job.state === "done").length;
+  const failed = jobs.filter((job) => job.state === "error").length;
+  const running = jobs.filter((job) => job.state === "running").length;
+  const queued = jobs.filter((job) => job.state === "queued").length;
+  const finished = done + failed;
+  const pct = total === 0 ? 0 : Math.round((finished / total) * 100);
+  const active = running + queued > 0;
+  const ordered = [...jobs].sort((a, b) => {
+    const rank = { running: 0, queued: 1, error: 2, done: 3 } as const;
+    const byState = rank[a.state] - rank[b.state];
+    if (byState !== 0) return byState;
+    return a.state === "queued" ? a.id - b.id : b.id - a.id;
+  });
+  const runningTitles = ordered
+    .filter((job) => job.state === "running")
+    .map((job) => job.title);
+
+  return (
+    <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2">
+      <div className="flex items-center justify-between gap-3 text-xs font-bold">
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          {active ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--primary)]" />
+          ) : failed > 0 ? (
+            <X className="h-3.5 w-3.5 shrink-0 text-red-600" />
+          ) : (
+            <Check className="h-3.5 w-3.5 shrink-0 text-green-600" />
+          )}
+          <span className="truncate">
+            {active
+              ? `${finished} of ${total} finished · ${running} running${
+                  queued > 0 ? ` · ${queued} waiting` : ""
+                }`
+              : failed > 0
+                ? `${done} finished · ${failed} failed`
+                : `All ${total} finished`}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 tabular-nums">
+          <span className="text-[var(--foreground)]/55">{pct}%</span>
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            className="inline-flex items-center gap-0.5 font-semibold text-[var(--foreground)]/55 hover:text-[var(--foreground)]"
+          >
+            {open ? "Hide" : "Queue"}
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""}`}
+            />
+          </button>
+          {!active && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="font-semibold text-[var(--foreground)]/50 hover:text-[var(--foreground)]"
+            >
+              Dismiss
+            </button>
+          )}
+        </span>
+      </div>
+      <div
+        className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-[var(--muted)]"
+        role="progressbar"
+        aria-valuenow={finished}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-label="Thumbnail actions"
+      >
+        <div
+          className="h-full bg-green-500 transition-[width] duration-300"
+          style={{ width: `${(done / total) * 100}%` }}
+        />
+        <div
+          className="h-full bg-red-500 transition-[width] duration-300"
+          style={{ width: `${(failed / total) * 100}%` }}
+        />
+        <div
+          className="h-full animate-pulse bg-[var(--primary)] transition-[width] duration-300"
+          style={{ width: `${(running / total) * 100}%` }}
+        />
+      </div>
+      {!open && runningTitles.length > 0 && (
+        <p className="mt-1.5 truncate text-[11px] font-medium text-[var(--foreground)]/50">
+          {runningTitles.join(" · ")}
+        </p>
+      )}
+      {open && (
+        <ul className="mt-2 max-h-24 space-y-0.5 overflow-y-auto">
+          {ordered.map((job) => (
+            <li key={job.id} className="flex items-center gap-2 text-[11px]">
+              {job.state === "running" ? (
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--primary)]" />
+              ) : job.state === "queued" ? (
+                <Clock className="h-3 w-3 shrink-0 text-[var(--foreground)]/40" />
+              ) : job.state === "done" ? (
+                <Check className="h-3 w-3 shrink-0 text-green-600" />
+              ) : (
+                <X className="h-3 w-3 shrink-0 text-red-600" />
+              )}
+              <span className="min-w-0 flex-1 truncate font-semibold">{job.title}</span>
+              <span className="shrink-0 font-semibold text-[var(--foreground)]/45">
+                {job.label}
+              </span>
+              {job.state === "error" && job.message ? (
+                <span className="max-w-[12rem] truncate text-red-600" title={job.message}>
+                  {job.message}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ActivityStrip({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 bg-[var(--primary)]/10 px-3 py-1.5 pr-10 text-[11px] font-bold text-[var(--primary)]">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      {label}…
+    </div>
+  );
+}
+
 function ProgressControl({
   label,
   onStop,
@@ -995,6 +1572,8 @@ function SelectBox({
 function ProposalCard({
   item,
   busy,
+  activityLabel,
+  highlighted,
   disabled,
   checked,
   onSelect,
@@ -1013,6 +1592,8 @@ function ProposalCard({
 }: {
   item: Item;
   busy: boolean;
+  activityLabel: string | null;
+  highlighted: boolean;
   disabled: boolean;
   checked: boolean;
   onSelect: () => void;
@@ -1029,12 +1610,18 @@ function ProposalCard({
   onRemoveTag: () => void;
   publishDraftsOnApprove: boolean;
 }) {
+  const locked = disabled || busy;
   return (
     <div
       className={`relative flex flex-col overflow-hidden rounded-2xl border bg-[var(--card)] shadow-[0_10px_30px_-26px_rgba(120,60,120,0.5)] transition ${
-        checked ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/30" : "border-[var(--border)]"
+        checked
+          ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/30"
+          : highlighted
+            ? "border-green-400 ring-2 ring-green-400/40"
+            : "border-[var(--border)]"
       }`}
     >
+      {activityLabel && <ActivityStrip label={activityLabel} />}
       <SelectBox checked={checked} onChange={onSelect} disabled={selectDisabled} />
       <ProductIdentityLink item={item}>
         <div className="flex items-start justify-between gap-2 p-3 pr-10">
@@ -1065,8 +1652,8 @@ function ProposalCard({
         <div className="flex gap-2">
           <PrimaryButton
             onClick={onApprove}
-            disabled={disabled}
-            busy={busy}
+            disabled={locked}
+            busy={busy && activityLabel === approveActionLabel(publishDraftsOnApprove, isDraft(item))}
             className="flex-1"
             title={
               isDraft(item)
@@ -1079,14 +1666,14 @@ function ProposalCard({
             <Check className="h-3.5 w-3.5" />{" "}
             {approveActionLabel(publishDraftsOnApprove, isDraft(item))}
           </PrimaryButton>
-          <GhostButton onClick={onCleanup} disabled={disabled} accent className="flex-1">
+          <GhostButton onClick={onCleanup} disabled={locked} accent className="flex-1">
             <Wand2 className="h-3.5 w-3.5" /> Regenerate
           </GhostButton>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <GhostButton
             onClick={onPrevious}
-            disabled={disabled || item.previousCount === 0}
+            disabled={locked || item.previousCount === 0}
             title={
               item.previousCount === 0
                 ? "No previous thumbnail yet. Regenerate, crop, remove the background, or upload — then Previous restores the one this replaced."
@@ -1097,7 +1684,7 @@ function ProposalCard({
           </GhostButton>
           <GhostButton
             onClick={onRedo}
-            disabled={disabled || item.nextCount === 0}
+            disabled={locked || item.nextCount === 0}
             title={
               item.nextCount === 0
                 ? "Nothing to redo. Previous parks the thumbnail you leave here."
@@ -1106,22 +1693,22 @@ function ProposalCard({
           >
             <Redo2 className="h-3.5 w-3.5" /> Redo
           </GhostButton>
-          <GhostButton onClick={onRemoveBg} disabled={disabled} accent>
+          <GhostButton onClick={onRemoveBg} disabled={locked} accent>
             <Eraser className="h-3.5 w-3.5" /> Remove BG
           </GhostButton>
-          <GhostButton onClick={onRemoveTag} disabled={disabled} accent>
+          <GhostButton onClick={onRemoveTag} disabled={locked} accent>
             <Sparkles className="h-3.5 w-3.5" /> Remove Tag
           </GhostButton>
-          <GhostButton onClick={onAdjust} disabled={disabled} accent>
+          <GhostButton onClick={onAdjust} disabled={locked} accent>
             <Crop className="h-3.5 w-3.5" /> Adjust
           </GhostButton>
-          <GhostButton onClick={onFlag} disabled={disabled} amber>
+          <GhostButton onClick={onFlag} disabled={locked} amber>
             <Flag className="h-3.5 w-3.5" /> Flag
           </GhostButton>
-          <GhostButton onClick={onSkip} disabled={disabled}>
+          <GhostButton onClick={onSkip} disabled={locked}>
             <SkipForward className="h-3.5 w-3.5" /> Skip
           </GhostButton>
-          <UploadButton onFile={onUpload} disabled={disabled} busy={busy} />
+          <UploadButton onFile={onUpload} disabled={locked} busy={busy} />
         </div>
       </div>
     </div>
@@ -1131,6 +1718,8 @@ function ProposalCard({
 function FlaggedCard({
   item,
   busy,
+  activityLabel,
+  highlighted,
   disabled,
   checked,
   onSelect,
@@ -1143,6 +1732,8 @@ function FlaggedCard({
 }: {
   item: FlaggedItem;
   busy: boolean;
+  activityLabel: string | null;
+  highlighted: boolean;
   disabled: boolean;
   checked: boolean;
   onSelect: () => void;
@@ -1153,12 +1744,18 @@ function FlaggedCard({
   onSkip: () => void;
   onUpload: (file: File) => void;
 }) {
+  const locked = disabled || busy;
   return (
     <div
       className={`relative flex flex-col overflow-hidden rounded-2xl border bg-[var(--card)] transition ${
-        checked ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/30" : "border-amber-200"
+        checked
+          ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/30"
+          : highlighted
+            ? "border-green-400 ring-2 ring-green-400/40"
+            : "border-amber-200"
       }`}
     >
+      {activityLabel && <ActivityStrip label={activityLabel} />}
       <SelectBox checked={checked} onChange={onSelect} disabled={selectDisabled} />
       <ProductIdentityLink item={item}>
         <Figure label="Current" url={item.currentUrl} fit="cover" />
@@ -1172,14 +1769,14 @@ function FlaggedCard({
         </div>
       </ProductIdentityLink>
       <div className="mt-auto flex flex-col gap-1.5 p-3 pt-2">
-        <PrimaryButton onClick={onCleanup} disabled={disabled} busy={busy} className="w-full">
+        <PrimaryButton onClick={onCleanup} disabled={locked} busy={busy} className="w-full">
           <Wand2 className="h-3.5 w-3.5" /> Remove hand
         </PrimaryButton>
         {(item.previousCount > 0 || item.nextCount > 0) && (
           <div className="flex items-center gap-1.5">
             <GhostButton
               onClick={onPrevious}
-              disabled={disabled || item.previousCount === 0}
+              disabled={locked || item.previousCount === 0}
               title="Restore the previous generated thumbnail."
               className="flex-1"
             >
@@ -1187,7 +1784,7 @@ function FlaggedCard({
             </GhostButton>
             <GhostButton
               onClick={onRedo}
-              disabled={disabled || item.nextCount === 0}
+              disabled={locked || item.nextCount === 0}
               title="Bring back the thumbnail you left when you chose Previous."
               className="flex-1"
             >
@@ -1198,7 +1795,7 @@ function FlaggedCard({
         <div className="flex items-center gap-1.5">
           <UploadButton
             onFile={onUpload}
-            disabled={disabled}
+            disabled={locked}
             busy={busy}
             className="flex-1"
           />
@@ -1212,7 +1809,7 @@ function FlaggedCard({
           </IconLink>
           <GhostButton
             onClick={onSkip}
-            disabled={disabled}
+            disabled={locked}
             title="Skip"
             className="flex-1"
           >
@@ -1228,6 +1825,8 @@ function SimpleCard({
   item,
   badge,
   busy,
+  activityLabel,
+  highlighted,
   disabled,
   checked,
   onSelect,
@@ -1242,6 +1841,8 @@ function SimpleCard({
   item: BasicItem;
   badge: string;
   busy: boolean;
+  activityLabel: string | null;
+  highlighted: boolean;
   disabled: boolean;
   checked: boolean;
   onSelect: () => void;
@@ -1256,9 +1857,14 @@ function SimpleCard({
   return (
     <div
       className={`relative flex flex-col overflow-hidden rounded-2xl border bg-[var(--card)] transition ${
-        checked ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/30" : "border-[var(--border)]"
+        checked
+          ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/30"
+          : highlighted
+            ? "border-green-400 ring-2 ring-green-400/40"
+            : "border-[var(--border)]"
       }`}
     >
+      {activityLabel && <ActivityStrip label={activityLabel} />}
       <SelectBox checked={checked} onChange={onSelect} disabled={selectDisabled} />
       <ProductIdentityLink item={item}>
         <Figure label={badge} url={item.currentUrl} fit="cover" live={badge === "Live"} />
@@ -1330,6 +1936,7 @@ function Figure({
     <div className="relative aspect-[4/5] bg-[var(--product-surface)]">
       {url ? (
         <Image
+          key={url}
           src={url}
           alt=""
           fill

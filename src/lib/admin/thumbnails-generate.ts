@@ -113,6 +113,15 @@ function upsertProposal(
   return saveProposalPreview(productId, patch);
 }
 
+/** One product from a Generate / Generate all batch, for the review queue. */
+export type GeneratedThumbnail = {
+  productId: number;
+  title: string;
+  ok: boolean;
+  message: string;
+  proposalUrl: string | null;
+};
+
 export type GenerateResult = {
   processed: number;
   proposed: number;
@@ -121,12 +130,12 @@ export type GenerateResult = {
   local: number;
   /** Proposals that paid for Nano Banana Pro (or the configured fallback). */
   generative: number;
+  products: GeneratedThumbnail[];
 };
 
-type ProductOutcome = {
+type ProductOutcome = GeneratedThumbnail & {
   status: "proposed" | "flagged";
   engine: "local" | "generative" | "none";
-  message: string;
 };
 
 /** Generate (or flag) a single product's thumbnail. Self-contained so the batch
@@ -160,7 +169,15 @@ async function processProduct(
       true,
     );
     await upsertProposal(id, { status: "flagged", reason });
-    return { status: "flagged", engine: "none", message: reason };
+    return {
+      productId: id,
+      title: product?.title ?? `Product #${id}`,
+      ok: false,
+      status: "flagged",
+      engine: "none",
+      message: reason,
+      proposalUrl: null,
+    };
   }
 
   try {
@@ -237,12 +254,16 @@ async function processProduct(
       `[thumbnails] product ${id} engine=${engine} score=${sourceScore.score.toFixed(2)} ${sourceScore.category}`,
     );
     return {
+      productId: id,
+      title: product.title,
+      ok: true,
       status: "proposed",
       engine,
       message:
         engine === "local"
           ? "Framed from the clean product shot."
           : "Thumbnail generated.",
+      proposalUrl,
     };
   } catch (err) {
     const reason = nextAutoFailureReason(
@@ -252,7 +273,15 @@ async function processProduct(
     );
     await upsertProposal(id, { status: "flagged", reason });
     console.info(`[thumbnails] product ${id} flagged: ${reason}`);
-    return { status: "flagged", engine: "none", message: reason };
+    return {
+      productId: id,
+      title: product.title,
+      ok: false,
+      status: "flagged",
+      engine: "none",
+      message: reason,
+      proposalUrl: null,
+    };
   }
 }
 
@@ -312,7 +341,14 @@ export async function generateProposalsForPending(
     .limit(Math.max(1, Math.min(limit, 50)));
 
   if (candidates.length === 0) {
-    return { processed: 0, proposed: 0, flagged: 0, local: 0, generative: 0 };
+    return {
+      processed: 0,
+      proposed: 0,
+      flagged: 0,
+      local: 0,
+      generative: 0,
+      products: [],
+    };
   }
 
   const bucket = process.env.R2_BUCKET_NAME;
@@ -329,6 +365,13 @@ export async function generateProposalsForPending(
     flagged: outcomes.filter((o) => o.status === "flagged").length,
     local: outcomes.filter((o) => o.engine === "local").length,
     generative: outcomes.filter((o) => o.engine === "generative").length,
+    products: outcomes.map((outcome) => ({
+      productId: outcome.productId,
+      title: outcome.title,
+      ok: outcome.ok,
+      message: outcome.message,
+      proposalUrl: outcome.proposalUrl,
+    })),
   };
 }
 

@@ -1,6 +1,10 @@
 import Link from "next/link";
 import Image from "next/image";
-import { getCollectionTree, type CollectionNode } from "@/lib/collections";
+import {
+  getCollectionImagePools,
+  getCollectionTree,
+  type CollectionNode,
+} from "@/lib/collections";
 import { getDeviceFacetCounts, getMagsafeFacetCounts } from "@/lib/products";
 import { MAGSAFE_FACETS, magsafeFacetHref } from "@/lib/catalog/magsafe";
 import {
@@ -14,14 +18,6 @@ import {
   parseDirectorySort,
   sortDirectoryBrands,
 } from "@/lib/catalog/directory-sort";
-import {
-  COLLECTION_CARD_ART_SLUGS,
-  collectionCardArtSrc,
-} from "@/lib/brand/collection-card-art";
-import {
-  COLLECTION_COVER_SLUGS,
-  collectionCoverSrc,
-} from "@/lib/brand/collection-covers";
 import { CollectionsBrowseBar } from "@/components/collections/CollectionsBrowseBar";
 import { JsonLd } from "@/components/JsonLd";
 import {
@@ -62,7 +58,7 @@ const CARD_MIN_PRODUCTS = 3;
  * than 20vw — telling the browser `20vw` on a 3440px monitor would have it
  * download a 688px-wide crop of a tile that is never wider than 340.
  */
-const CARD_ART_SIZES =
+const CARD_IMAGE_SIZES =
   "(max-width: 639px) 50vw, (max-width: 1023px) 33vw, (max-width: 1535px) 25vw, 340px";
 
 /**
@@ -83,12 +79,13 @@ export default async function CollectionsIndexPage({
 }: {
   searchParams: Promise<{ sort?: string | string[] }>;
 }) {
-  const [{ sort: sortParam }, tree, magsafeCounts, deviceCounts] =
+  const [{ sort: sortParam }, tree, magsafeCounts, deviceCounts, imagePools] =
     await Promise.all([
       searchParams,
       getCollectionTree(),
       getMagsafeFacetCounts(),
       getDeviceFacetCounts(),
+      getCollectionImagePools(),
     ]);
   const sort = parseDirectorySort(sortParam);
   const stockedDevices = allDevices().filter(
@@ -209,36 +206,30 @@ export default async function CollectionsIndexPage({
           </h2>
           <Link
             href={`/collections/${MAGNETIC_RING_SLUG}`}
-            className="group grid overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--card)] transition hover:-translate-y-0.5 hover:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 sm:grid-cols-[minmax(0,18rem)_1fr]"
+            className="group flex items-stretch overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_8px_24px_-20px_rgba(120,60,120,0.45)] transition hover:-translate-y-0.5 hover:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
           >
-            <div className="relative aspect-video bg-[var(--muted)] sm:aspect-auto sm:min-h-40">
-              {COLLECTION_COVER_SLUGS.has(MAGNETIC_RING_SLUG) ? (
-                <Image
-                  src={collectionCoverSrc(MAGNETIC_RING_SLUG)}
-                  alt=""
-                  fill
-                  sizes="(max-width: 639px) 100vw, 288px"
-                  className="object-cover"
-                />
-              ) : (
-                <span
-                  aria-hidden
-                  className="absolute inset-0"
-                  style={{
-                    background: `linear-gradient(150deg, ${magneticRing.accentColor ?? "#e7a0c4"}, transparent)`,
-                  }}
-                />
-              )}
+            <div className="relative aspect-square w-28 shrink-0 bg-[var(--product-surface)] sm:w-44">
+              <CollectionPhoto
+                src={imagePools.get(magneticRing.id)?.[0] ?? null}
+                accent={magneticRing.accentColor}
+                sizes="176px"
+                eager
+              />
             </div>
-            <div className="flex flex-col justify-center p-4 sm:p-6">
+            <div className="flex min-w-0 flex-col justify-center p-4 sm:p-6">
               <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/45">
-                {magneticRing.icon ?? "💍"} On the back of the case
+                On the back of the case
               </p>
-              <p className="mt-1 text-xl font-black group-hover:text-[var(--primary)] sm:text-2xl">
+              <p className="mt-1 truncate text-lg font-black group-hover:text-[var(--primary)] sm:text-2xl">
                 {magneticRing.name}
               </p>
-              <p className="mt-1 max-w-xl text-sm text-[var(--foreground)]/65">
-                {magneticRing.description} {magneticRing.totalCount} in stock.
+              {magneticRing.description && (
+                <p className="mt-1 line-clamp-2 max-w-xl text-sm text-[var(--foreground)]/65">
+                  {magneticRing.description}
+                </p>
+              )}
+              <p className="mt-2 text-xs font-semibold tabular-nums text-[var(--foreground)]/60">
+                {countLabel(magneticRing.totalCount)}
               </p>
             </div>
           </Link>
@@ -253,7 +244,12 @@ export default async function CollectionsIndexPage({
         {cards.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 2xl:grid-cols-5">
             {cards.map((brand, i) => (
-              <BrandCard key={brand.slug} brand={brand} eager={i < EAGER_CARDS} />
+              <BrandCard
+                key={brand.slug}
+                brand={brand}
+                imageUrl={imagePools.get(brand.id)?.[0] ?? null}
+                eager={i < EAGER_CARDS}
+              />
             ))}
           </div>
         ) : (
@@ -326,136 +322,75 @@ function accessibleName(brand: CollectionNode): string {
 }
 
 /**
- * An entry point into one character/brand collection.
- *
- * The card is built in four painted layers, bottom to top:
- *
- *   1. backdrop — either a generated, text-free pastel pixel field (Nano Banana
- *                 Pro; see `scripts/generate-collection-card-art.ts`) or, for
- *                 the collections without one, a wash of the brand's accent
- *   2. scrim    — white veils that hold the copy legible over layer 1; art only
- *   3. accent   — the brand's colour rule along the top edge
- *   4. copy     — name, product count and character list
- *
- * Layer 4 is wrapped in a positioned element on purpose: CSS paints in-flow
- * blocks *beneath* positioned descendants, so bare `<p>` children would end up
- * underneath the backdrop. A collection whose art file is missing simply takes
- * the accent wash instead, so the manifest going stale is a style difference
- * rather than a 404.
- *
- * ── Sizing ──────────────────────────────────────────────────────────────────
- * Two phones-worth of card per row, and a fixed 4:3 tile to hold them level:
- * a one-column stack of content-height cards gave a 10-brand catalogue a
- * 2,000px scroll and made Sanrio (nine characters) three times the height of
- * Miffy (none). From `sm` the aspect is released and a `min-h` floor takes
- * over, because a 4:3 tile in a 340px column would be 255px tall — the same
- * ballooning, just wider.
- *
- * ── Why one truncated line of characters, not chips ─────────────────────────
- * The chip row was the height bug: it wrapped, so a card's height was a
- * function of how many characters a brand happens to have and how wide the
- * viewport happens to be. One `truncate`d line is height-invariant by
- * construction. It is preferred to a `group-hover` reveal because hover does
- * not exist on touch — where most of this traffic is — and because revealing
- * content inside a card is a layout shift under the cursor. On mobile the line
- * is dropped entirely: at ~160px wide it could only ever show one-and-a-half
- * names, and the tap target is the brand, not the character.
+ * One catalog tile. Every brand uses the same frame: a square crop of a real
+ * listing photo, then a one-line name and a count. Character names stay in the
+ * accessible name so a long roster cannot change the card height.
  */
 function BrandCard({
   brand,
+  imageUrl,
   eager = false,
 }: {
   brand: CollectionNode;
+  imageUrl: string | null;
   eager?: boolean;
 }) {
-  const hasArt = COLLECTION_CARD_ART_SLUGS.has(brand.slug);
-  const characters = brand.children.map((c) => c.name);
-  const accent = brand.accentColor ?? "var(--primary)";
   return (
     <Link
       href={`/collections/${brand.slug}`}
       aria-label={accessibleName(brand)}
-      className="group relative flex aspect-[4/3] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 pt-4 transition duration-300 hover:-translate-y-1 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 sm:aspect-auto sm:min-h-32 sm:p-4 sm:pt-5"
+      className="group flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_8px_24px_-20px_rgba(120,60,120,0.45)] transition duration-300 hover:-translate-y-1 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
     >
-      {hasArt && (
-        <>
-          <Image
-            src={collectionCardArtSrc(brand.slug)}
-            alt=""
-            fill
-            sizes={CARD_ART_SIZES}
-            loading={eager ? "eager" : "lazy"}
-            className="object-cover transition duration-500 group-hover:scale-105"
-          />
-          {/*
-            The scrim used to be weighted hard to the left (70/35/12), because
-            the copy occupied the left third of a much taller card and the right
-            two thirds were pure artwork. At this size the copy spans the whole
-            tile — a truncated character line runs edge to edge — so a
-            directional scrim leaves half of every string sitting on unprotected
-            mascots. Two layers replace it: a near-uniform veil with a little
-            diagonal falloff for depth, and a caption scrim along the bottom
-            edge, where the character line would otherwise land on whichever
-            mascot the generator happened to put there.
-
-            Washing the art out was the stated risk of raising these numbers, and
-            it is a real one at hero size. It is not the trade here: a 128px tile
-            renders the mascots as pastel texture rather than as characters you
-            can pick out, so the art's job is now colour and brand recognition,
-            both of which survive a veil. Hover lifts the whole stack for anyone
-            who wants a proper look.
-          */}
-          <div
-            aria-hidden
-            className="absolute inset-0 transition duration-500 group-hover:opacity-60"
-          >
-            <span className="absolute inset-0 bg-gradient-to-br from-white/85 via-white/68 to-white/52" />
-            <span className="absolute inset-0 bg-gradient-to-t from-white/60 via-transparent to-transparent" />
-          </div>
-        </>
-      )}
-      {/*
-        A collection whose art file is missing simply takes the accent wash
-        instead, so the manifest going stale is a style difference rather than a
-        404. Generated backgrounds live in `public/brand/collection-cards`.
-      */}
-      {!hasArt && (
-        <span
-          aria-hidden
-          className="absolute inset-0"
-          style={{
-            background: `linear-gradient(150deg, color-mix(in srgb, ${accent} 20%, transparent) 0%, color-mix(in srgb, ${accent} 7%, transparent) 45%, transparent 78%)`,
-          }}
+      <div className="relative aspect-square shrink-0 bg-[var(--product-surface)]">
+        <CollectionPhoto
+          src={imageUrl}
+          accent={brand.accentColor}
+          sizes={CARD_IMAGE_SIZES}
+          eager={eager}
         />
-      )}
-      <div
-        aria-hidden
-        className="absolute inset-x-0 top-0 h-1.5"
-        style={{ background: accent }}
-      />
-      {/* `min-w-0` so the truncated character line resolves against the card's
-          width instead of its own intrinsic (unwrappable) length. */}
-      <div className="relative flex min-w-0 flex-1 flex-col">
-        <p className="line-clamp-2 text-[15px] font-black leading-tight transition group-hover:text-[var(--primary)] sm:text-base">
+      </div>
+      <div className="flex min-w-0 flex-col p-2.5 sm:p-3.5">
+        <p className="truncate text-[15px] font-black leading-tight transition group-hover:text-[var(--primary)] sm:text-base">
           {brand.name}
         </p>
-        {/* /65 rather than the /45 this started at: the count now sits over
-            artwork, and at /45 it missed WCAG AA even against plain white. */}
-        <p className="mt-1 text-xs font-semibold text-[var(--foreground)]/65">
+        <p className="mt-1 text-xs font-semibold tabular-nums text-[var(--foreground)]/60">
           {countLabel(brand.totalCount)}
         </p>
-        {characters.length > 0 && (
-          // Bottom-aligned so the character lines sit on a shared baseline
-          // across a row. `aria-hidden` because the anchor's aria-label already
-          // states this list in a form that reads as prose.
-          <p
-            aria-hidden
-            className="mt-auto hidden truncate pt-3 text-xs font-semibold text-[var(--foreground)]/65 sm:block"
-          >
-            {characters.join(" • ")}
-          </p>
-        )}
       </div>
     </Link>
+  );
+}
+
+function CollectionPhoto({
+  src,
+  accent,
+  sizes,
+  eager = false,
+}: {
+  src: string | null;
+  accent: string | null;
+  sizes: string;
+  eager?: boolean;
+}) {
+  if (!src) {
+    return (
+      <span
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          background: `linear-gradient(160deg, ${accent ?? "var(--primary)"}, var(--product-surface))`,
+        }}
+      />
+    );
+  }
+  return (
+    <Image
+      src={src}
+      alt=""
+      fill
+      sizes={sizes}
+      loading={eager ? "eager" : "lazy"}
+      className="object-cover object-center transition duration-500 group-hover:scale-[1.03]"
+    />
   );
 }

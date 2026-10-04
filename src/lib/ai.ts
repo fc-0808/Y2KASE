@@ -718,6 +718,11 @@ export type TitleDescriptorContext = {
    * "Clear Glitter" Miffy titles that only differ by model list.
    */
   avoid?: string[];
+  /**
+   * Character and brand names the operator has ruled out. The model must not
+   * use them even when the photos resemble that character.
+   */
+  forbid?: string[];
 };
 
 /**
@@ -742,11 +747,18 @@ export async function describeProductForTitle(
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, 12);
+  const forbid = (context.forbid ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 8);
 
   const contextLine = [
     `The product is a ${context.noun}.`,
     context.ip
       ? `It has already been identified as ${context.ip} — do NOT name it, describe everything else.`
+      : "",
+    forbid.length > 0
+      ? `This product is NOT ${forbid.join(" or ")}. Do not use those names, even if the photos resemble them.`
       : "",
     avoid.length > 0
       ? `Sibling listings of the same character already use these descriptive phrases — yours MUST be visually distinct from all of them:\n${avoid.map((s) => `  - ${s}`).join("\n")}`

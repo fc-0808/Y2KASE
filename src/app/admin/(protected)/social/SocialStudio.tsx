@@ -192,11 +192,24 @@ export function SocialStudio({
 
   const queuePending = jobCounts.queued + jobCounts.processing;
 
-  // While the queue is draining, gently poll so new creatives appear.
+  // While the queue is draining, refresh so new creatives appear.
+  // A hidden tab must not poll: each refresh queries Neon, and a query more
+  // often than every 5 minutes keeps the database from suspending.
   useEffect(() => {
     if (queuePending === 0) return;
-    const t = setInterval(() => router.refresh(), 8000);
-    return () => clearInterval(t);
+    const refresh = () => {
+      if (document.hidden) return;
+      router.refresh();
+    };
+    const t = setInterval(refresh, 60_000);
+    const onVisible = () => {
+      if (!document.hidden) router.refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [queuePending, router]);
 
   // Pinterest boards (lazy-loaded once when publishing is available).

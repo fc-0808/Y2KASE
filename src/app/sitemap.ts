@@ -9,6 +9,10 @@ import { ROUTES } from "@/lib/routes";
 import { getCollectionTree, type CollectionNode } from "@/lib/collections";
 import { getDeviceFacetCounts } from "@/lib/products";
 import { absoluteUrl, SITE_URL } from "@/lib/site";
+import {
+  iphone18FitPath,
+  isIphone18CollectionSlug,
+} from "@/lib/seo/fit-landings";
 
 /** Never durable ISR: a baked empty sitemap is worse than a CDN-cached live one. */
 export const dynamic = "force-dynamic";
@@ -92,7 +96,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         : {}),
     }));
 
-  if (!isDbConfigured()) return [...staticRoutes, ...collectionRoutes];
+  // Character × iPhone 18 landings. Only a stocked parent is submitted; the
+  // page itself 404s when that collection has no iPhone cases.
+  const iphone18Routes: MetadataRoute.Sitemap = flattenCollections(
+    collectionTree,
+  )
+    .filter(
+      (collection) =>
+        collection.totalCount > 0 && isIphone18CollectionSlug(collection.slug),
+    )
+    .map((collection) => ({
+      url: `${SITE_URL}${iphone18FitPath(collection.slug)}`,
+      changeFrequency: "weekly" as const,
+      priority: 0.7,
+    }));
+
+  if (!isDbConfigured()) {
+    return [...staticRoutes, ...collectionRoutes, ...iphone18Routes];
+  }
 
   try {
     const prodRows = await db.query.products.findMany({
@@ -117,7 +138,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         : {}),
     }));
 
-    const complete = [...staticRoutes, ...collectionRoutes, ...productRoutes];
+    const complete = [
+      ...staticRoutes,
+      ...collectionRoutes,
+      ...iphone18Routes,
+      ...productRoutes,
+    ];
     if (complete.length > SITEMAP_URL_LIMIT) {
       throw new Error(
         `Sitemap has ${complete.length} URLs; split it with generateSitemaps() before exceeding ${SITEMAP_URL_LIMIT}.`,

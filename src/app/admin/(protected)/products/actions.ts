@@ -21,6 +21,11 @@ import { MAGNETIC_RING_TAG } from "@/lib/catalog/magnetic-ring";
 import { productTypeOffersMagSafe } from "@/lib/catalog/devices";
 import { applyCollectionTaxonomy } from "@/lib/catalog/taxonomy-sync";
 import { refileProduct } from "@/lib/catalog/collection-filing";
+import {
+  allowBrandCollection,
+  releaseBrandCollection,
+} from "@/lib/catalog/brand-assignment";
+import { BRAND_COLLECTION_KINDS } from "@/lib/catalog/collections-config";
 import { auditCatalogClassification } from "@/lib/catalog/classification-health-service";
 import {
   classifyBrandContext,
@@ -42,6 +47,7 @@ import { repairListingTitle } from "@/lib/catalog/listing-title";
 import {
   loadProductTitleState,
   rewriteTitleKeepingBrand,
+  scrubExcludedIdentity,
 } from "@/lib/catalog/listing-title-service";
 import { updateProductBrand, updateProductTitle } from "./[id]/actions";
 import { requireAdmin } from "@/lib/auth";
@@ -65,10 +71,12 @@ import {
   approveProposals,
   decideProposals,
   stepThumbnailProposal,
+  getThumbnailReviewCard,
 } from "@/lib/admin/thumbnails";
 import {
   generateProposalForProduct,
   generateProposalsForPending,
+  type GeneratedThumbnail,
   regenerateProposalWithAiCleanup,
   regenerateProposalsWithAiCleanup,
   recropProposal,
@@ -152,10 +160,24 @@ export async function assignProductsToCollection(
     return { ok: false, message: "Nothing to assign.", changed: 0 };
   }
 
+  const collection = await db.query.collections.findFirst({
+    where: eq(collections.id, collectionId),
+    columns: { id: true, slug: true, kind: true },
+  });
+  if (!collection) {
+    return { ok: false, message: "Collection not found.", changed: 0 };
+  }
+
   await db
     .insert(productCollections)
     .values(ids.map((productId) => ({ productId, collectionId })))
     .onConflictDoNothing();
+
+  if (BRAND_COLLECTION_KINDS.has(collection.kind)) {
+    for (const productId of ids) {
+      await allowBrandCollection(productId, collection);
+    }
+  }
 
   await revalidateCatalog();
   return {
@@ -212,6 +234,14 @@ export async function removeProductsFromCollection(
     return { ok: false, message: "Nothing to remove.", changed: 0 };
   }
 
+  const collection = await db.query.collections.findFirst({
+    where: eq(collections.id, collectionId),
+    columns: { id: true, slug: true, kind: true },
+  });
+  if (!collection) {
+    return { ok: false, message: "Collection not found.", changed: 0 };
+  }
+
   await db
     .delete(productCollections)
     .where(
@@ -220,6 +250,12 @@ export async function removeProductsFromCollection(
         inArray(productCollections.productId, ids),
       ),
     );
+
+  if (BRAND_COLLECTION_KINDS.has(collection.kind)) {
+    for (const productId of ids) {
+      await releaseBrandCollection(productId, collection);
+    }
+  }
 
   await revalidateCatalog();
   return {
@@ -735,7 +771,7 @@ export async function setProductCollection(
   }
   const collection = await db.query.collections.findFirst({
     where: eq(collections.id, collectionId),
-    columns: { id: true, name: true },
+    columns: { id: true, name: true, slug: true, kind: true },
   });
   if (!collection) return { ok: false, message: "Collection not found." };
 
@@ -744,24 +780,43 @@ export async function setProductCollection(
       .insert(productCollections)
       .values({ productId, collectionId })
       .onConflictDoNothing();
-  } else {
-    await db
-      .delete(productCollections)
-      .where(
-        and(
-          eq(productCollections.productId, productId),
-          eq(productCollections.collectionId, collectionId),
-        ),
-      );
+    await allowBrandCollection(productId, collection);
+    await revalidateCatalog(productId);
+    return { ok: true, message: `Added to ${collection.name}.` };
+  }
+
+  await db
+    .delete(productCollections)
+    .where(
+      and(
+        eq(productCollections.productId, productId),
+        eq(productCollections.collectionId, collectionId),
+      ),
+    );
+  const released = await releaseBrandCollection(productId, collection);
+
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { title: true },
+  });
+  const fromTitle = classifyBrandContext([product?.title ?? ""]);
+  const titleStillNamesIt =
+    BRAND_COLLECTION_KINDS.has(collection.kind) &&
+    (fromTitle.brandId === collection.slug ||
+      fromTitle.characterId === collection.slug);
+
+  let message = `Removed from ${collection.name}.`;
+  if (released.cleared === "brand") {
+    message = `Removed from ${collection.name} and cleared that classification.`;
+  } else if (released.cleared === "character") {
+    message = `Removed from ${collection.name} and cleared that character.`;
+  }
+  if (titleStillNamesIt) {
+    message += ` The title still says ${collection.name}.`;
   }
 
   await revalidateCatalog(productId);
-  return {
-    ok: true,
-    message: member
-      ? `Added to ${collection.name}.`
-      : `Removed from ${collection.name}.`,
-  };
+  return { ok: true, message };
 }
 
 /**
@@ -907,6 +962,56 @@ export async function purgeUnsupportedCollections(
       : "Nothing to remove — every brand collection here is supported.",
     changed,
   };
+}
+
+/**
+ * Rewrite one title from the photos, then drop any character the operator
+ * has already removed from the description and tags.
+ *
+ * Used after unfiling a product from a collection: the row stays on screen
+ * so the title that still names that character can be rebuilt without it.
+ */
+export async function rewriteProductTitle(
+  productId: number,
+): Promise<RowClassificationResult> {
+  if (!(await requireAdmin(await headers()))) {
+    return { ok: false, message: "Not authorized." };
+  }
+  if (!Number.isFinite(productId)) {
+    return { ok: false, message: "Product not found." };
+  }
+
+  try {
+    const rewritten = await rewriteTitleKeepingBrand(productId);
+    if (!rewritten.ok || !rewritten.title) {
+      return {
+        ok: false,
+        message: rewritten.message || "Could not regenerate the title.",
+      };
+    }
+    const applied = await updateProductTitle(productId, rewritten.title);
+    if (!applied.ok || !applied.title) {
+      return { ok: false, message: applied.message };
+    }
+    const scrubbed = await scrubExcludedIdentity(productId);
+    if (scrubbed) await refileProduct(productId);
+    await revalidateCatalog(productId);
+    const how =
+      rewritten.source === "vision" ? "from the photos" : "from the product data";
+    return {
+      ok: true,
+      message: `Title rewritten ${how}: “${applied.title}”.${
+        scrubbed ? " Description and tags were updated too." : ""
+      }`,
+      title: applied.title,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message:
+        err instanceof Error ? err.message : "Could not regenerate the title.",
+    };
+  }
 }
 
 /**
@@ -1614,6 +1719,16 @@ export async function bulkSaveProducts(
 export type ActionResult = { ok: boolean; message: string };
 
 /**
+ * Read one product back after a thumbnail action. The review board calls this
+ * as soon as Generate / Regenerate / Remove BG / Remove Tag returns so the new
+ * image can render even while other products are still in flight.
+ */
+export async function readThumbnailReviewCard(productId: number) {
+  if (!(await requireAdmin(await headers()))) return null;
+  return getThumbnailReviewCard(productId);
+}
+
+/**
  * Generate normalization proposals for the next batch of pending products in
  * `scope`. Bounded + synchronous so the admin can click, wait, and review the
  * results; each product is processed independently so one bad image can't abort
@@ -1627,12 +1742,20 @@ export type ActionResult = { ok: boolean; message: string };
 export async function generateThumbnailProposals(
   limit = 5,
   scope: ThumbnailScope = DEFAULT_THUMBNAIL_SCOPE,
-): Promise<ActionResult & { changed: number; proposed: number }> {
+): Promise<
+  ActionResult & { changed: number; proposed: number; products: GeneratedThumbnail[] }
+> {
   if (!(await requireAdmin(await headers()))) {
-    return { ok: false, message: "Not authorized.", changed: 0, proposed: 0 };
+    return {
+      ok: false,
+      message: "Not authorized.",
+      changed: 0,
+      proposed: 0,
+      products: [],
+    };
   }
   try {
-    const { processed, proposed, flagged, local, generative } =
+    const { processed, proposed, flagged, local, generative, products } =
       await generateProposalsForPending(limit, parseThumbnailScope(scope));
     revalidatePath("/admin/products/thumbnails");
     revalidatePath("/admin/products");
@@ -1644,6 +1767,7 @@ export async function generateThumbnailProposals(
           : `Processed ${processed} · ${proposed} proposed (${local} framed locally, ${generative} generated) · ${flagged} flagged.`,
       changed: processed,
       proposed,
+      products,
     };
   } catch (err) {
     return {
@@ -1651,6 +1775,7 @@ export async function generateThumbnailProposals(
       message: err instanceof Error ? err.message : "Generation failed.",
       changed: 0,
       proposed: 0,
+      products: [],
     };
   }
 }

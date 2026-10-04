@@ -34,7 +34,11 @@ import {
   createVisitorProof,
   verifyVisitorProof,
 } from "@/lib/analytics/visitor-cookie";
-import { QA_EXCLUSION_COOKIE } from "@/lib/preview/visitor-state";
+import {
+  QA_EXCLUSION_COOKIE,
+  TRACK_GAP_COOKIE,
+  TRACK_GAP_MAX_AGE_S,
+} from "@/lib/preview/visitor-state";
 import { hit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -191,6 +195,10 @@ function safeReferrer(value: unknown): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  // Local `next dev` talks to the production database. Recording those
+  // rehearsals would keep that compute awake for the whole work session.
+  if (process.env.NODE_ENV === "development") return noContent();
+
   const ip = normalizeClientIp(clientIp(req));
 
   // The edge firewall owns the first line of defense. Repeating the exact
@@ -203,6 +211,12 @@ export async function POST(req: NextRequest) {
   // out of the Visitors dashboard *and* leaves the browser unidentified, so a
   // second pass is as anonymous as the first.
   if (req.cookies.has(QA_EXCLUSION_COOKIE)) {
+    return noContent();
+  }
+
+  // This browser already wrote a view recently. Skip the session lookup and
+  // the insert so the compute can reach its 5-minute suspend.
+  if (req.cookies.has(TRACK_GAP_COOKIE)) {
     return noContent();
   }
 
@@ -345,5 +359,13 @@ export async function POST(req: NextRequest) {
     os: parsed.os,
   });
 
-  return noContent();
+  const recorded = noContent();
+  recorded.cookies.set(TRACK_GAP_COOKIE, "1", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: TRACK_GAP_MAX_AGE_S,
+    path: "/",
+  });
+  return recorded;
 }

@@ -401,10 +401,14 @@ export async function generateCampaignHero(input: {
       campaignId: input.campaignId,
       style: input.style,
       references,
+      topic: {
+        eyebrow: draft.value.eyebrow,
+        heading: draft.value.heading,
+      },
     });
     return {
       ok: true,
-      message: `Pixel-safe catalogue hero created · ${generated.width}×${generated.height} · ${Math.ceil(generated.byteSize / 1024)} KB. The product images were resized and arranged, never repainted by AI. Save and send a new test.`,
+      message: `Pixel-safe catalogue hero created · ${generated.width}×${generated.height} · ${Math.ceil(generated.byteSize / 1024)} KB. Product photos were only resized and arranged. The caption uses this draft’s eyebrow and heading. Save and send a new test.`,
       ...generated,
     };
   } catch (error) {

@@ -12,17 +12,9 @@ import {
 import { db, isDbConfigured } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
 import type { Order, OrderItem } from "@/lib/db/schema";
+import { ORDER_STATUSES, type OrderStatus } from "@/lib/admin/order-status";
 
-/** The canonical lifecycle of an order. Order is meaningful (used for the UI). */
-export const ORDER_STATUSES = [
-  "pending",
-  "paid",
-  "shipped",
-  "delivered",
-  "cancelled",
-  "refunded",
-] as const;
-export type OrderStatus = (typeof ORDER_STATUSES)[number];
+export { ORDER_STATUSES, type OrderStatus };
 
 /**
  * Statuses an order can sit in without money ever having changed hands. Combined

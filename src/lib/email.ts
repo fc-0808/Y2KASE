@@ -115,6 +115,51 @@ export const EMAIL_FROM_MARKETING =
  */
 export const EMAIL_REPLY_TO = SUPPORT_EMAIL;
 
+/**
+ * Trustpilot Automatic Feedback Service mailbox.
+ *
+ * When set, the shipment notification is BCC'd to this address so Trustpilot
+ * can queue a service-review invitation. The customer never sees the BCC.
+ * Leave unset to send the shipment email with no review invite. The value is
+ * the unique address from Trustpilot Business → Invitation methods, not a
+ * customer address.
+ */
+const TRUSTPILOT_AFS_BCC_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function trustpilotAfsBcc(): string | null {
+  const value = process.env.TRUSTPILOT_AFS_BCC?.trim() ?? "";
+  if (!TRUSTPILOT_AFS_BCC_PATTERN.test(value)) return null;
+  return value;
+}
+
+/**
+ * Hidden JSON Trustpilot reads from the shipment HTML to attach the customer
+ * name and order id to the invitation. Inserted after render so the mail
+ * client can ignore the script while Trustpilot's parser still sees it.
+ *
+ * https://help.trustpilot.com/s/article/Add-a-structured-data-snippet-for-Automatic-Feedback-Service
+ */
+export function trustpilotServiceInvitationSnippet(input: {
+  recipientEmail: string;
+  recipientName?: string | null;
+  referenceId: string;
+}): string {
+  const payload: Record<string, string> = {
+    recipientEmail: input.recipientEmail.trim(),
+    referenceId: input.referenceId,
+  };
+  const name = input.recipientName?.trim();
+  if (name) payload.recipientName = name;
+  const json = JSON.stringify(payload).replace(/</g, "\\u003c");
+  return `<script type="application/json+trustpilot">${json}</script>`;
+}
+
+function insertBeforeBodyClose(html: string, fragment: string): string {
+  const close = html.lastIndexOf("</body>");
+  if (close === -1) return `${html}${fragment}`;
+  return `${html.slice(0, close)}${fragment}${html.slice(close)}`;
+}
+
 /** The From address for a given stream. */
 export function senderFor(stream: MailStream): string {
   return stream === "marketing" ? EMAIL_FROM_MARKETING : EMAIL_FROM;
@@ -248,13 +293,26 @@ export async function sendShipmentNotificationOnce(
       render(element, { plainText: true }),
     ]);
 
+    const afsBcc = trustpilotAfsBcc();
+    const htmlWithInvite = afsBcc
+      ? insertBeforeBodyClose(
+          html,
+          trustpilotServiceInvitationSnippet({
+            recipientEmail: order.email,
+            recipientName: order.shippingAddress?.name,
+            referenceId: String(order.id),
+          }),
+        )
+      : html;
+
     const { error } = await resend.emails.send(
       {
         from: senderFor("transactional"),
         replyTo: EMAIL_REPLY_TO,
         to: order.email,
+        ...(afsBcc ? { bcc: [afsBcc] } : {}),
         subject: `Your Y2KASE order #${order.id} has shipped 📦✨`,
-        html,
+        html: htmlWithInvite,
         text,
       },
       { idempotencyKey: `shipment-notification-${order.id}-v1` },

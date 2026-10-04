@@ -342,9 +342,19 @@ export function InboxClient() {
     // Initial fetch plus a poll — the effect IS the external subscription here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadEmails();
-    // Auto-refresh every 60 seconds.
-    const id = setInterval(loadEmails, 60_000);
-    return () => clearInterval(id);
+    // Auth for this route reads Neon. Skip the poll while the tab is hidden
+    // so a forgotten inbox cannot keep the database awake.
+    const id = setInterval(() => {
+      if (!document.hidden) loadEmails();
+    }, 60_000);
+    const onVisible = () => {
+      if (!document.hidden) loadEmails();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [loadEmails]);
 
   async function openEmail(uid: number) {

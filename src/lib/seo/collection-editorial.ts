@@ -10,6 +10,7 @@
  */
 
 import { IPHONE_FIT } from "@/lib/pricing";
+import { iphone18FitHeading, iphone18FitPath } from "@/lib/seo/fit-landings";
 
 export type EditorialLink = { href: string; label: string };
 
@@ -48,10 +49,14 @@ const INSIGHTS: EditorialLink = {
 const BODIES: Record<string, CollectionEditorial> = {
   sanrio: {
     paragraphs: [
-      `Sanrio phone cases at Y2KASE cover the characters people actually search for — Hello Kitty, Kuromi, My Melody, Cinnamoroll and the rest of the crew — on ${IPHONE_FIT.through}, including Pro and Pro Max. Each character has its own landing page so a Kuromi shopper is not stuck filtering a mixed Sanrio grid.`,
+      `Sanrio phone cases at Y2KASE cover the characters people actually search for — Hello Kitty, Kuromi, My Melody, Cinnamoroll and the rest of the crew — on iPhone 18 Pro and iPhone 18 Pro Max, and on ${IPHONE_FIT.throughShort}. There is no base iPhone 18 case. Each character has its own landing page so a Kuromi shopper is not stuck filtering a mixed Sanrio grid.`,
       "Designs run from classic red-bow Hello Kitty to darker Kuromi palettes. Cases marked MagSafe snap to chargers and wallets; unmarked cases are sold as regular snap-on covers. A magnetic ring holder is a separate collection. Charms and grips are sold as styles on the product page, not as a separate Sanrio-only SKU.",
     ],
     related: [
+      {
+        href: iphone18FitPath("sanrio"),
+        label: iphone18FitHeading("Sanrio"),
+      },
       { href: "/collections/hello-kitty", label: "Hello Kitty phone cases" },
       { href: "/collections/kuromi", label: "Kuromi phone cases" },
       { href: "/collections/my-melody", label: "My Melody phone cases" },
@@ -62,10 +67,14 @@ const BODIES: Record<string, CollectionEditorial> = {
   },
   "hello-kitty": {
     paragraphs: [
-      `Hello Kitty phone cases here are the classic Sanrio look: red bow, clean lines, and the easy-to-gift palette people expect. Fit is ${IPHONE_FIT.dash} (including Pro and Pro Max); pick the exact model on the product page so the camera ring matches.`,
+      `Hello Kitty phone cases here are the classic Sanrio look: red bow, clean lines, and the easy-to-gift palette people expect. iPhone 18 Pro cases and iPhone 18 Pro Max cases are cut for that lineup — there is no base iPhone 18 — along with ${IPHONE_FIT.dash}. Pick the exact model on the product page so the camera opening matches.`,
       "If you want the rest of the Sanrio universe, start from the Sanrio collection rather than mixing Hello Kitty with Kuromi on this URL — this page is only for Hello Kitty. MagSafe-marked Hello Kitty cases snap to MagSafe chargers; others do not.",
     ],
     related: [
+      {
+        href: iphone18FitPath("hello-kitty"),
+        label: iphone18FitHeading("Hello Kitty"),
+      },
       { href: "/collections/sanrio", label: "All Sanrio phone cases" },
       { href: "/collections/kuromi", label: "Kuromi phone cases" },
       { href: "/blog/sanrio-phone-case-guide", label: "Sanrio character guide" },
@@ -76,9 +85,13 @@ const BODIES: Record<string, CollectionEditorial> = {
   kuromi: {
     paragraphs: [
       "Kuromi phone cases are the Sanrio option with an edge — purple, black, and punk-pastel instead of the red-bow Hello Kitty look. Every case on this page is filed as Kuromi, so you are not scrolling past My Melody to find her.",
-      `Available for ${IPHONE_FIT.through}, including Pro and Pro Max. MagSafe-labelled Kuromi cases have a reviewed magnet ring; if MagSafe is not marked, treat it as a regular case. Charms and grips attach from the style selector on each product.`,
+      `Available for iPhone 18 Pro Max and iPhone 18 Pro — there is no base iPhone 18 — and for ${IPHONE_FIT.throughShort}. MagSafe-labelled Kuromi cases have a reviewed magnet ring; if MagSafe is not marked, treat it as a regular case. Charms and grips attach from the style selector on each product.`,
     ],
     related: [
+      {
+        href: iphone18FitPath("kuromi"),
+        label: iphone18FitHeading("Kuromi"),
+      },
       { href: "/collections/sanrio", label: "All Sanrio phone cases" },
       { href: "/collections/hello-kitty", label: "Hello Kitty phone cases" },
       { href: "/blog/sanrio-phone-case-guide", label: "Sanrio character guide" },
@@ -112,8 +125,8 @@ const BODIES: Record<string, CollectionEditorial> = {
   },
   miffy: {
     paragraphs: [
-      `Miffy phone cases follow Dick Bruna's simple bunny — graphic, a little Dutch-modern, and less busy than Sanrio character art. These are Miffy designs for ${IPHONE_FIT.dash} (Pro and Pro Max included).`,
-      "MagSafe compatibility is a product-level mark, not a Miffy-wide promise. If you want character cases more generally, the character index and kawaii collection sit alongside this page.",
+      `Miffy cases follow Dick Bruna's simple bunny — graphic, a little Dutch-modern, and less busy than Sanrio character art. This page is the whole Miffy line, not only phones: iPhone cases for ${IPHONE_FIT.dash} (Pro and Pro Max included), plus AirPods cases and other devices when they are in stock.`,
+      "MagSafe compatibility is a product-level mark on iPhone cases, not a Miffy-wide promise, and it does not apply to AirPods. If you want character cases more generally, the character index and kawaii collection sit alongside this page.",
     ],
     related: [KAWAII, IPHONE, MAGSAFE, INSIGHTS],
   },
@@ -182,6 +195,12 @@ const BODIES: Record<string, CollectionEditorial> = {
       "Original phone cases are Y2KASE designs that are not tied to a licensed character — clouds, bows, animals, holographic finishes without a Sanrio or Disney mark. Licensed IP is filed on its own brand or character page so this collection cannot accidentally mix a Hello Kitty case in.",
     ],
     related: [KAWAII, Y2K, IPHONE, MAGSAFE, INSIGHTS],
+  },
+  chiikawa: {
+    paragraphs: [
+      `Chiikawa phone cases are Nagano's little creatures on iPhone 18 Pro and iPhone 18 Pro Max, and on ${IPHONE_FIT.throughShort}. There is no base iPhone 18 case. This collection also stocks Chiikawa AirPods cases — those are a different product, so the card says which one you are looking at.`,
+    ],
+    related: [IPHONE, MAGSAFE, KAWAII],
   },
   anime: {
     paragraphs: [

@@ -3,8 +3,10 @@ import { desc } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import { listProductTypes } from "@/lib/catalog/product-types";
+import { getDisplayedCatalogJob } from "@/lib/catalog/job-lock";
 import { UploadForm } from "./UploadForm";
 import { ClassifyForm } from "./ClassifyForm";
+import { UploadConsole } from "./UploadConsole";
 
 export const metadata: Metadata = { title: "Admin · Upload" };
 export const dynamic = "force-dynamic";
@@ -18,6 +20,7 @@ export default async function UploadPage() {
   }));
 
   const defaultDir = process.env.LOCAL_CATALOG_ROOT ?? "./bestListings";
+  const activeJob = getDisplayedCatalogJob();
 
   const recent = isDbConfigured()
     ? await db.query.products.findMany({
@@ -45,6 +48,7 @@ export default async function UploadPage() {
         </p>
       </div>
 
+      <UploadConsole initialJob={activeJob}>
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
         <h2 className="mb-1 text-lg font-black">1. Classify incoming folders</h2>
         <p className="mb-5 text-sm text-[var(--foreground)]/55">
@@ -122,6 +126,7 @@ export default async function UploadPage() {
           </div>
         </section>
       )}
+      </UploadConsole>
     </div>
   );
 }

@@ -41,10 +41,15 @@ export type DeviceSeo = {
 const DEVICE_SEO: Record<string, DeviceSeo> = {
   iphone: {
     heading: "iPhone Cases",
-    tagline: `Kawaii and Y2K designs for ${IPHONE_FIT.through} — MagSafe-ready and drop-protective.`,
-    intro: `Shop kawaii and Y2K iPhone cases at Y2KASE — holographic, glittery and character-themed designs for ${IPHONE_FIT.through}, including Pro and Pro Max. MagSafe-compatible, drop-protective, and made to express your vibe. ${FREE_SHIPPING_OFFER}.`,
+    tagline: `iPhone 18 Pro and iPhone 18 Pro Max, plus ${IPHONE_FIT.throughShort}.`,
+    intro: `iPhone 18 Pro cases and iPhone 18 Pro Max cases at Y2KASE — there is no base iPhone 18. Also ${IPHONE_FIT.throughShort}, in kawaii and Y2K designs, MagSafe when the product says so. ${FREE_SHIPPING_OFFER}.`,
     models: IPHONE_MODELS,
     faqs: [
+      {
+        question: "Do you sell iPhone 18 cases?",
+        answer:
+          "Yes — iPhone 18 Pro and iPhone 18 Pro Max. This shop does not sell a base iPhone 18 case. Hello Kitty, Sanrio and Kuromi each have an iPhone 18 page, and every iPhone case in the catalog is offered for both 18 Pro and 18 Pro Max. Pick the exact model on the product page; the camera cutout is not shared.",
+      },
       {
         question: "Which iPhone models do your cases fit?",
         answer: `Our iPhone cases are available for ${IPHONE_FIT.listed} series, including the Pro and Pro Max models. Pick your exact model on each product page.`,

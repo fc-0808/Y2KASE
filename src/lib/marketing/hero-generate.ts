@@ -3,12 +3,14 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { loadImage } from "@/lib/catalog/image-source";
 import { makeR2Client, uploadImageToR2 } from "@/lib/catalog/r2";
+import { renderMarketingHeroCaption } from "./hero-caption";
 import { composeCatalogMarketingHero } from "./hero-compose";
 import { isMarketingHeroGenerationConfigured } from "./hero-config";
 import {
   MARKETING_HERO_OUTPUT,
   MARKETING_HERO_REFERENCE_LIMIT,
   buildMarketingHeroAlt,
+  marketingHeroCaption,
   type MarketingHeroReference,
   type MarketingHeroStyle,
 } from "./hero";
@@ -26,14 +28,15 @@ export type GeneratedMarketingHero = {
 };
 
 /**
- * Compose exact catalogue images into a text-free hero and persist an
- * email-compatible immutable JPEG. No campaign record is changed; the operator
- * sees the image in the live preview and explicitly saves/tests that exact URL.
+ * Compose exact catalogue images plus this draft's eyebrow and heading into an
+ * email-compatible JPEG. No campaign record is changed; the operator sees the
+ * image in the live preview and explicitly saves/tests that exact URL.
  */
 export async function generateMarketingHero(input: {
   campaignId: string;
   style: MarketingHeroStyle;
   references: readonly MarketingHeroReference[];
+  topic?: { eyebrow?: string; heading?: string };
 }): Promise<GeneratedMarketingHero> {
   if (!isMarketingHeroGenerationConfigured()) {
     throw new Error(
@@ -52,9 +55,17 @@ export async function generateMarketingHero(input: {
   const images = await Promise.all(
     input.references.map((reference) => loadImage(reference.imageUrl)),
   );
+  const caption = marketingHeroCaption({
+    eyebrow: input.topic?.eyebrow,
+    heading: input.topic?.heading,
+  });
+  const captionPng = caption
+    ? await renderMarketingHeroCaption(caption)
+    : undefined;
   const jpeg = await composeCatalogMarketingHero(
     images.map((image) => image.bytes),
     input.style,
+    captionPng ? { captionPng } : undefined,
   );
 
   // Campaign id is validated by the Server Action; sanitize again to keep this
@@ -72,9 +83,9 @@ export async function generateMarketingHero(input: {
 
   return {
     imageUrl,
-    imageAlt: buildMarketingHeroAlt(input.references),
+    imageAlt: buildMarketingHeroAlt(input.references, caption?.headline),
     provider: "catalog",
-    model: "sharp-catalog-collage-v1",
+    model: caption ? "sharp-catalog-collage-v2" : "sharp-catalog-collage-v1",
     width: MARKETING_HERO_OUTPUT.width,
     height: MARKETING_HERO_OUTPUT.height,
     byteSize: jpeg.byteLength,

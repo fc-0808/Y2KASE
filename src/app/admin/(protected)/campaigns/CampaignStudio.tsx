@@ -1431,9 +1431,10 @@ export function CampaignStudio({
                           Product-safe campaign hero
                         </h3>
                         <p className="mt-0.5 max-w-xl text-xs leading-5 text-foreground/55">
-                          Arranges the exact product images shown on your
-                          website. No generative model receives or repaints the
-                          products.
+                          Arranges the exact product images from the website,
+                          then adds this draft’s eyebrow and heading so the
+                          hero matches the campaign. No generative model
+                          receives or repaints the products.
                         </p>
                       </div>
                     </div>
@@ -1621,8 +1622,8 @@ export function CampaignStudio({
                         : "Build product-safe hero"}
                     </button>
                     <p className="text-[11px] leading-5 text-foreground/45">
-                      Exact catalogue pixels · 1200×720 baseline JPEG · under
-                      250 KB.
+                      Exact catalogue pixels · caption from the eyebrow and
+                      heading above · 1200×720 baseline JPEG · under 250 KB.
                     </p>
                   </div>
                 </div>

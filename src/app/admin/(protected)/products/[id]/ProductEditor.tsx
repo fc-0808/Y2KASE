@@ -47,6 +47,7 @@ import type { MotifFamilySlug } from "@/lib/catalog/motifs";
 import { compatibilityAxisFor } from "@/lib/catalog/product-types";
 import { productTypeOffersMagSafe } from "@/lib/catalog/devices";
 import {
+  editorCanonicalStyles,
   hasCompatibilityAxis,
   hasPriceAxis,
   normalizeOfferedCompatibility,
@@ -187,17 +188,13 @@ export function ProductEditor({
   // ── Available styles: stored as a set, edited via grip/charm toggles ───────
   // Declared first because the offered set decides which per-image tags below
   // are still valid.
-  const [styles, setStyles] = useState<string[]>(() => {
-    if (isIphoneCase) {
-      return orderStyles(initialStyles.length ? initialStyles : ["Case Only"]);
-    }
-    if (isAirpodsCase) {
-      return orderStyles(
-        initialStyles.length ? initialStyles : [...AIRPODS_STYLES],
-      );
-    }
-    return [];
-  });
+  const [styles, setStyles] = useState<string[]>(() =>
+    editorCanonicalStyles(
+      productType,
+      initialStyles,
+      initialCustomStyles.length,
+    ),
+  );
   const [stylePrices, setStylePrices] = useState<Record<string, string>>(() =>
     displayedStylePrices(
       isIphoneCase ? STYLES : AIRPODS_STYLES,

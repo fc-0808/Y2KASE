@@ -23,7 +23,12 @@ import { db } from "@/lib/db";
 import { productImages, products } from "@/lib/db/schema";
 import { MODEL_OPTION_NAME } from "@/lib/pricing";
 import { MAGSAFE_TAG } from "@/lib/catalog/magsafe";
-import { isOperatorConfirmed } from "@/lib/catalog/brands";
+import {
+  brandTerms,
+  characterTerms,
+  excludedCollectionSlugs,
+  isOperatorConfirmed,
+} from "@/lib/catalog/brands";
 import { ensureBrandRegistry } from "@/lib/catalog/brand-registry";
 import {
   classifyCharacterBrand,
@@ -268,16 +273,24 @@ export async function rewriteTitleKeepingBrand(
   const notes: string[] = [];
   const product = await db.query.products.findFirst({
     where: eq(products.id, productId),
-    columns: { brandName: true, characterName: true },
+    columns: { brandName: true, characterName: true, brandEvidence: true },
   });
+  const banned = identityTerms(
+    excludedCollectionSlugs(product?.brandEvidence),
+  );
+  const withoutBanned = (title: string) =>
+    banned.length > 0 ? stripIdentityTerms(title, banned) : title;
 
   const urls = await productImageUrls(productId);
   if (urls.length === 0) {
-    const repaired = repairListingTitle(state.title, state.facts);
+    const repaired = repairListingTitle(
+      withoutBanned(state.title),
+      state.facts,
+    );
     notes.push("no photos — fell back to the instant IP/device fix");
     return {
       ok: true,
-      title: repaired.title,
+      title: withoutBanned(repaired.title),
       message: repaired.changed
         ? "No photos to read; applied the deterministic title fix instead."
         : "No photos to read, and the title already matches the product data.",
@@ -302,30 +315,31 @@ export async function rewriteTitleKeepingBrand(
       ip: state.facts.ip,
       noun: listingNoun(state.facts.productTypeId),
       avoid,
+      forbid: banned,
     },
     (msg) => notes.push(msg),
   );
 
   if (described) {
     const composed = composeListingTitle(
-      headFromDescriptor(described.descriptor, state.facts),
+      headFromDescriptor(withoutBanned(described.descriptor), state.facts),
       state.facts,
     );
     notes.push(...described.seen);
     return {
       ok: true,
-      title: composed.title,
+      title: withoutBanned(composed.title),
       message: "Rewritten from the product photos.",
       source: "vision",
       notes,
     };
   }
 
-  const repaired = repairListingTitle(state.title, state.facts);
+  const repaired = repairListingTitle(withoutBanned(state.title), state.facts);
   notes.push("descriptor unavailable — fell back to the instant fix");
   return {
     ok: true,
-    title: repaired.title,
+    title: withoutBanned(repaired.title),
     message:
       "The photos could not be read; applied the deterministic title fix instead.",
     source: "deterministic",
@@ -392,7 +406,25 @@ export async function proposeListingTitle(
     }
 
     const seen = await classifyCharacterBrand(urls, (msg) => notes.push(msg));
-    if (visionBrandIsAuthoritative(seen) && seen.brandId && seen.brand) {
+    const excluded = new Set(
+      excludedCollectionSlugs(
+        (
+          await db.query.products.findFirst({
+            where: eq(products.id, productId),
+            columns: { brandEvidence: true },
+          })
+        )?.brandEvidence,
+      ),
+    );
+    const visionIsExcluded =
+      (seen.brandId != null && excluded.has(seen.brandId)) ||
+      (seen.characterId != null && excluded.has(seen.characterId));
+    if (
+      visionBrandIsAuthoritative(seen) &&
+      seen.brandId &&
+      seen.brand &&
+      !visionIsExcluded
+    ) {
       const ip = seen.character ?? seen.brand;
       if (ip !== facts.ip) {
         brand = {
@@ -408,8 +440,15 @@ export async function proposeListingTitle(
 
     const product = await db.query.products.findFirst({
       where: eq(products.id, productId),
-      columns: { brandName: true, characterName: true },
+      columns: {
+        brandName: true,
+        characterName: true,
+        brandEvidence: true,
+      },
     });
+    const banned = identityTerms(
+      excludedCollectionSlugs(product?.brandEvidence),
+    );
     const avoid = await siblingDescriptors(
       productId,
       facts,
@@ -428,25 +467,27 @@ export async function proposeListingTitle(
         ip: facts.ip,
         noun: listingNoun(facts.productTypeId),
         avoid,
+        forbid: banned,
       },
       (msg) => notes.push(msg),
     );
 
     if (described) {
       const composed = composeListingTitle(
-        headFromDescriptor(described.descriptor, facts),
+        headFromDescriptor(stripIdentityTerms(described.descriptor, banned), facts),
         facts,
       );
+      const title = stripIdentityTerms(composed.title, banned);
       notes.push(...described.seen);
       return {
         ok: true,
         message: "Rewritten from the product photos.",
         proposal: {
-          title: composed.title,
+          title,
           source: "vision",
           notes,
           issuesBefore: state.issues,
-          issuesAfter: auditListingTitle(composed.title, facts),
+          issuesAfter: auditListingTitle(title, facts),
           brand,
         },
       };
@@ -454,8 +495,22 @@ export async function proposeListingTitle(
     notes.push("descriptor unavailable — fell back to the instant fix");
   }
 
-  const repaired = repairListingTitle(state.title, facts);
-  if (!repaired.changed && !brand) {
+  const bannedTerms = identityTerms(
+    excludedCollectionSlugs(
+      (
+        await db.query.products.findFirst({
+          where: eq(products.id, productId),
+          columns: { brandEvidence: true },
+        })
+      )?.brandEvidence,
+    ),
+  );
+  const repaired = repairListingTitle(
+    stripIdentityTerms(state.title, bannedTerms),
+    facts,
+  );
+  const repairedTitle = stripIdentityTerms(repaired.title, bannedTerms);
+  if (repairedTitle === state.title && !brand) {
     return {
       ok: false,
       message: "This title already matches the product's data — nothing to fix.",
@@ -470,12 +525,86 @@ export async function proposeListingTitle(
         ? "The photos could not be read; here is the deterministic fix instead."
         : "Rebuilt from the product's brand, variants and MagSafe status.",
     proposal: {
-      title: repaired.title,
+      title: repairedTitle,
       source: "deterministic",
       notes,
       issuesBefore: state.issues,
-      issuesAfter: auditListingTitle(repaired.title, facts),
+      issuesAfter: auditListingTitle(repairedTitle, facts),
       brand,
     },
   };
+}
+
+/** Spellings of brand/character collections the operator has ruled out. */
+function identityTerms(slugs: string[]): string[] {
+  const terms = slugs.flatMap((slug) => [
+    ...brandTerms(slug),
+    ...characterTerms(slug),
+  ]);
+  return [...new Set(terms)].sort((a, b) => b.length - a.length);
+}
+
+/** Lift ruled-out character names out of a title, description, or tag. */
+export function stripIdentityTerms(text: string, terms: string[]): string {
+  if (!text || terms.length === 0) return text;
+  let out = text;
+  for (const term of terms) {
+    out = out.replace(
+      new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"),
+      " ",
+    );
+  }
+  return out
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/\s+([,.;:!?])/g, "$1")
+        .replace(/^[\s,;:·|—–-]+/, "")
+        .replace(/[\s,;:·|—–-]+$/, "")
+        .trim(),
+    )
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Drop a ruled-out character from the description and tags.
+ *
+ * The title rewrite owns the shopper-facing name. Description and tags are
+ * the rest of the listing, and a leftover "Miffy" there would keep the case
+ * findable as a character the operator just removed.
+ */
+export async function scrubExcludedIdentity(
+  productId: number,
+): Promise<boolean> {
+  const row = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { description: true, tags: true, brandEvidence: true },
+  });
+  if (!row) return false;
+  const terms = identityTerms(excludedCollectionSlugs(row.brandEvidence));
+  if (terms.length === 0) return false;
+
+  const description = row.description
+    ? stripIdentityTerms(row.description, terms)
+    : row.description;
+  const tags = row.tags
+    .map((tag) => stripIdentityTerms(tag, terms))
+    .filter((tag) => tag.length > 0);
+  const sameTags =
+    tags.length === row.tags.length &&
+    tags.every((tag, index) => tag === row.tags[index]);
+  if (description === row.description && sameTags) return false;
+
+  await db
+    .update(products)
+    .set({
+      ...(description !== row.description ? { description } : {}),
+      ...(!sameTags ? { tags } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(products.id, productId));
+  return true;
 }

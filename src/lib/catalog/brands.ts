@@ -60,6 +60,68 @@ export type BrandConfidence = "high" | "medium" | "low" | "none";
  */
 export const OPERATOR_EVIDENCE_PREFIX = "operator override";
 
+/**
+ * Marker written into `products.brand_evidence` when an operator removes a
+ * brand collection by hand.
+ *
+ * Keyword filing treats a title that says "Miffy" as permission to put the
+ * product back in that collection whenever the brand column is empty or in
+ * doubt. A human saying "this is not Miffy" has to outrank that, or the chip
+ * they just cleared comes back on the next retitle.
+ */
+export const COLLECTION_EXCLUSION_PREFIX = "collection excluded:";
+
+export function collectionExclusionMarker(slug: string): string {
+  return `${COLLECTION_EXCLUSION_PREFIX}${slug}`;
+}
+
+export function isCollectionExclusion(entry: string): boolean {
+  return entry.startsWith(COLLECTION_EXCLUSION_PREFIX);
+}
+
+/** Brand/character collection slugs an operator has explicitly ruled out. */
+export function excludedCollectionSlugs(
+  evidence: readonly string[] | null | undefined,
+): string[] {
+  const slugs: string[] = [];
+  for (const entry of evidence ?? []) {
+    if (!isCollectionExclusion(entry)) continue;
+    const slug = entry.slice(COLLECTION_EXCLUSION_PREFIX.length).trim();
+    if (slug && !slugs.includes(slug)) slugs.push(slug);
+  }
+  return slugs;
+}
+
+/** Add or drop one exclusion marker without touching the rest of the trail. */
+export function withCollectionExclusion(
+  evidence: readonly string[] | null | undefined,
+  slug: string,
+  excluded: boolean,
+): string[] {
+  const marker = collectionExclusionMarker(slug);
+  const next = (evidence ?? []).filter((entry) => entry !== marker);
+  if (excluded) next.push(marker);
+  return next;
+}
+
+/**
+ * Brand writes replace the evidence array. Keep exclusion markers the new
+ * assignment does not explicitly choose, so confirming Chiikawa does not
+ * forget that this product was removed from Miffy.
+ */
+export function mergeAssignmentEvidence(
+  previous: readonly string[] | null | undefined,
+  nextEvidence: readonly string[],
+  wantedSlugs: readonly string[],
+): string[] {
+  const wanted = new Set(wantedSlugs);
+  const prose = nextEvidence.filter((entry) => !isCollectionExclusion(entry));
+  const kept = excludedCollectionSlugs(previous).filter(
+    (slug) => !wanted.has(slug),
+  );
+  return [...prose, ...kept.map(collectionExclusionMarker)];
+}
+
 /** True when this evidence trail records a human decision. */
 export function isOperatorConfirmed(
   evidence: readonly string[] | null | undefined,

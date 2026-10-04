@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -28,6 +28,7 @@ import type {
 } from "@/lib/catalog/classification-health";
 import {
   createBrand,
+  rewriteProductTitle,
   setProductClassification,
   setProductCollection,
 } from "./actions";
@@ -48,14 +49,60 @@ export function ClassificationCell({
   brandOptions,
   collectionOptions,
   motifs = [],
+  onUpdated,
+  onRetitled,
+  onDismiss,
+  lingering = false,
 }: {
   productId: number;
   health: ClassificationHealth;
   brandOptions: BrandOption[];
   collectionOptions: AdminCollectionOption[];
   motifs?: MotifFamilySlug[];
+  /** Fired after a collection checkbox or chip remove succeeds. */
+  onUpdated?: (collectionId: number, member: boolean, message: string) => void;
+  /** The rewritten title, so the row can show it before the list refreshes. */
+  onRetitled?: (title: string) => void;
+  /** Drop a row that is only still visible because it was just unfiled. */
+  onDismiss?: () => void;
+  /** Still on screen after leaving the collection filter. */
+  lingering?: boolean;
 }) {
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const [pendingSlug, setPendingSlug] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [retitling, startRetitle] = useTransition();
+  const [, startRemove] = useTransition();
+
+  const bySlug = new Map(collectionOptions.map((option) => [option.slug, option]));
+
+  function removeCollection(option: AdminCollectionOption) {
+    setPendingSlug(option.slug);
+    setNote(null);
+    startRemove(async () => {
+      const res = await setProductCollection(productId, option.id, false);
+      setPendingSlug(null);
+      if (!res.ok) {
+        setNote(res.message);
+        return;
+      }
+      setRemoved((prev) => new Set(prev).add(option.slug));
+      setNote(res.message);
+      onUpdated?.(option.id, false, res.message);
+      router.refresh();
+    });
+  }
+
+  function regenerateTitle() {
+    startRetitle(async () => {
+      const res = await rewriteProductTitle(productId);
+      setNote(res.message);
+      if (res.ok && res.title) onRetitled?.(res.title);
+      if (res.ok) router.refresh();
+    });
+  }
 
   if (editing) {
     return (
@@ -65,6 +112,7 @@ export function ClassificationCell({
         brandOptions={brandOptions}
         collectionOptions={collectionOptions}
         onClose={() => setEditing(false)}
+        onUpdated={onUpdated}
       />
     );
   }
@@ -87,13 +135,21 @@ export function ClassificationCell({
         <Pencil className="h-2.5 w-2.5 shrink-0 opacity-50" />
       </button>
 
-      {health.brandSlugs.map((slug) => (
-        <CollectionChip
-          key={slug}
-          slug={slug}
-          unsupported={health.unsupportedSlugs.includes(slug)}
-        />
-      ))}
+      {health.brandSlugs
+        .filter((slug) => !removed.has(slug))
+        .map((slug) => {
+          const option = bySlug.get(slug);
+          return (
+            <CollectionChip
+              key={slug}
+              slug={slug}
+              name={option?.name ?? slug}
+              unsupported={health.unsupportedSlugs.includes(slug)}
+              pending={pendingSlug === slug}
+              onRemove={option ? () => removeCollection(option) : undefined}
+            />
+          );
+        })}
       {inOriginals && (
         <span
           title="No licensed character — shoppers browse this under Originals and Theme."
@@ -116,7 +172,41 @@ export function ClassificationCell({
           </span>
         );
       })}
-      {health.brandSlugs.length === 0 &&
+      {(note || lingering) && (
+        <div className="basis-full flex flex-wrap items-center gap-1.5 pt-0.5">
+          <p className="text-[11px] font-semibold text-[var(--foreground)]/70">
+            {note ??
+              "Removed from this collection. Regenerate the title if it still names that character."}
+          </p>
+          {(removed.size > 0 || lingering) && (
+            <button
+              type="button"
+              onClick={regenerateTitle}
+              disabled={retitling || pendingSlug !== null}
+              title="Rewrite the title from the photos without the character you just removed. Description and tags are cleaned up too."
+              className="inline-flex items-center gap-1 rounded-full bg-[var(--primary)] px-2.5 py-1 text-[11px] font-bold text-white hover:opacity-90 disabled:opacity-40"
+            >
+              {retitling ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              {retitling ? "Reading photos…" : "Regenerate title"}
+            </button>
+          )}
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={retitling}
+              className="rounded-full px-2 py-1 text-[11px] font-semibold text-[var(--foreground)]/55 hover:bg-[var(--muted)] disabled:opacity-40"
+            >
+              Hide
+            </button>
+          )}
+        </div>
+      )}
+      {health.brandSlugs.filter((slug) => !removed.has(slug)).length === 0 &&
         health.state !== "unclassified" &&
         !inOriginals && (
         <span
@@ -167,25 +257,49 @@ const STATE_TONE: Record<
 
 function CollectionChip({
   slug,
+  name,
   unsupported,
+  pending,
+  onRemove,
 }: {
   slug: string;
+  name: string;
   unsupported: boolean;
+  pending: boolean;
+  onRemove?: () => void;
 }) {
   return (
     <span
       title={
         unsupported
-          ? `Filed under ${slug}, but neither the brand field nor the title supports that.`
-          : `Filed under ${slug}`
+          ? `Filed under ${name}, but neither the brand field nor the title supports that.`
+          : `Filed under ${name}`
       }
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${
+      className={`inline-flex items-center gap-0.5 rounded-full py-0.5 pl-2 text-[11px] font-semibold ring-1 ring-inset ${
+        onRemove ? "pr-0.5" : "pr-2"
+      } ${
         unsupported
-          ? "bg-red-50 text-red-600 line-through ring-red-600/20"
+          ? "bg-red-50 text-red-600 ring-red-600/20"
           : "bg-[var(--muted)] text-[var(--foreground)]/55 ring-black/5"
       }`}
     >
-      {slug}
+      <span className={unsupported ? "line-through" : undefined}>{slug}</span>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={pending}
+          aria-label={`Remove from ${name}`}
+          title={`Remove from ${name}`}
+          className="grid h-4 w-4 place-items-center rounded-full hover:bg-black/10 disabled:opacity-40"
+        >
+          {pending ? (
+            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          ) : (
+            <X className="h-2.5 w-2.5" />
+          )}
+        </button>
+      )}
     </span>
   );
 }
@@ -324,17 +438,24 @@ function ClassificationEditor({
   brandOptions,
   collectionOptions,
   onClose,
+  onUpdated,
 }: {
   productId: number;
   health: ClassificationHealth;
   brandOptions: BrandOption[];
   collectionOptions: AdminCollectionOption[];
   onClose: () => void;
+  onUpdated?: (collectionId: number, member: boolean, message: string) => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [note, setNote] = useState<string | null>(null);
   const [showCollections, setShowCollections] = useState(false);
+  const [localMembers, setLocalMembers] = useState<Set<string> | null>(null);
+  const serverKey = [...health.brandSlugs, ...health.otherSlugs].join("\0");
+  useEffect(() => {
+    setLocalMembers(null);
+  }, [serverKey]);
 
   // Plain derivations, not memos: the registry is a dozen entries, and this
   // editor is mounted for exactly one row at a time and unmounted on close.
@@ -382,14 +503,31 @@ function ClassificationEditor({
   }
 
   function toggleCollection(collectionId: number, member: boolean) {
+    const option = collectionOptions.find((item) => item.id === collectionId);
+    if (option) {
+      setLocalMembers((prev) => {
+        const next = new Set(
+          prev ?? [...health.brandSlugs, ...health.otherSlugs],
+        );
+        if (member) next.add(option.slug);
+        else next.delete(option.slug);
+        return next;
+      });
+    }
     startTransition(async () => {
       const res = await setProductCollection(productId, collectionId, member);
       setNote(res.message);
-      if (res.ok) router.refresh();
+      if (!res.ok) {
+        setLocalMembers(null);
+        return;
+      }
+      onUpdated?.(collectionId, member, res.message);
+      router.refresh();
     });
   }
 
-  const memberSlugs = new Set([...health.brandSlugs, ...health.otherSlugs]);
+  const memberSlugs =
+    localMembers ?? new Set([...health.brandSlugs, ...health.otherSlugs]);
 
   return (
     <div className="mt-2 rounded-xl border border-[var(--primary)]/40 bg-[var(--primary)]/[0.04] p-2.5">
@@ -506,7 +644,7 @@ function ClassificationEditor({
           disabled={pending}
           className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold hover:border-[var(--primary)] disabled:opacity-50"
         >
-          Collections
+          Edit collections
           <ChevronDown
             className={`h-3 w-3 transition ${showCollections ? "rotate-180" : ""}`}
           />

@@ -1,13 +1,13 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { UploadCloud, FolderSearch, Image as ImageIcon } from "lucide-react";
 import { startIngest, type StartIngestState } from "./actions";
 import {
   FolderBrowser,
   type FolderSummary,
 } from "./FolderBrowser";
-import { IngestProgress } from "./IngestProgress";
+import { RunningJobNote, useCatalogJob } from "./UploadConsole";
 
 type TypeOption = {
   id: string;
@@ -29,9 +29,29 @@ export function UploadForm({
     startIngest,
     initialState,
   );
+  const { busy, reportJob } = useCatalogJob();
   const [dir, setDir] = useState(defaultDir);
   const [browsing, setBrowsing] = useState(false);
   const [preview, setPreview] = useState<FolderSummary | null>(null);
+
+  useEffect(() => {
+    if (!state.logFile) return;
+    reportJob({
+      kind: state.kind ?? "ingest",
+      logFile: state.logFile,
+      dir: state.dir ?? "",
+      type: state.type ?? "auto",
+      startedAt: state.startedAt ?? new Date().toISOString(),
+      running: true,
+    });
+  }, [
+    reportJob,
+    state.dir,
+    state.kind,
+    state.logFile,
+    state.startedAt,
+    state.type,
+  ]);
 
   return (
     <form action={formAction} className="space-y-5">
@@ -109,26 +129,29 @@ export function UploadForm({
 
       <button
         type="submit"
-        disabled={pending || !dir.trim()}
+        disabled={pending || busy || !dir.trim()}
         className="flex items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-6 py-3 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50"
       >
         <UploadCloud className="h-4 w-4" />
-        {pending ? "Starting…" : "Start ingest"}
+        {pending ? "Starting…" : busy ? "Job running…" : "Start ingest"}
       </button>
 
-      {state.ok && state.logFile ? (
-        <IngestProgress
-          key={state.logFile}
-          logFile={state.logFile}
-          dir={state.dir ?? dir}
-          type={state.type ?? "auto"}
-        />
+      {busy ? (
+        <RunningJobNote />
       ) : (
+        state.blocked &&
         state.message && (
-          <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-            {state.message}
+          <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            {state.message} Live progress stays pinned to the bottom of the
+            screen.
           </p>
         )
+      )}
+
+      {!state.ok && state.message && !state.blocked && (
+        <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {state.message}
+        </p>
       )}
 
       {browsing && (

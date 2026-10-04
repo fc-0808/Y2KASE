@@ -39,13 +39,23 @@ export function IngestProgress({
   dir,
   type,
   kind = "ingest",
+  startedAt,
+  embedded = false,
+  onStatus,
+  onDismiss,
 }: {
   logFile: string;
   dir: string;
   type: string;
   kind?: "ingest" | "classify";
+  startedAt?: string;
+  /** Drop the card chrome when a parent dock already supplies it. */
+  embedded?: boolean;
+  onStatus?: (status: { done: boolean; crashed: boolean }) => void;
+  onDismiss?: () => void;
 }) {
   const [p, setP] = useState<Progress | null>(null);
+  const [logOpen, setLogOpen] = useState(true);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -75,6 +85,16 @@ export function IngestProgress({
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [p?.tail]);
 
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  useEffect(() => {
+    if (!p) return;
+    onStatusRef.current?.({
+      done: Boolean(p.done),
+      crashed: Boolean(p.crashed),
+    });
+  }, [p]);
+
   const total = p?.total ?? 0;
   const processed = p?.processed ?? 0;
   const progressTotal = p?.progressTotal ?? total;
@@ -88,8 +108,16 @@ export function IngestProgress({
         ? 100
         : 0;
 
+  const startedLabel = formatStarted(startedAt);
+
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
+    <div
+      className={
+        embedded
+          ? ""
+          : "rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5"
+      }
+    >
       {/* Header */}
       <div className="flex items-center gap-3">
         {done ? (
@@ -121,11 +149,23 @@ export function IngestProgress({
           </p>
           <p className="flex items-center gap-1 truncate text-xs text-[var(--foreground)]/55">
             <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{dir}</span>
-            <span className="shrink-0">· {type}</span>
+            <span className="truncate">{dir || "Waiting for the log…"}</span>
+            {type ? <span className="shrink-0">· {type}</span> : null}
+            {startedLabel ? (
+              <span className="shrink-0">· started {startedLabel}</span>
+            ) : null}
           </p>
         </div>
         <span className="shrink-0 text-sm font-bold tabular-nums">{pct}%</span>
+        {(done || crashed) && onDismiss ? (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-xs font-semibold hover:border-[var(--primary)]"
+          >
+            Hide
+          </button>
+        ) : null}
       </div>
 
       {/* Progress bar */}
@@ -203,15 +243,28 @@ export function IngestProgress({
 
       {/* Live log */}
       {p?.tail && p.tail.length > 0 && (
-        <div
-          ref={logRef}
-          className="mt-4 max-h-44 overflow-y-auto rounded-xl bg-[var(--muted)] p-3 font-mono text-[11px] leading-relaxed text-[var(--foreground)]/70"
-        >
-          {p.tail.map((line, i) => (
-            <div key={i} className="whitespace-pre-wrap break-words">
-              {line}
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => setLogOpen((open) => !open)}
+            className="text-xs font-semibold text-[var(--foreground)]/60 hover:text-[var(--foreground)]"
+          >
+            {logOpen ? "Hide log" : "Show log"}
+          </button>
+          {logOpen && (
+            <div
+              ref={logRef}
+              className={`mt-2 overflow-y-auto rounded-xl bg-[var(--muted)] p-3 font-mono text-[11px] leading-relaxed text-[var(--foreground)]/70 ${
+                embedded ? "max-h-28" : "max-h-44"
+              }`}
+            >
+              {p.tail.map((line, i) => (
+                <div key={i} className="whitespace-pre-wrap break-words">
+                  {line}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -246,6 +299,18 @@ export function IngestProgress({
       )}
     </div>
   );
+}
+
+function formatStarted(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const date = new Date(t);
+  const hours24 = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${minutes} ${suffix}`;
 }
 
 function Stat({

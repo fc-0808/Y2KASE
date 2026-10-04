@@ -16,6 +16,7 @@ import {
   ANALYTICS_VISITOR_SEEDED_VALUE,
 } from "../src/lib/analytics/protocol";
 import { verifyVisitorProof } from "../src/lib/analytics/visitor-cookie";
+import { TRACK_GAP_COOKIE } from "../src/lib/preview/visitor-state";
 
 const previousDatabaseUrl = process.env.DATABASE_URL;
 const previousAnalyticsSecret = process.env.ANALYTICS_COOKIE_SECRET;
@@ -87,7 +88,8 @@ async function main(): Promise<void> {
       null,
       "a proven browser must pass without another handshake",
     );
-    assert.equal(accepted.cookies.getAll().length, 0);
+    assert.equal(accepted.cookies.get(TRACK_GAP_COOKIE)?.value, "1");
+    assert.equal(accepted.cookies.getAll().length, 1);
 
     const automated = await POST(request({ webdriver: true }));
     assert.equal(

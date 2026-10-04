@@ -96,6 +96,26 @@ function isDurableCacheUnavailable(err: unknown): boolean {
 
 let warnedDurableCacheMiss = false;
 
+/**
+ * Local dev has no CDN, and it uses the production database. Without this,
+ * every click in `next dev` resets Neon's 5-minute suspend timer.
+ * Eight minutes is longer than that timer, so a burst of local navigations
+ * is one wake-up and then the compute can sleep.
+ */
+const DEV_CATALOG_TTL_MS = 8 * 60 * 1000;
+const DEV_CATALOG_CACHE_MAX = 200;
+
+type DevCatalogEntry = { expires: number; value: unknown };
+const devCatalogCache = new Map<string, DevCatalogEntry>();
+
+function rememberDevCatalogRead(key: string, value: unknown): void {
+  if (devCatalogCache.size >= DEV_CATALOG_CACHE_MAX) {
+    const oldest = devCatalogCache.keys().next().value;
+    if (oldest !== undefined) devCatalogCache.delete(oldest);
+  }
+  devCatalogCache.set(key, { expires: Date.now() + DEV_CATALOG_TTL_MS, value });
+}
+
 export function cachedCatalogRead<Args extends unknown[], Result>(
   fn: (...args: Args) => Promise<Result>,
   keyParts: string[],
@@ -106,6 +126,14 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
     revalidate: options.revalidate ?? DATA_CACHE_REVALIDATE,
   });
   return async (...args: Args): Promise<Result> => {
+    if (process.env.NODE_ENV === "development") {
+      const key = `${keyParts.join("\0")}\0${JSON.stringify(args)}`;
+      const cached = devCatalogCache.get(key);
+      if (cached && cached.expires > Date.now()) return cached.value as Result;
+      const value = await fn(...args);
+      rememberDevCatalogRead(key, value);
+      return value;
+    }
     try {
       return await memoized(...args);
     } catch (err) {
@@ -135,6 +163,7 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
  * (Admin-facing routes are still expired immediately via `revalidatePath`.)
  */
 export function revalidateStorefrontCatalog(): void {
+  devCatalogCache.clear();
   try {
     revalidateTag(CACHE_TAGS.products, "max");
     revalidateTag(CACHE_TAGS.collections, "max");

@@ -80,6 +80,8 @@ export const SERVER_VISITOR_COOKIES = [
   "y2k_consent",
   /** Locale override reserved by the i18n resolver. */
   "y2k_locale",
+  /** Analytics quiet window. A fresh visit should be allowed to record again. */
+  "y2k_track_gap",
 ] as const;
 
 /**
@@ -92,6 +94,18 @@ export const SERVER_VISITOR_COOKIES = [
  * has to exclude is the one that happens *after* the wipe.
  */
 export const QA_EXCLUSION_COOKIE = "y2k_qa_preview";
+
+/**
+ * Set after a page view is written. Further beacons from that browser skip
+ * Neon until it expires.
+ *
+ * Launch suspends compute 5 minutes after the last query. A shopper who
+ * clicks every few minutes used to chain those windows across the whole day.
+ * Twenty minutes is long enough for the database to sleep between samples
+ * and short enough that a later page in a long visit is still recorded.
+ */
+export const TRACK_GAP_COOKIE = "y2k_track_gap" satisfies (typeof SERVER_VISITOR_COOKIES)[number];
+export const TRACK_GAP_MAX_AGE_S = 20 * 60;
 
 /**
  * Long enough for an unhurried QA pass, short enough that a forgotten flag

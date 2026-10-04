@@ -33,6 +33,11 @@ import {
   variationImage,
 } from "../src/lib/catalog/custom-styles";
 import { normalizeImageStyleTags, styleTagsFor } from "../src/lib/pricing";
+import {
+  editorCanonicalStyles,
+  offeredPriceValues,
+  offeredStyleValues,
+} from "../src/lib/catalog/offered-options";
 
 let passed = 0;
 let failed = 0;
@@ -393,6 +398,51 @@ test("a canonical bundle override replaces the shared table, including at checko
       stylePrices: { "Case Only": 19.99 },
     }),
     19.99,
+  );
+});
+
+test("removing every default bundle stays removed when custom styles remain", () => {
+  const options = [
+    {
+      name: "Style",
+      values: ["Case 1 + Charm 1", "Case 1", "Charm 1"],
+    },
+  ];
+  const custom = [
+    { label: "Case 1 + Charm 1", price: 34.99 },
+    { label: "Case 1", price: 24.99 },
+    { label: "Charm 1", price: 12.99 },
+  ];
+  assert.deepEqual(offeredPriceValues("airpod_case", options), []);
+  assert.deepEqual(offeredPriceValues("iphone_case", options), []);
+  assert.deepEqual(offeredStyleValues("airpod_case", options, custom), [
+    "Case 1 + Charm 1",
+    "Case 1",
+    "Charm 1",
+  ]);
+  assert.deepEqual(
+    editorCanonicalStyles("airpod_case", [], custom.length),
+    [],
+  );
+  assert.deepEqual(editorCanonicalStyles("iphone_case", [], custom.length), []);
+  assert.deepEqual(
+    editorCanonicalStyles("airpod_case", ["Case Only"], 1),
+    ["Case Only"],
+  );
+});
+
+test("an empty style axis still opens on the type default", () => {
+  assert.deepEqual(editorCanonicalStyles("airpod_case", [], 0), [
+    "Case + Charm",
+    "Case Only",
+    "Charm Only",
+  ]);
+  assert.deepEqual(editorCanonicalStyles("iphone_case", [], 0), ["Case Only"]);
+  assert.deepEqual(
+    offeredPriceValues("airpod_case", [
+      { name: "AirPods Model", values: ["AirPods Pro 3"] },
+    ]),
+    ["Case + Charm", "Case Only", "Charm Only"],
   );
 });
 

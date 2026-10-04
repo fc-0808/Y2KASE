@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Nunito, Baloo_2, Press_Start_2P, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
@@ -8,37 +8,35 @@ import { INDEXABLE_ROBOTS } from "@/lib/seo";
 import { BRAND_TITLE_TEMPLATE, PAGE_COPY } from "@/lib/seo/copy";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 
-// Body — rounded, friendly, highly legible. `swap` keeps text paintable while
-// the webfont loads (no invisible-text flash blocking FCP/LCP).
-const nunito = Nunito({
+// These files are the same latin cuts next/font/google used to download at
+// compile time. Dev gives that download 3 seconds, which is not enough from
+// here, so the page was stuck on the metric fallbacks. The files live in the
+// repo and the CSS variables stay the same.
+const nunito = localFont({
+  src: "./fonts/nunito-400.woff2",
   variable: "--font-nunito",
-  subsets: ["latin"],
-  weight: ["400", "600", "700", "800", "900"],
+  weight: "400 900",
   display: "swap",
 });
 
-// Headings — chunky rounded display for kawaii character.
-const baloo = Baloo_2({
+const baloo = localFont({
+  src: "./fonts/baloo-500.woff2",
   variable: "--font-baloo",
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
+  weight: "500 800",
   display: "swap",
 });
 
-// Wordmark + pixel accents — the Y2K arcade face.
-const pixel = Press_Start_2P({
+const pixel = localFont({
+  src: "./fonts/pixel-400.woff2",
   variable: "--font-pixel",
-  subsets: ["latin"],
   weight: "400",
   display: "swap",
 });
 
-// Monospace — only used inside the admin console (order IDs, IPs, env keys),
-// never on a storefront page. Keep it available via the CSS variable but do NOT
-// preload it, so shoppers don't pay for a font file they'll never render.
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/geist-400.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: "400 600",
   display: "swap",
   preload: false,
 });

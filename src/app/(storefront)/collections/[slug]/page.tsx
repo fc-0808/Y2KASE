@@ -25,6 +25,10 @@ import {
   isIndexableCatalogPage,
 } from "@/lib/seo";
 import { collectionSeo, collectionBrowseTagline, collectionFilteredTitle } from "@/lib/seo/copy";
+import {
+  iphone18FitPath,
+  isIphone18CollectionSlug,
+} from "@/lib/seo/fit-landings";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
 import {
   CatalogSummary,
@@ -364,6 +368,14 @@ async function CollectionCatalog({
         <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:mt-1.5 sm:line-clamp-none sm:text-base">
           {tagline}
         </p>
+        {isIphone18CollectionSlug(slug) && stocked.includes("iphone") && (
+          <Link
+            href={iphone18FitPath(slug)}
+            className="mt-2 inline-flex min-h-9 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+          >
+            iPhone 18
+          </Link>
+        )}
       </header>
 
       <CatalogToolbar

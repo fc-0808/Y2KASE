@@ -13,11 +13,8 @@ import {
   orderCustomerLabel,
 } from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import {
-  ORDER_STATUSES,
-  type OrderLineSummary,
-  type OrderRow,
-} from "@/lib/admin/orders";
+import { ORDER_STATUSES } from "@/lib/admin/order-status";
+import type { OrderLineSummary, OrderRow } from "@/lib/admin/orders";
 import { updateOrderStatus } from "./actions";
 
 const dateFmt = new Intl.DateTimeFormat("en-US", {

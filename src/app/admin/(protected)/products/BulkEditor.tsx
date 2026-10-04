@@ -44,6 +44,7 @@ import {
 import { compareFilenamesNatural } from "@/lib/utils";
 import { compatibilityAxisFor } from "@/lib/catalog/product-types";
 import {
+  editorCanonicalStyles,
   hasCompatibilityAxis,
   hasPriceAxis,
   summarizeCompatibility,
@@ -1539,12 +1540,10 @@ function draftFromProduct(p: BulkEditProduct): Draft {
   const isIphoneCase = p.productType === "iphone_case";
   const priced = hasPriceAxis(p.productType);
   const styles = priced
-    ? orderStyles(
-        p.availableStyles.length
-          ? p.availableStyles
-          : isIphoneCase
-            ? ["Case Only"]
-            : stylesForAddons({ hasGrip: false, hasCharm: true }),
+    ? editorCanonicalStyles(
+        p.productType,
+        p.availableStyles,
+        p.customStyles.length,
       )
     : [];
   const customStyles = p.customStyles;

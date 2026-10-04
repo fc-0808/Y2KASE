@@ -136,7 +136,7 @@ test("facet labels and browse hrefs stay in lockstep with the taxonomy", () => {
   assert.equal(deviceBrowseHref(galaxy, { galaxy: 9 }), "/products?device=galaxy");
 });
 
-test("collection titles stay on the phone-cases query; the tab and tagline may name AirPods", () => {
+test("collection titles name phones, AirPods, or cases to match the stocked mix", () => {
   const input = { name: "Hello Kitty", slug: "hello-kitty", kind: "character" };
   const seo = collectionSeo(input);
   assert.equal(seo.heading, "Hello Kitty Phone Cases");
@@ -156,13 +156,26 @@ test("collection titles stay on the phone-cases query; the tab and tagline may n
     ),
     "Curated by the buyer.",
   );
+  const mixed = collectionSeo({
+    ...input,
+    stockedDeviceIds: ["iphone", "airpods"],
+  });
+  assert.equal(mixed.heading, "Hello Kitty Cases");
+  assert.match(mixed.description, /Hello Kitty Cases/);
+  assert.equal(/Phone Cases/.test(mixed.heading), false);
+  const phonesOnly = collectionSeo({
+    ...input,
+    stockedDeviceIds: ["iphone"],
+  });
+  assert.equal(phonesOnly.heading, "Hello Kitty Phone Cases");
   const airpodsOnly = collectionSeo({
     ...input,
     stockedDeviceIds: ["airpods"],
   });
   assert.equal(airpodsOnly.heading, "Hello Kitty AirPods Cases");
   assert.equal(collectionProductNoun(["airpods"], "hello-kitty"), "AirPods Cases");
-  assert.equal(collectionProductNoun(["iphone", "airpods"]), "Phone Cases");
+  assert.equal(collectionProductNoun(["iphone", "airpods"]), "Cases");
+  assert.equal(collectionProductNoun(["iphone"]), "Phone Cases");
   assert.equal(collectionProductNoun(["airpods"], MAGSAFE_SLUG), "Phone Cases");
   assert.equal(
     collectionFilteredTitle(
@@ -173,6 +186,15 @@ test("collection titles stay on the phone-cases query; the tab and tagline may n
   );
   assert.match(airpodsOnly.tagline, /AirPods cases/);
   assert.equal(/MagSafe/i.test(airpodsOnly.tagline), false);
+});
+
+test("iPhone landing names the iPhone 18 models shoppers search", () => {
+  const seo = deviceSeo("iphone", "iPhone");
+  assert.match(seo.intro, /iPhone 18 Pro cases/);
+  assert.match(seo.intro, /iPhone 18 Pro Max/);
+  assert.match(seo.tagline, /iPhone 18 Pro/);
+  assert.equal(/base iPhone 18/.test(seo.intro), true);
+  assert.ok(seo.faqs.some((faq) => /iPhone 18/.test(faq.question)));
 });
 
 test("AirPods landing copy is ready the day the line is live", () => {

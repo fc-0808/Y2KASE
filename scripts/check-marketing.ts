@@ -42,6 +42,7 @@ import {
   buildMarketingHeroAlt,
   isLegacyGenerativeMarketingHeroUrl,
   isMarketingHeroStyle,
+  marketingHeroCaption,
   recommendedMarketingHeroReferenceCount,
   selectMarketingHeroReferenceIds,
 } from "../src/lib/marketing/hero";
@@ -160,6 +161,24 @@ assert.equal(MARKETING_HERO_OUTPUT.width, 1200);
 assert.equal(MARKETING_HERO_OUTPUT.height, 720);
 assert.equal(MARKETING_HERO_OUTPUT.maxBytes, 250 * 1024);
 assert.ok(buildMarketingHeroAlt(heroReferences).length <= 160);
+const topicCaption = marketingHeroCaption({
+  eyebrow: "now available",
+  heading: "iPhone 18 Pro and Pro Max **cases are ready.**",
+});
+assert.equal(topicCaption?.kicker, "NOW AVAILABLE");
+assert.equal(
+  topicCaption?.headline,
+  "iPhone 18 Pro and Pro Max cases are ready.",
+);
+assert.equal(marketingHeroCaption({ eyebrow: " ", heading: "  " }), null);
+assert.ok(
+  buildMarketingHeroAlt(heroReferences, topicCaption?.headline).startsWith(
+    "iPhone 18 Pro and Pro Max cases are ready.",
+  ),
+);
+assert.ok(
+  buildMarketingHeroAlt(heroReferences, topicCaption?.headline).length <= 160,
+);
 assert.ok(
   buildMarketingHeroAlt([
     {

@@ -27,6 +27,11 @@ import {
   productSerpTitle,
 } from "../src/lib/seo/copy";
 import { collectionEditorial } from "../src/lib/seo/collection-editorial";
+import {
+  iphone18FitCopy,
+  iphone18FitHeading,
+  iphone18FitPath,
+} from "../src/lib/seo/fit-landings";
 import { IPHONE_FIT } from "../src/lib/pricing";
 import {
   FAQ_ITEMS,
@@ -297,12 +302,70 @@ assert.notEqual(PAGE_COPY.catalog.primary, magsafe.primary);
 const longTitle =
   "Rilakkuma Mint Green Kawaii Bear Phone Case for iPhone 17 16 15 Pro Max — MagSafe";
 const serp = productSerpTitle(longTitle);
-assert.ok(serp.endsWith("…"));
+assert.match(serp, /^Rilakkuma /);
+assert.match(serp, /Phone Case for iPhone 17 Pro Max$/);
+assert.equal(serp.includes("…"), false);
 assert.ok(
   Array.from(`${serp}${BRAND_TITLE_SUFFIX}`).length <= SERP_TITLE_MAX,
 );
 assert.equal(productSerpTitle("Kuromi Bow Case"), "Kuromi Bow Case");
+
+const helloKittySerp = productSerpTitle(
+  "Hello Kitty Clear White with Black Bow Motif Phone Case for iPhone 18 17 16 15 Pro Max — MagSafe",
+);
+assert.match(helloKittySerp, /Hello Kitty/);
+assert.match(helloKittySerp, /Phone Case/);
+assert.match(helloKittySerp, /iPhone 18 Pro Max/);
+assert.equal(helloKittySerp.includes("17"), false);
+
+const charmSerp = productSerpTitle(
+  "Sanrio Hello Kitty Clear Kawaii Case with Charm for iPhone 18 17 16 15 14 13 Pro Max — MagSafe",
+);
+assert.match(charmSerp, /Hello Kitty/);
+assert.match(charmSerp, /Case for iPhone 18 Pro Max$/);
+assert.equal(charmSerp.includes("Charm"), false);
+assert.ok(
+  Array.from(`${helloKittySerp}${BRAND_TITLE_SUFFIX}`).length <= SERP_TITLE_MAX,
+);
+
+const helloKittyCopy = collectionSeo({
+  name: "Hello Kitty",
+  slug: "hello-kitty",
+  kind: "character",
+});
+assert.match(helloKittyCopy.description, /^Hello Kitty iPhone 18 Pro/);
+assert.match(helloKittyCopy.description, /Hello Kitty Phone Cases/);
+assert.equal(
+  /iPhone 18/.test(
+    collectionSeo({
+      name: "Hello Kitty",
+      slug: "hello-kitty",
+      kind: "character",
+      stockedDeviceIds: ["airpods"],
+    }).description,
+  ),
+  false,
+);
 assert.equal(BRAND_TITLE_TEMPLATE, "%s · Y2KASE");
+assert.equal(iphone18FitPath("hello-kitty"), "/collections/hello-kitty/iphone-18-pro");
+const helloKittyFit = iphone18FitCopy("Hello Kitty", "hello-kitty");
+assert.equal(helloKittyFit.heading, iphone18FitHeading("Hello Kitty"));
+assert.match(helloKittyFit.heading, /iPhone 18 Pro and Pro Max/);
+assert.ok(
+  Array.from(`${helloKittyFit.title}${BRAND_TITLE_SUFFIX}`).length <=
+    SERP_TITLE_MAX,
+);
+assert.match(helloKittyFit.description, /no base iPhone 18/);
+assert.equal(
+  /iPhone 18 Pro/.test(
+    collectionEditorial({
+      slug: "chiikawa",
+      name: "Chiikawa",
+      kind: "brand",
+    }).paragraphs.join(" "),
+  ),
+  true,
+);
 
 assert.equal(PAGE_COPY.contact.heading, PAGE_COPY.contact.title);
 assert.equal(PAGE_COPY.insights.primary, "y2kase catalog snapshot");
@@ -325,6 +388,11 @@ assert.ok(
 );
 assert.ok(
   kuromiEditorial.related.some((link) => link.href === "/devices/iphone"),
+);
+assert.ok(
+  kuromiEditorial.related.some(
+    (link) => link.href === "/collections/kuromi/iphone-18-pro",
+  ),
 );
 assert.match(
   kuromiEditorial.paragraphs.join(" "),

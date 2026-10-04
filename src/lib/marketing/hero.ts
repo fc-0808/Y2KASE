@@ -1,3 +1,4 @@
+import { stripEmphasisMarkup } from "./emphasis";
 import type { CampaignType } from "./types";
 import { isBuyTwoGetTwoOfferText } from "./offer";
 
@@ -6,6 +7,14 @@ export const MARKETING_HERO_OUTPUT = {
   width: 1200,
   height: 720,
   maxBytes: 250 * 1024,
+} as const;
+
+/** Bottom lockup. Copy comes from the draft, never from an image model. */
+export const MARKETING_HERO_CAPTION_BAND = {
+  left: 0,
+  top: 596,
+  width: MARKETING_HERO_OUTPUT.width,
+  height: MARKETING_HERO_OUTPUT.height - 596,
 } as const;
 
 export const MARKETING_HERO_STYLES = [
@@ -136,28 +145,54 @@ function truncateAtWord(value: string, max: number): string {
   return `${clipped.slice(0, end)}…`;
 }
 
+export type MarketingHeroCaption = {
+  kicker: string;
+  headline: string;
+};
+
+function plainCaption(value: string, max: number): string {
+  return truncateAtWord(
+    stripEmphasisMarkup(value).replace(/\s+/g, " ").trim(),
+    max,
+  );
+}
+
+/**
+ * The words painted on the hero. Eyebrow and heading are the campaign topic;
+ * product pixels stay untouched.
+ */
+export function marketingHeroCaption(input: {
+  eyebrow?: string;
+  heading?: string;
+}): MarketingHeroCaption | null {
+  const kicker = plainCaption(input.eyebrow ?? "", 36).toLocaleUpperCase(
+    "en-US",
+  );
+  const headline = plainCaption(input.heading ?? "", 96);
+  if (!kicker && !headline) return null;
+  return { kicker, headline };
+}
+
 /** Deterministic, editable alt text—never delegated to the image model. */
 export function buildMarketingHeroAlt(
   references: readonly MarketingHeroReference[],
+  topic?: string,
 ): string {
-  if (references.length === 0) {
-    return "Y2KASE products styled in a pastel editorial scene.";
-  }
   const cleanTitle = (title: string) =>
     title.replace(/\s+/g, " ").trim().slice(0, 120);
-  if (references.length === 1) {
-    return truncateAtWord(
-      `${cleanTitle(references[0]!.title)} styled in a pastel Y2KASE product scene.`,
-      160,
-    );
+  let scene: string;
+  if (references.length === 0) {
+    scene = "Y2KASE products styled in a pastel editorial scene.";
+  } else if (references.length === 1) {
+    scene = `${cleanTitle(references[0]!.title)} styled in a pastel Y2KASE product scene.`;
+  } else {
+    const titles = references.map((reference) => cleanTitle(reference.title));
+    const readable =
+      titles.length === 2
+        ? titles.join(" and ")
+        : `${titles.slice(0, -1).join(", ")}, and ${titles.at(-1)}`;
+    scene = `A styled Y2KASE arrangement featuring ${readable}.`;
   }
-  const titles = references.map((reference) => cleanTitle(reference.title));
-  const readable =
-    titles.length === 2
-      ? titles.join(" and ")
-      : `${titles.slice(0, -1).join(", ")}, and ${titles.at(-1)}`;
-  return truncateAtWord(
-    `A styled Y2KASE arrangement featuring ${readable}.`,
-    160,
-  );
+  const topicLine = topic?.replace(/\s+/g, " ").trim() ?? "";
+  return truncateAtWord(topicLine ? `${topicLine} ${scene}` : scene, 160);
 }

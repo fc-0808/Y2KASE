@@ -48,18 +48,18 @@ const EDITORIAL: Entry[] = [
 export function FeaturedEditorial() {
   const [hero, ...rest] = EDITORIAL;
   return (
-    <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 md:mx-0 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:px-0 md:pb-0 lg:grid-rows-2 [&::-webkit-scrollbar]:hidden">
-      {/* Tall hero card. On a phone the three campaigns are one swipe row
-          instead of three stacked screens. */}
+    <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain scroll-pl-4 px-4 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:scroll-pl-6 sm:px-6 md:mx-0 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:scroll-pl-0 md:px-0 md:pb-0 lg:grid-rows-2 [&::-webkit-scrollbar]:hidden">
+      {/* One full card per swipe. The next card only peeks as a photo edge,
+          so its title and button are not sliced at the screen. */}
       <EditorialCard
         entry={hero}
-        className="min-h-[18.5rem] w-[86%] shrink-0 snap-start md:w-auto md:min-h-[22rem] lg:row-span-2 lg:min-h-full"
+        className="min-h-[18.5rem] w-[calc(100%-0.625rem)] shrink-0 snap-start sm:w-[calc(100%-0.125rem)] md:w-auto md:min-h-[22rem] lg:row-span-2 lg:min-h-full"
       />
       {rest.map((entry) => (
         <EditorialCard
           key={entry.kicker}
           entry={entry}
-          className="min-h-[18.5rem] w-[86%] shrink-0 snap-start md:min-h-[16rem] md:w-auto"
+          className="min-h-[18.5rem] w-[calc(100%-0.625rem)] shrink-0 snap-start sm:w-[calc(100%-0.125rem)] md:min-h-[16rem] md:w-auto"
         />
       ))}
     </div>

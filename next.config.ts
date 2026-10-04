@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
 import createNextIntlPlugin from "next-intl/plugin";
+import Module from "node:module";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Relative, not "@/lib/routes": Next.js require()s this config before the app's
@@ -14,6 +16,31 @@ import {
 } from "./src/lib/cache-headers";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+
+// This repo lives in OneDrive. OneDrive locks files inside `.next` while
+// `next dev` deletes them, which crashes startup with EPERM. Next joins
+// `distDir` onto the project root, so the cache is a relative path that
+// climbs out of OneDrive. Compiled pages then live outside this repo and
+// cannot see `node_modules` unless NODE_PATH is registered first. Vercel
+// still builds into `.next`.
+const distDir =
+  process.env.VERCEL || !/[\\/]OneDrive[\\/]/i.test(projectRoot)
+    ? ".next"
+    : path
+        .relative(
+          projectRoot,
+          path.join(process.env.LOCALAPPDATA || os.tmpdir(), "y2kase-next"),
+        )
+        .split(path.sep)
+        .join("/");
+
+if (distDir !== ".next") {
+  const nodeModules = path.join(projectRoot, "node_modules");
+  process.env.NODE_PATH = process.env.NODE_PATH
+    ? `${nodeModules}${path.delimiter}${process.env.NODE_PATH}`
+    : nodeModules;
+  (Module as unknown as { _initPaths: () => void })._initPaths();
+}
 
 // Keep the optimizer's remote allow-list exact. media.y2kase.com is the
 // production R2 custom domain. The environment-derived host lets a bucket
@@ -46,6 +73,7 @@ const disableImageOptimization =
   process.env.NEXT_IMAGE_UNOPTIMIZED === "true";
 
 const nextConfig: NextConfig = {
+  distDir,
   // Drop the `X-Powered-By: Next.js` header — a few bytes off every response
   // and one less framework-fingerprint exposed.
   poweredByHeader: false,
@@ -105,6 +133,7 @@ const nextConfig: NextConfig = {
       { source: "/llms.txt", headers: feedCdn },
       { source: "/products", headers: facetedCdn },
       { source: "/collections/:slug", headers: facetedCdn },
+      { source: "/collections/:slug/:fit", headers: facetedCdn },
       { source: "/collections/:slug/opengraph-image", headers: ogCdn },
       { source: "/devices/:slug", headers: facetedCdn },
       { source: "/devices/:slug/opengraph-image", headers: ogCdn },
@@ -130,6 +159,7 @@ const nextConfig: NextConfig = {
     "kysely",
     "@better-auth/kysely-adapter",
     "sharp",
+    "undici",
   ],
 
   images: {

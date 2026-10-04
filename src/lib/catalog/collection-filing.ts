@@ -46,6 +46,7 @@ import {
 } from "@/lib/catalog/devices";
 import { collectionIdsForSlugs } from "@/lib/catalog/taxonomy-sync";
 import {
+  excludedCollectionSlugs,
   isOperatorConfirmed,
   resolveBrandAssignment,
 } from "@/lib/catalog/brands";
@@ -133,14 +134,20 @@ export async function refileProduct(productId: number): Promise<RefileResult> {
   // just removed. When that pass is HELD they are allowed through instead: the
   // column is the thing in doubt, the title is not, and filing a product under
   // the character its own title names — without removing anything — is the
-  // safest reading available until a human settles it.
+  // safest reading available until a human settles it. A slug the operator
+  // has explicitly removed is never re-added, even when the title still
+  // names it.
   const owned = brandOwnedSlugs();
+  const excluded = new Set(excludedCollectionSlugs(product.brandEvidence));
   const wanted = filterMagSafeCollectionSlugs(
     matchCollectionSlugs({
       tags: product.tags,
       title: product.title,
       sourceFolder: product.sourceFolder,
-    }).filter((slug) => held !== null || !owned.has(slug)),
+    }).filter(
+      (slug) =>
+        !excluded.has(slug) && (held !== null || !owned.has(slug)),
+    ),
     product.productType,
   );
 

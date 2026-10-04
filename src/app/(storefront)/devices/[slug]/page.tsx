@@ -6,6 +6,11 @@ import { DEVICE_FAMILIES, deviceOffersMagSafe, findDevice } from "@/lib/catalog/
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 import { deviceSeo } from "@/lib/seo/device-content";
+import {
+  IPHONE_18_COLLECTIONS,
+  iphone18FitHeading,
+  iphone18FitPath,
+} from "@/lib/seo/fit-landings";
 import { getCatalogPage, type ProductQuery } from "@/lib/products";
 import { getBrandFacets } from "@/lib/collections";
 import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
@@ -245,6 +250,25 @@ export default async function DeviceLandingPage({
         <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:mt-1.5 sm:line-clamp-none sm:text-base">
           {seo.tagline}
         </p>
+        {slug === "iphone" && (
+          <nav
+            aria-label="iPhone 18 cases by character"
+            className="mt-2.5 flex gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible"
+          >
+            {IPHONE_18_COLLECTIONS.filter(
+              (entry) => (facetCounts.brands[entry.slug] ?? 0) > 0,
+            ).map((entry) => (
+              <Link
+                key={entry.slug}
+                href={iphone18FitPath(entry.slug)}
+                aria-label={iphone18FitHeading(entry.name)}
+                className="inline-flex min-h-10 shrink-0 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+              >
+                {entry.name}
+              </Link>
+            ))}
+          </nav>
+        )}
       </header>
 
       <CatalogToolbar

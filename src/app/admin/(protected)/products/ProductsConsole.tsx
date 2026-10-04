@@ -75,7 +75,10 @@ import {
   type DeviceSelection,
   type DeviceCounts,
 } from "./ProductsDeviceNav";
-import { CollectionNavBar } from "./ProductsCollectionNav";
+import {
+  CollectionNavBar,
+  type CollectionSelection,
+} from "./ProductsCollectionNav";
 import { UploadDateBar, UploadSortButton } from "./UploadDateBar";
 import {
   compareProductsByUpload,
@@ -182,6 +185,15 @@ export function ProductsConsole({
   const [toast, setToast] = useState<{ ok: boolean; message: string } | null>(
     null,
   );
+  // Collection edits apply before the server round-trip returns, so a product
+  // leaves the Miffy filter the moment its chip is removed.
+  const [membershipEdits, setMembershipEdits] = useState<
+    Map<number, Map<number, boolean>>
+  >(new Map());
+  // Rows unfiled from the collection currently on screen. They no longer match
+  // the filter, but they stay until the operator regenerates the title or hides
+  // them — otherwise the × click removes the only place to fix the listing.
+  const [keptVisible, setKeptVisible] = useState<Set<number>>(new Set());
   const bulkBarRef = useRef<HTMLDivElement>(null);
   const hasSelection = selected.size > 0;
 
@@ -225,6 +237,20 @@ export function ProductsConsole({
       root.style.removeProperty("--bottom-bar-h");
     };
   }, [hasSelection]);
+
+  const catalog = useMemo(() => {
+    if (membershipEdits.size === 0) return products;
+    return products.map((product) => {
+      const edits = membershipEdits.get(product.id);
+      if (!edits || edits.size === 0) return product;
+      const collectionIds = new Set(product.collectionIds);
+      for (const [collectionId, member] of edits) {
+        if (member) collectionIds.add(collectionId);
+        else collectionIds.delete(collectionId);
+      }
+      return { ...product, collectionIds: [...collectionIds] };
+    });
+  }, [products, membershipEdits]);
 
   const counts = useMemo(() => {
     const c = { all: products.length, draft: 0, active: 0, archived: 0 };
@@ -270,7 +296,7 @@ export function ProductsConsole({
   // user would get without its own current selection masking alternatives.
   const commonFiltered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return products.filter((p) => {
+    return catalog.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
       if (titleIssuesOnly && !titleHealth[p.id]) return false;
       if (multiProductOnly && !p.containsMultipleProducts) return false;
@@ -286,7 +312,7 @@ export function ProductsConsole({
       return true;
     });
   }, [
-    products,
+    catalog,
     statusFilter,
     titleIssuesOnly,
     titleHealth,
@@ -382,10 +408,12 @@ export function ProductsConsole({
 
   const scoped = useMemo(() => {
     if (!collectionMatchIds) return baseForCollections;
-    return baseForCollections.filter((p) =>
-      p.collectionIds.some((id) => collectionMatchIds.has(id)),
+    return baseForCollections.filter(
+      (p) =>
+        p.collectionIds.some((id) => collectionMatchIds.has(id)) ||
+        keptVisible.has(p.id),
     );
-  }, [baseForCollections, collectionMatchIds]);
+  }, [baseForCollections, collectionMatchIds, keptVisible]);
 
   const uploadDayBatches = useMemo(
     () => uploadBatches(scoped),
@@ -440,6 +468,38 @@ export function ProductsConsole({
   function flash(result: { ok: boolean; message: string }) {
     setToast(result);
     if (result.ok) setTimeout(() => setToast(null), 3500);
+  }
+
+  function selectCollection(next: CollectionSelection) {
+    setCollectionFilter(next);
+    setKeptVisible(new Set());
+  }
+
+  function onCollectionUpdated(
+    productId: number,
+    collectionId: number,
+    member: boolean,
+    message: string,
+  ) {
+    setMembershipEdits((prev) => {
+      const next = new Map(prev);
+      const edits = new Map(next.get(productId) ?? []);
+      edits.set(collectionId, member);
+      next.set(productId, edits);
+      return next;
+    });
+    if (!member && collectionMatchIds?.has(collectionId)) {
+      setKeptVisible((prev) => new Set(prev).add(productId));
+    }
+    flash({ ok: true, message });
+  }
+
+  function hideUnfiled(productId: number) {
+    setKeptVisible((prev) => {
+      const next = new Set(prev);
+      next.delete(productId);
+      return next;
+    });
   }
 
   // ── Quick per-selection status actions (no editor needed) ──────────────────
@@ -652,6 +712,7 @@ export function ProductsConsole({
     setStatusFilter("all");
     setDeviceFilter("all");
     setCollectionFilter("all");
+    setKeptVisible(new Set());
     setTitleIssuesOnly(false);
     setBrandIssuesOnly(false);
     setMultiProductOnly(false);
@@ -864,7 +925,7 @@ export function ProductsConsole({
             counts={collectionCounts}
             total={baseForCollections.length}
             active={collectionFilter}
-            onSelect={setCollectionFilter}
+            onSelect={selectCollection}
           />
         )}
         <UploadDateBar
@@ -995,6 +1056,11 @@ export function ProductsConsole({
                 classification={classification[p.id] ?? null}
                 brandOptions={brandOptions}
                 collectionOptions={collectionOptions}
+                lingering={keptVisible.has(p.id)}
+                onCollectionUpdated={(collectionId, member, message) =>
+                  onCollectionUpdated(p.id, collectionId, member, message)
+                }
+                onHideUnfiled={() => hideUnfiled(p.id)}
                 onToggle={() => toggleOne(p.id)}
                 pending={pending}
                 onPublishToggle={() =>
@@ -1318,6 +1384,9 @@ function ProductRow({
   classification,
   brandOptions,
   collectionOptions,
+  lingering = false,
+  onCollectionUpdated,
+  onHideUnfiled,
   onToggle,
   pending,
   onPublishToggle,
@@ -1334,6 +1403,14 @@ function ProductRow({
   classification: ClassificationHealth | null;
   brandOptions: BrandOption[];
   collectionOptions: AdminCollectionOption[];
+  /** Still listed after it was removed from the collection filter on screen. */
+  lingering?: boolean;
+  onCollectionUpdated: (
+    collectionId: number,
+    member: boolean,
+    message: string,
+  ) => void;
+  onHideUnfiled: () => void;
   onToggle: () => void;
   pending: boolean;
   onPublishToggle: () => void;
@@ -1343,10 +1420,18 @@ function ProductRow({
   const isIphoneCase = product.productType === "iphone_case";
   const showStyles = hasPriceAxis(product.productType);
   const showFit = hasCompatibilityAxis(product.productType);
+  const [title, setTitle] = useState(product.title);
+  useEffect(() => {
+    setTitle(product.title);
+  }, [product.title]);
   return (
     <li
       className={`grid grid-cols-[40px_1fr] items-start gap-3 px-3 py-3.5 transition ${PRODUCT_ROW_GRID} xl:items-center ${
-        selected ? "bg-primary/5" : "hover:bg-muted/40"
+        lingering
+          ? "bg-amber-50/50"
+          : selected
+            ? "bg-primary/5"
+            : "hover:bg-muted/40"
       }`}
     >
       {/* checkbox */}
@@ -1355,7 +1440,7 @@ function ProductRow({
         onClick={onToggle}
         aria-pressed={selected}
         className="grid h-9 w-9 place-items-center self-center rounded-lg text-foreground/50 transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={`${selected ? "Deselect" : "Select"} ${product.title}`}
+        aria-label={`${selected ? "Deselect" : "Select"} ${title}`}
       >
         {selected ? (
           <CheckSquare className="h-5 w-5 text-primary" />
@@ -1394,7 +1479,7 @@ function ProductRow({
               href={`/admin/products/${product.id}`}
               className="wrap-break-word rounded-sm hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {product.title}
+              {title}
             </Link>
             {product.featured && (
               <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-accent text-accent" />
@@ -1456,6 +1541,10 @@ function ProductRow({
               brandOptions={brandOptions}
               collectionOptions={collectionOptions}
               motifs={product.motifs}
+              onUpdated={onCollectionUpdated}
+              onRetitled={setTitle}
+              onDismiss={lingering ? onHideUnfiled : undefined}
+              lingering={lingering}
             />
           )}
         </div>

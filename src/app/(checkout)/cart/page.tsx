@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
 import { CartClient } from "./CartClient";
 
 export const metadata: Metadata = {
   title: "Your Bag",
   description: "Review your Y2KASE bag and check out securely.",
+  robots: PRIVATE_PAGE_ROBOTS,
 };
 
 export default function CartPage() {

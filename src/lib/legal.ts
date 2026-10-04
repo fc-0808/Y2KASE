@@ -81,7 +81,7 @@ ${SHIPPING_TABLE_ROWS}
     title: "Privacy Policy",
     description:
       "How Y2KASE collects, uses and protects your personal information.",
-    updated: "2026-08-04",
+    updated: "2026-10-02",
     body: `
 <p>Y2KASE ("we", "us", "our") is committed to protecting your personal information. This policy explains how we collect, use, and protect your data.</p>
 <h2>Information We Collect</h2>
@@ -99,6 +99,7 @@ ${SHIPPING_TABLE_ROWS}
 </ul>
 <h2>Sharing Your Information</h2>
 <p>We do not sell your personal data. We share information only with the service providers necessary to operate our store — including <strong>Stripe</strong> (payment processing), our shipping carriers, our email provider, <strong>tawk.to</strong> (live chat, loaded only if you start a conversation), <strong>Google Analytics</strong> (traffic measurement), and advertising partners such as Meta, TikTok, and Pinterest when those tags are configured.</p>
+<p>When an order ships, we share the recipient's name, email address, and order number with <strong>Trustpilot</strong> so they can send a service-review invitation. That invitation is sent by Trustpilot under their own privacy policy.</p>
 <h2>Your Rights (GDPR)</h2>
 <p>If you are located in the EU or UK, you have the right to access, correct, or delete your personal data. Contact us at <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> to exercise these rights.</p>
 <h2>Cookies</h2>

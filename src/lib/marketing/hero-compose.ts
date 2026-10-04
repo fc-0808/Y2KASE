@@ -10,6 +10,7 @@
  */
 import sharp from "sharp";
 import {
+  MARKETING_HERO_CAPTION_BAND,
   MARKETING_HERO_OUTPUT,
   MARKETING_HERO_REFERENCE_LIMIT,
   type MarketingHeroStyle,
@@ -22,7 +23,10 @@ type CardRect = {
   height: number;
 };
 
-export function marketingHeroCardLayout(count: number): CardRect[] {
+export function marketingHeroCardLayout(
+  count: number,
+  options?: { caption?: boolean },
+): CardRect[] {
   if (
     !Number.isInteger(count) ||
     count < 1 ||
@@ -32,17 +36,19 @@ export function marketingHeroCardLayout(count: number): CardRect[] {
       `Campaign hero composition requires 1–${MARKETING_HERO_REFERENCE_LIMIT} images.`,
     );
   }
-  const gap = count === 4 ? 10 : 20;
-  const availableWidth = count === 1 ? 620 : 1120;
+  const caption = options?.caption === true;
+  const gap = count === 4 ? (caption ? 14 : 10) : 20;
+  const availableWidth = count === 1 ? (caption ? 560 : 620) : caption ? 1080 : 1120;
   const cardWidth = Math.floor(
     (availableWidth - gap * (count - 1)) / count,
   );
-  const cardHeight = 620;
+  const cardHeight = caption ? 528 : 620;
+  const top = caption ? 28 : 50;
   const rowWidth = cardWidth * count + gap * (count - 1);
   const start = Math.round((MARKETING_HERO_OUTPUT.width - rowWidth) / 2);
   return Array.from({ length: count }, (_, index) => ({
     left: start + index * (cardWidth + gap),
-    top: 50,
+    top,
     width: cardWidth,
     height: cardHeight,
   }));
@@ -387,6 +393,11 @@ async function emailSafeJpeg(source: Buffer): Promise<Buffer> {
   );
 }
 
+export type MarketingHeroComposeOptions = {
+  /** Pre-rendered topic lockup. Product pixels are never sent to an image model. */
+  captionPng?: Buffer;
+};
+
 /**
  * Produce the final baseline JPEG from exact source-image bytes.
  * `fit: contain` is deliberate: no product edge is cropped.
@@ -394,8 +405,12 @@ async function emailSafeJpeg(source: Buffer): Promise<Buffer> {
 export async function composeCatalogMarketingHero(
   sources: readonly Buffer[],
   style: MarketingHeroStyle,
+  options?: MarketingHeroComposeOptions,
 ): Promise<Buffer> {
-  const cards = marketingHeroCardLayout(sources.length);
+  const captionPng = options?.captionPng;
+  const cards = marketingHeroCardLayout(sources.length, {
+    caption: Boolean(captionPng),
+  });
   const angles =
     sources.length === 4
       ? [-3, 2, -2, 3]
@@ -435,8 +450,24 @@ export async function composeCatalogMarketingHero(
       };
     }),
   );
+  const layers: sharp.OverlayOptions[] = [...productLayers];
+  if (captionPng) {
+    const caption = await sharp(captionPng)
+      .resize(
+        MARKETING_HERO_CAPTION_BAND.width,
+        MARKETING_HERO_CAPTION_BAND.height,
+        { fit: "fill" },
+      )
+      .png()
+      .toBuffer();
+    layers.push({
+      input: caption,
+      left: MARKETING_HERO_CAPTION_BAND.left,
+      top: MARKETING_HERO_CAPTION_BAND.top,
+    });
+  }
   const composed = await sharp(backgroundSvg(style, cards))
-    .composite(productLayers)
+    .composite(layers)
     .png()
     .toBuffer();
   return emailSafeJpeg(composed);

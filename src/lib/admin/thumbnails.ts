@@ -403,6 +403,93 @@ export async function getThumbnailProposalForProduct(
   };
 }
 
+/** Which review-board section a product belongs in after an action. */
+export type ThumbnailReviewBucket =
+  | "proposed"
+  | "flagged"
+  | "approved"
+  | "pending"
+  | "hidden";
+
+/**
+ * One product as the review board should show it right now.
+ * The client reads this after Generate / Regenerate / Remove BG / Remove Tag
+ * so the new thumbnail can appear without waiting on a full page refresh.
+ */
+export type ThumbnailReviewCard = {
+  productId: number;
+  slug: string;
+  title: string;
+  productStatus: string;
+  currentUrl: string | null;
+  proposalUrl: string | null;
+  previousCount: number;
+  nextCount: number;
+  score: number | null;
+  category: string | null;
+  reason: string | null;
+  bucket: ThumbnailReviewBucket;
+};
+
+function reviewBucket(
+  status: string | undefined,
+  proposalUrl: string | null,
+): ThumbnailReviewBucket {
+  if (!status) return "pending";
+  if (status === "proposed" && proposalUrl) return "proposed";
+  if (status === "flagged") return "flagged";
+  if (status === "approved") return "approved";
+  return "hidden";
+}
+
+/** Latest review-board placement for one product. `null` if the product is gone. */
+export async function getThumbnailReviewCard(
+  productId: number,
+): Promise<ThumbnailReviewCard | null> {
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { id: true, slug: true, title: true, status: true },
+    with: {
+      images: {
+        columns: { url: true },
+        orderBy: (img, { asc: a }) => a(img.position),
+        limit: 1,
+      },
+    },
+  });
+  if (!product) return null;
+
+  const row = await db.query.thumbnailProposals.findFirst({
+    where: eq(thumbnailProposals.productId, productId),
+    columns: {
+      status: true,
+      proposalUrl: true,
+      previousProposalUrls: true,
+      nextProposalUrls: true,
+      score: true,
+      category: true,
+      reason: true,
+    },
+  });
+
+  const score = row?.score == null ? null : Number(row.score);
+  const proposalUrl = row?.proposalUrl ?? null;
+  return {
+    productId: product.id,
+    slug: product.slug,
+    title: product.title,
+    productStatus: product.status,
+    currentUrl: product.images[0]?.url ?? null,
+    proposalUrl,
+    previousCount: coerceThumbnailUrls(row?.previousProposalUrls).length,
+    nextCount: coerceThumbnailUrls(row?.nextProposalUrls).length,
+    score: score != null && Number.isFinite(score) ? score : null,
+    category: row?.category ?? null,
+    reason: row?.reason ?? null,
+    bucket: reviewBucket(row?.status, proposalUrl),
+  };
+}
+
 /** Approve many proposals in sequence (each is a fast DB/R2 op). Returns how
  *  many actually applied (non-proposed ones are skipped by approveProposal)
  *  and how many drafts were published along with the thumbnail. */

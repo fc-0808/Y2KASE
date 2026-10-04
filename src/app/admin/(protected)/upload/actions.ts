@@ -9,89 +9,38 @@ import {
   getProductType,
   listEnabledProductTypes,
 } from "@/lib/catalog/product-types";
+import type { CatalogJobKind } from "@/lib/catalog/job-types";
+import {
+  acquireCatalogJobLock,
+  getActiveCatalogJob,
+  releaseCatalogJobLock,
+  updateCatalogJobLock,
+} from "@/lib/catalog/job-lock";
 
-const CATALOG_JOB_LOCK = "catalog-job.lock";
-
-type CatalogJobLock = {
-  kind: "ingest" | "classify";
-  parentPid: number;
-  childPid?: number;
-  startedAt: string;
-};
-
-function processIsRunning(pid: number | undefined): boolean {
-  if (!pid || !Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-function acquireCatalogJobLock(
-  logDir: string,
-  kind: CatalogJobLock["kind"],
-): string | null {
-  const lockFile = path.join(logDir, CATALOG_JOB_LOCK);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const fd = fs.openSync(lockFile, "wx");
-      const lock: CatalogJobLock = {
-        kind,
-        parentPid: process.pid,
-        startedAt: new Date().toISOString(),
-      };
-      fs.writeFileSync(fd, JSON.stringify(lock), "utf8");
-      fs.closeSync(fd);
-      return lockFile;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-
-      try {
-        const existing = JSON.parse(
-          fs.readFileSync(lockFile, "utf8"),
-        ) as Partial<CatalogJobLock>;
-        if (
-          processIsRunning(existing.childPid) ||
-          processIsRunning(existing.parentPid)
-        ) {
-          return null;
-        }
-      } catch {
-        // An unreadable/truncated lock has no live owner and can be replaced.
-      }
-
-      try {
-        fs.unlinkSync(lockFile);
-      } catch {
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
-function updateCatalogJobLock(
-  lockFile: string,
-  kind: CatalogJobLock["kind"],
-  childPid: number | undefined,
-): void {
-  const lock: CatalogJobLock = {
-    kind,
-    parentPid: process.pid,
-    childPid,
-    startedAt: new Date().toISOString(),
+function blockedJobState(kind: CatalogJobKind): {
+  ok: false;
+  blocked: true;
+  message: string;
+  logFile?: string;
+  dir?: string;
+  type?: string;
+  kind?: CatalogJobKind;
+  startedAt?: string;
+} {
+  const active = getActiveCatalogJob();
+  const label = active?.kind === "classify" ? "classification" : "catalog ingest";
+  return {
+    ok: false,
+    blocked: true,
+    message: active
+      ? `A ${label} is already running${active.dir ? ` (${active.dir})` : ""}.`
+      : "Another catalog ingest or classification job is already running.",
+    logFile: active?.logFile || undefined,
+    dir: active?.dir,
+    type: active?.type,
+    kind: active?.kind ?? kind,
+    startedAt: active?.startedAt,
   };
-  fs.writeFileSync(lockFile, JSON.stringify(lock), "utf8");
-}
-
-function releaseCatalogJobLock(lockFile: string): void {
-  try {
-    fs.unlinkSync(lockFile);
-  } catch {
-    // Already removed or unavailable; a stale lock is recovered next start.
-  }
 }
 
 function monitorCatalogJob(
@@ -121,11 +70,15 @@ function monitorCatalogJob(
 export type StartIngestState = {
   ok: boolean;
   message: string;
+  /** True when the single-job lock is already held. */
+  blocked?: boolean;
   /** Basename of the progress log (e.g. "ingest-123.log") for live tracking. */
   logFile?: string;
   /** Resolved folder + type, echoed back for the progress panel header. */
   dir?: string;
   type?: string;
+  kind?: CatalogJobKind;
+  startedAt?: string;
 };
 
 /**
@@ -176,14 +129,16 @@ export async function startIngest(
   const logDir = path.resolve(process.cwd(), "data");
   fs.mkdirSync(logDir, { recursive: true });
   const lockFile = acquireCatalogJobLock(logDir, "ingest");
-  if (!lockFile) {
-    return {
-      ok: false,
-      message:
-        "Another catalog ingest or classification job is already running.",
-    };
-  }
-  const logFile = path.join(logDir, `ingest-${Date.now()}.log`);
+  if (!lockFile) return blockedJobState("ingest");
+  const logName = `ingest-${Date.now()}.log`;
+  const logFile = path.join(logDir, logName);
+  const startedAt = new Date().toISOString();
+  updateCatalogJobLock(lockFile, {
+    kind: "ingest",
+    logFile: logName,
+    dir: resolved,
+    type,
+  });
 
   // Spawn the resumable CLI in the background (Windows needs a shell to resolve
   // npm.cmd). Two Windows-specific gotchas are handled here:
@@ -208,7 +163,13 @@ export async function startIngest(
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, INGEST_DIR: resolved, INGEST_PRODUCT_TYPE: type },
     });
-    updateCatalogJobLock(lockFile, "ingest", child.pid);
+    updateCatalogJobLock(lockFile, {
+      kind: "ingest",
+      childPid: child.pid,
+      logFile: logName,
+      dir: resolved,
+      type,
+    });
     monitorCatalogJob(child, stream, lockFile);
   } catch (err) {
     stream.end();
@@ -224,19 +185,25 @@ export async function startIngest(
   return {
     ok: true,
     message: "Ingest started.",
-    logFile: path.basename(logFile),
+    logFile: logName,
     dir: resolved,
     type,
+    kind: "ingest",
+    startedAt,
   };
 }
 
 export type StartClassifyState = {
   ok: boolean;
   message: string;
+  blocked?: boolean;
   logFile?: string;
   dir?: string;
   dest?: string;
   apply?: boolean;
+  type?: string;
+  kind?: CatalogJobKind;
+  startedAt?: string;
 };
 
 /**
@@ -278,14 +245,17 @@ export async function startClassify(
   const logDir = path.resolve(process.cwd(), "data");
   fs.mkdirSync(logDir, { recursive: true });
   const lockFile = acquireCatalogJobLock(logDir, "classify");
-  if (!lockFile) {
-    return {
-      ok: false,
-      message:
-        "Another catalog ingest or classification job is already running.",
-    };
-  }
-  const logFile = path.join(logDir, `classify-${Date.now()}.log`);
+  if (!lockFile) return blockedJobState("classify");
+  const logName = `classify-${Date.now()}.log`;
+  const logFile = path.join(logDir, logName);
+  const startedAt = new Date().toISOString();
+  const classifyType = apply ? "apply" : "dry-run";
+  updateCatalogJobLock(lockFile, {
+    kind: "classify",
+    logFile: logName,
+    dir: resolvedDir,
+    type: classifyType,
+  });
 
   const stream = fs.createWriteStream(logFile, { flags: "a" });
   try {
@@ -300,7 +270,13 @@ export async function startClassify(
         CLASSIFY_APPLY: apply ? "true" : "false",
       },
     });
-    updateCatalogJobLock(lockFile, "classify", child.pid);
+    updateCatalogJobLock(lockFile, {
+      kind: "classify",
+      childPid: child.pid,
+      logFile: logName,
+      dir: resolvedDir,
+      type: classifyType,
+    });
     monitorCatalogJob(child, stream, lockFile);
   } catch (err) {
     stream.end();
@@ -316,9 +292,14 @@ export async function startClassify(
   return {
     ok: true,
     message: apply ? "Classification started." : "Dry-run started.",
-    logFile: path.basename(logFile),
+    logFile: logName,
     dir: resolvedDir,
     dest: resolvedDest,
     apply,
+    type: classifyType,
+    kind: "classify",
+    startedAt,
   };
 }
+
+export type { ActiveCatalogJob } from "@/lib/catalog/job-types";

@@ -17,7 +17,14 @@ import {
   getProductType,
   priceAxisFor,
 } from "./product-types";
-import { STYLES, effectiveStylePrice, orderModels, orderStyles, summarizeModels } from "../pricing";
+import {
+  AIRPODS_STYLES,
+  STYLES,
+  effectiveStylePrice,
+  orderModels,
+  orderStyles,
+  summarizeModels,
+} from "../pricing";
 import {
   customStyleByLabel,
   mergeOfferedStyleValues,
@@ -125,13 +132,38 @@ export function offeredPriceValues(
 ): string[] {
   const axis = priceAxisFor(productTypeId);
   if (!axis) return [];
-  const stored = normalizeOfferedPriceValues(
-    productTypeId,
-    findNamedValues(options, axis.name),
-  );
+  const raw = findNamedValues(options, axis.name);
+  const stored = normalizeOfferedPriceValues(productTypeId, raw);
+  if (stored.length > 0) return stored;
+  // The axis names buyer-facing values, but none of them are canonical
+  // bundles. A multi-product listing can drop Case + Charm, Case Only and
+  // Charm Only and keep only custom labels ("Case 1", "Charm 2"). Treating
+  // that as "not configured" put the three defaults back on the next open.
+  if (raw.length > 0) return [];
   // A row ingested before this type grew a price axis still has to render
   // the default offered set; saving persists it.
-  return stored.length > 0 ? stored : [...axis.values];
+  return [...axis.values];
+}
+
+/**
+ * Canonical bundles the admin style picker should open with.
+ *
+ * `stored` is the canonical subset from {@link offeredPriceValues}. An empty
+ * set is the type default only when the listing has no custom variations.
+ * Multi-product listings may offer none of the default bundles.
+ */
+export function editorCanonicalStyles(
+  productTypeId: string,
+  stored: readonly string[],
+  customCount: number,
+): string[] {
+  const normalized = normalizeOfferedPriceValues(productTypeId, stored);
+  if (normalized.length > 0) return normalized;
+  if (customCount > 0) return [];
+  if (productTypeId === "iphone_case") return ["Case Only"];
+  if (productTypeId === "airpod_case") return [...AIRPODS_STYLES];
+  const axis = priceAxisFor(productTypeId);
+  return axis ? [...axis.values] : [];
 }
 
 /** Live unit price for one offered style, or null when the type is flat. */

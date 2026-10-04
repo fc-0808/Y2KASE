@@ -420,7 +420,7 @@ export async function getCollectionImagePools(): Promise<
 
 const getCollectionImagePoolEntries = cachedCatalogRead(
   computeCollectionImagePoolEntries,
-  ["collection-image-pools-v2"],
+  ["collection-image-pools-v3"],
   { tags: [CACHE_TAGS.collections, CACHE_TAGS.products] },
 );
 
@@ -432,6 +432,7 @@ async function computeCollectionImagePoolEntries(): Promise<
       .select({
         collectionId: productCollections.collectionId,
         productId: products.id,
+        productType: products.productType,
         url: productImages.url,
         position: productImages.position,
         createdAt: products.createdAt,
@@ -446,7 +447,7 @@ async function computeCollectionImagePoolEntries(): Promise<
   // collectionId → (productId → best/first image of that product)
   const perColProd = new Map<
     number,
-    Map<number, { url: string; pos: number; createdAt: Date }>
+    Map<number, { url: string; pos: number; createdAt: Date; productType: string }>
   >();
   for (const r of imgRows) {
     if (!isStorefrontRenderableUrl(r.url)) continue;
@@ -458,15 +459,25 @@ async function computeCollectionImagePoolEntries(): Promise<
         url: r.url,
         pos: r.position,
         createdAt: (r.createdAt as Date) ?? new Date(0),
+        productType: r.productType,
       });
     }
   }
 
-  // Direct image list per collection, newest product first.
+  // Phone cases fill the square the same way, so they lead the pool. AirPods
+  // and charms stay available when a collection has nothing else.
+  const coverRank = (productType: string) =>
+    productType === "iphone_case" ? 0 : productType.endsWith("_case") ? 1 : 2;
+
+  // Direct image list per collection, preferred product type, then newest.
   const directList = new Map<number, string[]>();
   for (const [cid, pm] of perColProd) {
     const urls = [...pm.values()]
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort(
+        (a, b) =>
+          coverRank(a.productType) - coverRank(b.productType) ||
+          b.createdAt.getTime() - a.createdAt.getTime(),
+      )
       .map((x) => x.url);
     directList.set(cid, urls);
   }

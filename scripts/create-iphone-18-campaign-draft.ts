@@ -20,9 +20,11 @@ import { makeR2Client, uploadImageToR2 } from "../src/lib/catalog/r2";
 import { canonicalizePublicR2Url } from "../src/lib/catalog/r2-public";
 import { offeredCompatibilityValues } from "../src/lib/catalog/offered-options";
 import { composeCatalogMarketingHero } from "../src/lib/marketing/hero-compose";
+import { renderMarketingHeroCaption } from "../src/lib/marketing/hero-caption";
 import {
   MARKETING_HERO_OUTPUT,
   buildMarketingHeroAlt,
+  marketingHeroCaption,
 } from "../src/lib/marketing/hero";
 import { BUNDLE_MARKETING } from "../src/lib/marketing/offer";
 import {
@@ -58,17 +60,17 @@ function draftCopy(): MarketingDraft {
   return {
     name: DRAFT_NAME,
     campaignType: "product-launch",
-    subject: "iPhone 18 Pro and Pro Max cases are live",
+    subject: "iPhone 18 Pro and Pro Max cases are available",
     previewText:
-      "Pro Max fits just landed. Add 4 — the 2 lowest-priced are free.",
-    eyebrow: "NEW MODEL FIT",
-    heading: "iPhone 18 Pro and Pro Max **are on the site.**",
+      "Select your model on the product page. Prints match the listing photos.",
+    eyebrow: "NOW AVAILABLE",
+    heading: "iPhone 18 Pro and Pro Max cases are ready.",
     body: [
-      `Y2KASE iPhone cases now include **${IPHONE_18_PRO}** and **${IPHONE_18_PRO_MAX}** as selectable models. Same prints as the listing photos; MagSafe stays on the cases already tagged for it.`,
-      `While you pick a fit, **${BUNDLE_MARKETING.name}** is on. Add any ${BUNDLE_MARKETING.qualifyingItems} ${BUNDLE_MARKETING.eligibleProductCopy} and the **${BUNDLE_MARKETING.freeItems} lowest-priced items are free** automatically—no code needed.`,
-      `For every ${BUNDLE_MARKETING.qualifyingItems} items, ${BUNDLE_MARKETING.freeItems} are free. Coupon codes cannot be combined with the bundle; your bag shows the savings before checkout.`,
+      `Y2KASE iPhone cases now include **${IPHONE_18_PRO}** and **${IPHONE_18_PRO_MAX}**. Choose your model on the product page. The print in the listing photo is the print that ships.`,
+      "Listings marked MagSafe include magnets aligned to Apple’s standard. Cases without that label are a standard fit.",
+      `**${BUNDLE_MARKETING.name}** is still on while you choose a case. Add any ${BUNDLE_MARKETING.qualifyingItems} ${BUNDLE_MARKETING.eligibleProductCopy} and the ${BUNDLE_MARKETING.freeItems} lowest-priced items are free automatically — no code needed. For every ${BUNDLE_MARKETING.qualifyingItems} items, ${BUNDLE_MARKETING.freeItems} are free. Coupon codes cannot be combined with the bundle, and the bag shows the savings before checkout.`,
     ].join("\n\n"),
-    ctaLabel: "Shop the 18 Pro lineup",
+    ctaLabel: "Shop iPhone 18 Pro cases",
     ctaUrl: BUNDLE_MARKETING.collectionUrl,
     heroImageUrl: "",
     heroImageAlt: "",
@@ -218,9 +220,18 @@ async function composeAndUploadHero(
   const images = await Promise.all(
     picks.map((pick) => loadImage(pick.imageUrl)),
   );
+  const copy = draftCopy();
+  const caption = marketingHeroCaption({
+    eyebrow: copy.eyebrow,
+    heading: copy.heading,
+  });
+  const captionPng = caption
+    ? await renderMarketingHeroCaption(caption)
+    : undefined;
   const jpeg = await composeCatalogMarketingHero(
     images.map((image) => image.bytes),
     HERO_STYLE,
+    captionPng ? { captionPng } : undefined,
   );
   const campaignKey = campaignId.replace(/[^a-z0-9-]/gi, "");
   const key = `marketing/campaigns/${campaignKey}/hero-catalog-v1-${Date.now()}-${randomUUID().slice(0, 8)}.jpg`;
@@ -306,6 +317,10 @@ async function main() {
     heroImageUrl: generated.imageUrl,
     heroImageAlt: buildMarketingHeroAlt(
       picks.map((pick) => ({ title: pick.title, imageUrl: pick.imageUrl })),
+      marketingHeroCaption({
+        eyebrow: draftCopy().eyebrow,
+        heading: draftCopy().heading,
+      })?.headline,
     ),
   };
   assertDraftQuality(draft);

@@ -1,13 +1,13 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { FolderSearch, Image as ImageIcon, Sparkles } from "lucide-react";
 import { startClassify, type StartClassifyState } from "./actions";
 import {
   FolderBrowser,
   type FolderSummary,
 } from "./FolderBrowser";
-import { IngestProgress } from "./IngestProgress";
+import { RunningJobNote, useCatalogJob } from "./UploadConsole";
 
 const initialState: StartClassifyState = { ok: false, message: "" };
 
@@ -22,10 +22,31 @@ export function ClassifyForm({
     startClassify,
     initialState,
   );
+  const { busy, reportJob } = useCatalogJob();
   const [dir, setDir] = useState(defaultDir);
   const [dest, setDest] = useState(defaultDest);
   const [browsing, setBrowsing] = useState<"dir" | "dest" | null>(null);
   const [preview, setPreview] = useState<FolderSummary | null>(null);
+
+  useEffect(() => {
+    if (!state.logFile) return;
+    reportJob({
+      kind: state.kind ?? "classify",
+      logFile: state.logFile,
+      dir: state.dir ?? "",
+      type: state.type ?? (state.apply ? "apply" : "dry-run"),
+      startedAt: state.startedAt ?? new Date().toISOString(),
+      running: true,
+    });
+  }, [
+    reportJob,
+    state.apply,
+    state.dir,
+    state.kind,
+    state.logFile,
+    state.startedAt,
+    state.type,
+  ]);
 
   return (
     <form action={formAction} className="space-y-5">
@@ -123,27 +144,29 @@ export function ClassifyForm({
 
       <button
         type="submit"
-        disabled={pending || !dir.trim()}
+        disabled={pending || busy || !dir.trim()}
         className="flex items-center justify-center gap-2 rounded-full bg-[var(--primary)] px-6 py-3 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-50"
       >
         <Sparkles className="h-4 w-4" />
-        {pending ? "Starting…" : "Classify folders"}
+        {pending ? "Starting…" : busy ? "Job running…" : "Classify folders"}
       </button>
 
-      {state.ok && state.logFile ? (
-        <IngestProgress
-          key={state.logFile}
-          kind="classify"
-          logFile={state.logFile}
-          dir={state.dir ?? dir}
-          type={state.apply ? "apply" : "dry-run"}
-        />
+      {busy ? (
+        <RunningJobNote />
       ) : (
+        state.blocked &&
         state.message && (
-          <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-            {state.message}
+          <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            {state.message} Live progress stays pinned to the bottom of the
+            screen.
           </p>
         )
+      )}
+
+      {!state.ok && state.message && !state.blocked && (
+        <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {state.message}
+        </p>
       )}
 
       {browsing && (
