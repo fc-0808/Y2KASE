@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
-import { ArrowRight, Truck, ShieldCheck, Heart, Gift } from "lucide-react";
+import { ArrowRight, Gift } from "lucide-react";
 import {
   getFeaturedProducts,
   getCollectionRail,
@@ -17,14 +17,17 @@ import {
 } from "@/lib/catalog/collections-config";
 import { BUNDLE } from "@/lib/promotions";
 import { FREE_SHIPPING_OFFER } from "@/lib/pricing";
-import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 import { DEVICE_COVER_IDS, deviceCoverSrc } from "@/lib/brand/device-covers";
-import { ProductCard, PRODUCT_MOSAIC, PRODUCT_RAIL_ITEM } from "@/components/ProductCard";
+import { ProductCard, PRODUCT_RAIL_ITEM } from "@/components/ProductCard";
 import { HeroCarousel } from "@/components/home/HeroCarousel";
+import { HomeReviewBand } from "@/components/home/HomeReviewBand";
 import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
+import { ScrollableProductRail } from "@/components/home/ScrollableProductRail";
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
 import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
 import { JsonLd } from "@/components/JsonLd";
+import { PurchaseAssurance } from "@/components/reviews/PurchaseAssurance";
+import { getStorefrontProof } from "@/lib/reviews";
 import { organizationJsonLd, publicPageMetadata, websiteJsonLd } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
 
@@ -41,32 +44,28 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   // Over-fetch each collection so cross-rail de-dupe (Hello Kitty reserved
-  // before Sanrio; Bestsellers reserved before all three) still leaves a full
-  // 12-card mix. A pool of 24 was enough when every rail was newest-first;
-  // type-aware merchandising concentrates the same SKUs at the front of every
-  // parent/child pair, so Sanrio needs a deeper well.
+  // before Originals) still leaves a full 12-card mix.
   const RAIL_POOL = 48;
   const col = (slug: string) =>
     getCollectionRail(slug, RAIL_POOL).catch(() => [] as ProductListItem[]);
 
-  const [featured, tree, sanrioItems, helloKittyItems, originalsItems, deviceCounts] =
+  const [featured, tree, helloKittyItems, originalsItems, deviceCounts, proof] =
     await Promise.all([
     getFeaturedProducts(),
     getCollectionTree().catch(() => []),
-    col("sanrio"),
     col("hello-kitty"),
     col("originals"),
     getDeviceFacetCounts().catch(() => undefined),
+    getStorefrontProof().catch(() => ({ lead: null, band: [] })),
   ]);
 
   // ── Global product de-duplication + type mix ─────────────────────────────
-  // No product should appear in more than one rail on the page. We reserve the
-  // Hello Kitty section's items first, then fill the Sanrio rail with whatever
-  // is left (which naturally surfaces other characters for variety).
+  // No product should appear in more than one rail on the page. Hello Kitty
+  // is reserved first, then Originals is filled from what remains.
   //
   // `selectDiverseRail` re-weaves whatever remains after that reservation so
   // skipping a few Hello Kitty iPhone cases (already in Bestsellers) cannot
-  // collapse Sanrio/Originals into a single product type.
+  // collapse Originals into a single product type.
   const usedIds = new Set<number>(featured.map((p) => p.id));
   const pickDistinct = (items: ProductListItem[], n: number) => {
     const out = selectDiverseRail(items, {
@@ -79,7 +78,6 @@ export default async function HomePage() {
   };
   const helloKittyPicks = pickDistinct(helloKittyItems, 12);
   const originalsPicks = pickDistinct(originalsItems, 12);
-  const sanrioPicks = pickDistinct(sanrioItems, 12);
 
   // Flatten the taxonomy (roots + character children), stocked collections
   // first, de-duplicated by slug. Each tile renders as a branded cover, so no
@@ -141,19 +139,34 @@ export default async function HomePage() {
       <section className="defer-render order-2 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16 md:order-3">
         <SectionHeading eyebrow="Most loved" title="Bestsellers" href="/products" />
         {featured.length > 0 ? (
-          /* Two rows on a phone. A longer grid pushes Originals and Sanrio
-             off the first few swipes; View all opens the full catalog. */
-          <div
-            className={`${PRODUCT_MOSAIC} max-md:[&>:nth-child(n+5)]:hidden`}
-          >
-            {featured.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          <>
+            {/* One scrolling row on a phone, same as the other shelves. */}
+            <div className="md:hidden">
+              <ScrollableProductRail>
+                {featured.map((product) => (
+                  <div key={product.id} className={PRODUCT_RAIL_ITEM}>
+                    <ProductCard product={product} />
+                  </div>
+                ))}
+              </ScrollableProductRail>
+            </div>
+            <div className="hidden md:grid md:grid-cols-3 md:gap-4 lg:grid-cols-4 xl:grid-cols-5">
+              {featured.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </>
         ) : (
           <EmptyState />
         )}
       </section>
+
+      {proof.band.length > 0 && (
+        <section className="defer-render order-2 mx-auto w-full max-w-[1800px] px-4 pt-8 sm:px-6 sm:pt-12 md:order-3">
+          <SectionHeading eyebrow="From buyers" title="In real life" />
+          <HomeReviewBand quotes={proof.band} />
+        </section>
+      )}
 
       {/* ── Originals (no licensed character) ─────────────────────────────── */}
       <CollectionShowcase
@@ -165,25 +178,20 @@ export default async function HomePage() {
         products={originalsPicks}
       />
 
-      {/* ── Sanrio collection ─────────────────────────────────────────────── */}
-      <CollectionShowcase
-        className="order-5"
-        eyebrow="Fan favourite"
-        title="The Sanrio Collection"
-        href="/collections/sanrio"
-        accent="#ff7eb6"
-        products={sanrioPicks}
-      />
-
       {/* ── Hello Kitty spotlight ─────────────────────────────────────────── */}
       <CollectionShowcase
-        className="order-6"
+        className="order-5"
         eyebrow="Icon status"
         title="Hello Kitty Spotlight"
         href="/collections/hello-kitty"
         accent="#ff4d6d"
         products={helloKittyPicks}
       />
+
+      {/* ── Trust strip — one section above devices so the offer is seen ─ */}
+      <section className="defer-render order-6 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
+        <PurchaseAssurance variant="strip" />
+      </section>
 
       {/* ── Shop by device ────────────────────────────────────────────────── */}
       <section className="defer-render order-7 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
@@ -226,27 +234,6 @@ export default async function HomePage() {
               </Link>
             );
           })}
-        </div>
-      </section>
-
-      {/* ── Trust strip ───────────────────────────────────────────────────── */}
-      <section className="defer-render order-8 mt-10 border-y border-[var(--border)] bg-[var(--card)]/60 sm:mt-16">
-        <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-4 px-4 py-6 sm:grid-cols-3 sm:gap-6 sm:px-6 sm:py-8">
-          <Feature
-            icon={<Truck className="h-5 w-5" />}
-            title="Tracked international shipping"
-            desc={`Delivery across ${SHIPPING_COUNTRIES.length} supported markets.`}
-          />
-          <Feature
-            icon={<ShieldCheck className="h-5 w-5" />}
-            title="Drop-proof protection"
-            desc="Cute, but seriously protective."
-          />
-          <Feature
-            icon={<Heart className="h-5 w-5" />}
-            title="Designed with love"
-            desc="Curated Y2K & kawaii aesthetics."
-          />
         </div>
       </section>
 
@@ -308,7 +295,7 @@ function SectionHeading({
 }: {
   eyebrow: string;
   title: string;
-  href: string;
+  href?: string;
   accent?: string;
 }) {
   return (
@@ -327,12 +314,14 @@ function SectionHeading({
           {title}
         </h2>
       </div>
-      <Link
-        href={href}
-        className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
-      >
-        View all <ArrowRight className="h-4 w-4" />
-      </Link>
+      {href ? (
+        <Link
+          href={href}
+          className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-[var(--primary)] hover:underline"
+        >
+          View all <ArrowRight className="h-4 w-4" />
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -363,13 +352,13 @@ function CollectionShowcase({
       className={`defer-render mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16 ${className}`}
     >
       <SectionHeading eyebrow={eyebrow} title={title} href={href} accent={accent} />
-      <div className="-mx-4 flex items-stretch gap-4 overflow-x-auto px-4 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:-mx-6 sm:px-6 [&::-webkit-scrollbar]:hidden">
+      <ScrollableProductRail>
         {products.slice(0, 12).map((product) => (
           <div key={product.id} className={PRODUCT_RAIL_ITEM}>
             <ProductCard product={product} />
           </div>
         ))}
-      </div>
+      </ScrollableProductRail>
     </section>
   );
 }
@@ -404,28 +393,6 @@ function ClubPerk({ children }: { children: React.ReactNode }) {
       <PixelHeart className="h-4 w-4 shrink-0" />
       {children}
     </li>
-  );
-}
-
-function Feature({
-  icon,
-  title,
-  desc,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-holo text-[var(--primary)]">
-        {icon}
-      </span>
-      <div>
-        <p className="font-bold">{title}</p>
-        <p className="text-sm text-[var(--foreground)]/60">{desc}</p>
-      </div>
-    </div>
   );
 }
 

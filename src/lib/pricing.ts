@@ -158,6 +158,18 @@ export function formatShippingThreshold(
   }).format(amount);
 }
 
+/** Flat rate charged when the order is under the free-shipping threshold. */
+export function formatShippingFlat(currency = STORE_CURRENCY): string {
+  const normalized = currency.toUpperCase();
+  const selected = normalized in SHIPPING ? normalized : "USD";
+  const amount = SHIPPING[selected].flatCents / 100;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: selected,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+  }).format(amount);
+}
+
 export const FREE_SHIPPING_OFFER =
   `Free standard shipping for orders over ${formatShippingThreshold()}`;
 

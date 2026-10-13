@@ -6,6 +6,7 @@ import { isDbConfigured } from "@/lib/db";
 import { getOrderById } from "@/lib/admin/orders";
 import { formatCents, formatOptionValues, countryFlag, countryName } from "@/lib/utils";
 import { trackingLink } from "@/lib/carriers";
+import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ShipForm } from "./ShipForm";
 
@@ -38,6 +39,7 @@ export default async function AdminOrderDetailPage({
   if (!order) notFound();
 
   const addr = order.shippingAddress;
+  const discountCents = orderDiscountCents(order);
   const isIncompleteCheckout =
     !order.stripePaymentIntentId &&
     (order.status === "pending" || order.status === "cancelled");
@@ -146,6 +148,13 @@ export default async function AdminOrderDetailPage({
           {/* Totals */}
           <dl className="mt-4 space-y-1.5 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 text-sm">
             <Row label="Subtotal" value={formatCents(order.subtotalCents, order.currency)} />
+            {discountCents > 0 ? (
+              <Row
+                label={orderDiscountLabel(order)}
+                value={`−${formatCents(discountCents, order.currency)}`}
+                accent
+              />
+            ) : null}
             <Row label="Shipping" value={formatCents(order.shippingCents, order.currency)} />
             <Row label="Tax" value={formatCents(order.taxCents, order.currency)} />
             <div className="mt-2 border-t border-[var(--border)] pt-2">
@@ -273,17 +282,37 @@ function Row({
   label,
   value,
   bold,
+  accent,
 }: {
   label: string;
   value: string;
   bold?: boolean;
+  accent?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <dt className={bold ? "font-bold" : "text-[var(--foreground)]/60"}>
+    <div className="flex items-center justify-between gap-4">
+      <dt
+        className={
+          bold
+            ? "font-bold"
+            : accent
+              ? "font-semibold text-[var(--primary)]"
+              : "text-[var(--foreground)]/60"
+        }
+      >
         {label}
       </dt>
-      <dd className={bold ? "font-black" : "font-semibold"}>{value}</dd>
+      <dd
+        className={
+          bold
+            ? "font-black"
+            : accent
+              ? "font-bold text-[var(--primary)]"
+              : "font-semibold"
+        }
+      >
+        {value}
+      </dd>
     </div>
   );
 }

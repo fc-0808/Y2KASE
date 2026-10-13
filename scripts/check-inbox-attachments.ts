@@ -19,10 +19,21 @@ import {
   isUnreliableInlineImageSrc,
   normalizeCid,
   parseAttachmentId,
+  parseInboxMailbox,
   parseInboxUid,
   prepareInboxBody,
   type PostalAttachmentLike,
 } from "../src/lib/inbox/attachments";
+import {
+  composeReplyContent,
+  sniffReplyImage,
+} from "../src/lib/inbox/reply-images";
+import {
+  buildReplyRaw,
+  isReplyRecipient,
+  readReplyImages,
+  replySubject,
+} from "../src/lib/inbox/reply-message";
 
 let passed = 0;
 let failed = 0;
@@ -313,6 +324,63 @@ test("htmlContainsInboxAttachments detects rewritten parts", () => {
   assert.equal(htmlContainsInboxAttachments("<p>nope</p>"), false);
 });
 
+test("sent mailbox attachment urls stay on that folder", () => {
+  const prepared = prepareInboxBody(
+    {
+      html: '<img src="cid:photo@y2kase">',
+      text: "Hi",
+      attachments: [jpegPart()],
+    },
+    42,
+    "sent",
+  );
+  assert.match(prepared.html ?? "", /mailbox=sent/);
+  assert.deepEqual(collectInboxAttachmentUrls(prepared.html ?? ""), [
+    inboxAttachmentUrl(42, "a0", { mailbox: "sent" }),
+  ]);
+  assert.equal(
+    collectInboxAttachmentUrls(prepared.html ?? "")[0]?.includes("mailbox=inbox"),
+    false,
+  );
+});
+
+test("mailbox query only accepts sent", () => {
+  assert.equal(parseInboxMailbox("sent"), "sent");
+  assert.equal(parseInboxMailbox("inbox"), "inbox");
+  assert.equal(parseInboxMailbox("Trash"), "inbox");
+  assert.equal(parseInboxMailbox("../Sent"), "inbox");
+  assert.equal(parseInboxMailbox(null), "inbox");
+});
+
+test("reply body escapes html and inlines the photo", () => {
+  const content = composeReplyContent({
+    body: "Here is <the> photo & more",
+    quotedText: "<script>alert(1)</script>",
+    images: [{ cid: "photo-1@y2kase.com", filename: 'case".jpg' }],
+    sentOn: new Date("2026-10-12T00:00:00Z"),
+  });
+  assert.match(content.html, /Here is &lt;the&gt; photo &amp; more/);
+  assert.match(content.html, /src="cid:photo-1@y2kase.com"/);
+  assert.match(content.html, /alt="case&quot;\.jpg"/);
+  assert.equal(content.html.includes("<script>"), false);
+  assert.match(content.html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(content.text, /\[Image: case"\.jpg\]/);
+});
+
+test("reply subject and image sniff", () => {
+  assert.equal(replySubject("Order 646"), "Re: Order 646");
+  assert.equal(replySubject("Re: Order 646"), "Re: Order 646");
+  assert.equal(replySubject("re: already"), "re: already");
+  assert.equal(isReplyRecipient("fan@example.com"), true);
+  assert.equal(isReplyRecipient("hello\r\nBcc: evil@x.com"), false);
+  assert.equal(isReplyRecipient("not-an-email"), false);
+  assert.equal(sniffReplyImage(jpegBytes), "image/jpeg");
+  assert.equal(
+    sniffReplyImage(Uint8Array.from(Buffer.from("<html>not an image!!"))),
+    null,
+  );
+});
+
   await test("PostalMime round-trip rewrites a real multipart/related message", async () => {
     const raw = mimeMessage('<p>Photo</p><img src="cid:photo@y2kase">');
     const parsed = await PostalMime.parse(raw);
@@ -321,6 +389,53 @@ test("htmlContainsInboxAttachments detects rewritten parts", () => {
     assert.equal(prepared.attachments[0]?.inlined, true);
     assert.match(prepared.html ?? "", /uid=99&amp;id=a0/);
     assert.equal(prepared.binaries[0]?.bytes.byteLength > 0, true);
+  });
+
+  await test("readReplyImages rejects html renamed as a photo", async () => {
+    const file = new File([Buffer.from("<html>not an image!!")], "photo.jpg", {
+      type: "image/jpeg",
+    });
+    const result = await readReplyImages([file]);
+    assert.equal("error" in result, true);
+  });
+
+  await test("readReplyImages accepts a real jpeg", async () => {
+    const file = new File([Buffer.from(jpegBytes)], "case.jpg", {
+      type: "image/jpeg",
+    });
+    const result = await readReplyImages([file]);
+    assert.equal("images" in result, true);
+    if (!("images" in result)) return;
+    assert.equal(result.images[0]?.mimeType, "image/jpeg");
+    assert.equal(result.images[0]?.filename, "case.jpg");
+  });
+
+  await test("built reply embeds the photo bytes", async () => {
+    const built = await buildReplyRaw({
+      from: "Y2KASE <hello@y2kase.com>",
+      to: "fan@example.com",
+      subject: "Order 646",
+      body: "Here is <the> photo",
+      images: [
+        {
+          filename: "case.jpg",
+          mimeType: "image/jpeg",
+          bytes: Buffer.from(jpegBytes),
+          cid: "photo-1@y2kase.com",
+        },
+      ],
+    });
+    const raw = built.raw.toString("utf8");
+    assert.equal(built.subject, "Re: Order 646");
+    assert.match(raw, /image\/jpeg/);
+    assert.match(raw, /photo-1@y2kase\.com/);
+    assert.match(raw, /&lt;the&gt;/);
+
+    const parsed = await PostalMime.parse(built.raw);
+    const prepared = prepareInboxBody(parsed, 8, "sent");
+    assert.equal(prepared.attachments[0]?.isImage, true);
+    assert.match(prepared.html ?? "", /mailbox=sent/);
+    assert.equal(prepared.html?.includes("cid:"), false);
   });
 
   if (failed > 0) {

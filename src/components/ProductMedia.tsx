@@ -33,6 +33,7 @@ export function ProductMedia({
   fetchPriority,
   className,
   imageClassName,
+  bare = false,
   fallbackClassName = "text-4xl",
   onImageError,
   children,
@@ -47,6 +48,11 @@ export function ProductMedia({
   className?: string;
   /** Extra image classes, e.g. hover transforms. */
   imageClassName?: string;
+  /**
+   * Listing tiles only. Drops the white photo well so a studio-white backdrop
+   * blends into the page instead of reading as a card.
+   */
+  bare?: boolean;
   /** Sizing for the emoji fallback shown when no image is available. */
   fallbackClassName?: string;
   /** Fired after a requested `src` fails to decode, so galleries can drop it. */
@@ -63,29 +69,49 @@ export function ProductMedia({
 
   return (
     <div
-      className={`relative overflow-hidden bg-[var(--product-surface)]${
-        className ? ` ${className}` : ""
-      }`}
+      className={`relative overflow-hidden ${
+        bare ? "bg-transparent" : "bg-[var(--product-surface)]"
+      }${className ? ` ${className}` : ""}`}
     >
       {showImage && renderable ? (
-        <Image
-          src={renderable}
-          alt={alt}
-          fill
-          sizes={sizes}
-          quality={82}
-          // Catalog photos are already WebP on R2. Never send them through
-          // `/_next/image` — Vercel is 402ing that path, and the volume would
-          // re-exhaust Image Optimization quota if it is later re-enabled.
-          unoptimized
-          loading={loading}
-          fetchPriority={fetchPriority}
-          onError={() => {
-            setFailedSrc(renderable);
-            onImageError?.(renderable);
-          }}
-          className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
-        />
+        bare ? (
+          <div className="absolute inset-0 mix-blend-darken">
+            <Image
+              src={renderable}
+              alt={alt}
+              fill
+              sizes={sizes}
+              quality={82}
+              unoptimized
+              loading={loading}
+              fetchPriority={fetchPriority}
+              onError={() => {
+                setFailedSrc(renderable);
+                onImageError?.(renderable);
+              }}
+              className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
+            />
+          </div>
+        ) : (
+          <Image
+            src={renderable}
+            alt={alt}
+            fill
+            sizes={sizes}
+            quality={82}
+            // Catalog photos are already WebP on R2. Never send them through
+            // `/_next/image` — Vercel is 402ing that path, and the volume would
+            // re-exhaust Image Optimization quota if it is later re-enabled.
+            unoptimized
+            loading={loading}
+            fetchPriority={fetchPriority}
+            onError={() => {
+              setFailedSrc(renderable);
+              onImageError?.(renderable);
+            }}
+            className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
+          />
+        )
       ) : (
         <div className={`grid h-full place-items-center ${fallbackClassName}`}>
           🎀

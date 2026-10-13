@@ -5,88 +5,101 @@
  * `/api/admin/inbox/attachment` — without this cache each <img> would open a
  * new IMAP connection. On serverless the cache is best-effort (one isolate);
  * a miss just re-parses the message.
+ *
+ * Keys include the mailbox. INBOX and Sent reuse UID numbers, so a uid-only
+ * key would serve the wrong photo.
  */
 
-import type { InboxBinaryPart } from "@/lib/inbox/attachments";
+import type { InboxBinaryPart, InboxMailbox } from "@/lib/inbox/attachments";
 
 const MAX_MESSAGES = 24;
 const MAX_BYTES = 48 * 1024 * 1024;
 const TTL_MS = 10 * 60 * 1000;
 
 export type CachedInboxMessage = {
+  mailbox: InboxMailbox;
   uid: number;
   storedAt: number;
   bytes: number;
   parts: Map<string, InboxBinaryPart>;
 };
 
-const cache = new Map<number, CachedInboxMessage>();
-const inflight = new Map<number, Promise<CachedInboxMessage | null>>();
+const cache = new Map<string, CachedInboxMessage>();
+const inflight = new Map<string, Promise<CachedInboxMessage | null>>();
+
+function cacheKey(mailbox: InboxMailbox, uid: number): string {
+  return `${mailbox}:${uid}`;
+}
 
 export function rememberInboxAttachments(
   uid: number,
   parts: InboxBinaryPart[],
+  mailbox: InboxMailbox,
 ): void {
+  const key = cacheKey(mailbox, uid);
   const map = new Map<string, InboxBinaryPart>();
   let bytes = 0;
   for (const part of parts) {
     map.set(part.id, part);
     bytes += part.bytes.byteLength;
   }
-  cache.delete(uid);
-  cache.set(uid, { uid, storedAt: Date.now(), bytes, parts: map });
+  cache.delete(key);
+  cache.set(key, { mailbox, uid, storedAt: Date.now(), bytes, parts: map });
   evict();
 }
 
 export function getInboxAttachment(
   uid: number,
   id: string,
+  mailbox: InboxMailbox,
 ): InboxBinaryPart | null {
-  const entry = cache.get(uid);
+  const key = cacheKey(mailbox, uid);
+  const entry = cache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.storedAt > TTL_MS) {
-    cache.delete(uid);
+    cache.delete(key);
     return null;
   }
   const part = entry.parts.get(id);
   if (!part) return null;
-  // LRU: re-insert so this message is last to evict.
-  cache.delete(uid);
-  cache.set(uid, entry);
+  cache.delete(key);
+  cache.set(key, entry);
   return part;
 }
 
 export async function loadInboxAttachments(
   uid: number,
+  mailbox: InboxMailbox,
   loader: () => Promise<InboxBinaryPart[] | null>,
 ): Promise<CachedInboxMessage | null> {
-  const existing = cache.get(uid);
+  const key = cacheKey(mailbox, uid);
+  const existing = cache.get(key);
   if (existing && Date.now() - existing.storedAt <= TTL_MS) {
-    cache.delete(uid);
-    cache.set(uid, existing);
+    cache.delete(key);
+    cache.set(key, existing);
     return existing;
   }
 
-  const pending = inflight.get(uid);
+  const pending = inflight.get(key);
   if (pending) return pending;
 
   const promise = (async () => {
     const parts = await loader();
     if (!parts) return null;
-    rememberInboxAttachments(uid, parts);
-    return cache.get(uid) ?? null;
+    rememberInboxAttachments(uid, parts, mailbox);
+    return cache.get(key) ?? null;
   })().finally(() => {
-    inflight.delete(uid);
+    inflight.delete(key);
   });
 
-  inflight.set(uid, promise);
+  inflight.set(key, promise);
   return promise;
 }
 
 function evict(): void {
   const now = Date.now();
-  for (const [uid, entry] of cache) {
-    if (now - entry.storedAt > TTL_MS) cache.delete(uid);
+  for (const [key, entry] of cache) {
+    if (now - entry.storedAt > TTL_MS) cache.delete(key);
   }
   while (cache.size > MAX_MESSAGES || totalBytes() > MAX_BYTES) {
     const oldest = cache.keys().next().value;

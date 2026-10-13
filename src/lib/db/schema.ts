@@ -135,6 +135,15 @@ export const orders = pgTable(
     subtotalCents: integer("subtotal_cents").notNull(),
     shippingCents: integer("shipping_cents").notNull().default(0),
     taxCents: integer("tax_cents").notNull().default(0),
+    /**
+     * Value removed from the gross subtotal by a coupon or bundle.
+     * subtotal − discount + shipping + tax = total.
+     */
+    discountCents: integer("discount_cents").notNull().default(0),
+    /** Shopper-facing promo name, e.g. "10% off" or "Buy 2, Get 2 Free". */
+    discountLabel: text("discount_label"),
+    /** Coupon code when the discount came from one, e.g. "BESTIE10". */
+    discountCode: text("discount_code"),
     totalCents: integer("total_cents").notNull(),
     currency: text("currency").notNull().default("USD"),
     shippingAddress: jsonb("shipping_address").$type<{
@@ -177,6 +186,10 @@ export const orders = pgTable(
     }),
     /** Set when the post-purchase review-request email is sent — exactly-once. */
     reviewRequestEmailSentAt: timestamp("review_request_email_sent_at", {
+      withTimezone: true,
+    }),
+    /** One follow-up, 10 days later, if the order still has an unreviewed item. */
+    reviewRequestReminderSentAt: timestamp("review_request_reminder_sent_at", {
       withTimezone: true,
     }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -636,6 +649,12 @@ export const reviews = pgTable(
     status: text("status").notNull().default("pending"),
     /** True when the reviewer has a matching paid order for this product. */
     verified: boolean("verified").notNull().default(false),
+    /**
+     * Public shop reply. Shown under the review on the product page.
+     * Complaints stay visible; the reply answers them.
+     */
+    merchantReply: text("merchant_reply"),
+    merchantRepliedAt: timestamp("merchant_replied_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

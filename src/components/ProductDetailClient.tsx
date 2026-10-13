@@ -28,6 +28,7 @@ import {
   trackProductView,
 } from "@/lib/analytics/commerce";
 import { Stars } from "@/components/reviews/Stars";
+import { PurchaseAssurance } from "@/components/reviews/PurchaseAssurance";
 import {
   ProductGallery,
   type ProductGallerySlide,
@@ -81,6 +82,8 @@ export function ProductDetailClient({
   productType,
   ratingAverage = 0,
   ratingCount = 0,
+  reviewHighlight = null,
+  magsafe = false,
   videoUrl,
   videoPosition,
   images,
@@ -98,6 +101,10 @@ export function ProductDetailClient({
   productType: string;
   ratingAverage?: number;
   ratingCount?: number;
+  /** One sentence from this product's own reviews. Never another design. */
+  reviewHighlight?: { excerpt: string; authorName: string } | null;
+  /** MagSafe fact under the button only when this product is tagged. */
+  magsafe?: boolean;
   videoUrl: string | null;
   videoPosition: number | null;
   images: Img[];
@@ -322,6 +329,25 @@ export function ProductDetailClient({
               </span>
             )}
           </div>
+          {reviewHighlight && (
+            <a
+              href="#reviews"
+              className="group mt-3 block min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3.5 shadow-[0_12px_28px_-22px_rgba(255,62,165,0.9)] transition hover:border-[var(--primary)]"
+            >
+              <span className="flex items-center justify-between gap-3">
+                <Stars rating={ratingAverage} size={13} />
+                <span className="shrink-0 text-[11px] font-extrabold text-[var(--primary)] group-hover:underline">
+                  Read reviews
+                </span>
+              </span>
+              <span className="mt-2 line-clamp-3 text-sm font-semibold leading-snug text-[var(--foreground)]/80">
+                “{reviewHighlight.excerpt}”
+              </span>
+              <span className="mt-1.5 block truncate text-xs font-bold text-[var(--foreground)]/50">
+                {reviewHighlight.authorName}
+              </span>
+            </a>
+          )}
         </div>
 
         <ProductOptions
@@ -364,6 +390,8 @@ export function ProductDetailClient({
             </>
           )}
         </button>
+
+        <PurchaseAssurance magsafe={magsafe} variant="buybox" />
       </div>
 
       <StickyBuyBar

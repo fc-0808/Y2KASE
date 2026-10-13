@@ -9,11 +9,13 @@ import {
 import {
   getPublishedReviews,
   getReviewSummary,
+  type ReviewInviteState,
   type ReviewSummary,
 } from "@/lib/reviews";
 import type { Review } from "@/lib/db/schema";
 import { ProductDetailClient } from "@/components/ProductDetailClient";
 import { ProductReviews } from "@/components/reviews/ProductReviews";
+import { highlightFromReviews } from "@/lib/reviews/display";
 import {
   ProductCard,
   PRODUCT_CARD_FRAME,
@@ -79,6 +81,7 @@ export function ProductPageView({
   collectionLinks,
   relatedProducts,
   surface = "storefront",
+  invite = { status: "none" },
 }: {
   product: StorefrontProduct;
   reviewSummary: ReviewSummary;
@@ -86,8 +89,11 @@ export function ProductPageView({
   collectionLinks: StorefrontCollectionLink[];
   relatedProducts: Promise<ProductListItem[]>;
   surface?: "storefront" | "preview";
+  invite?: ReviewInviteState;
 }) {
   const isPreview = surface === "preview";
+  const reviewHighlight = highlightFromReviews(reviews);
+  const magsafe = product.tags.includes(MAGSAFE_TAG);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 sm:py-8">
@@ -126,6 +132,8 @@ export function ProductPageView({
         productType={product.productType}
         ratingAverage={reviewSummary.average}
         ratingCount={reviewSummary.count}
+        reviewHighlight={reviewHighlight}
+        magsafe={magsafe}
         videoUrl={product.videoUrl}
         videoPosition={product.videoPosition}
         images={product.images.map((i) => ({
@@ -159,6 +167,14 @@ export function ProductPageView({
         </section>
       )}
 
+      <ProductReviews
+        productId={product.id}
+        slug={product.slug}
+        summary={reviewSummary}
+        reviews={reviews}
+        invite={isPreview ? { status: "none" } : invite}
+      />
+
       {collectionLinks.length > 0 && (
         <section className="mt-10 max-w-3xl">
           <h2 className="mb-3 text-xl font-black">Shop this look</h2>
@@ -175,6 +191,10 @@ export function ProductPageView({
           </nav>
         </section>
       )}
+
+      <Suspense fallback={<RelatedProductsSkeleton />}>
+        <RelatedProducts products={relatedProducts} />
+      </Suspense>
 
       {!isPreview && (
         <div className="mt-8">
@@ -203,17 +223,6 @@ export function ProductPageView({
           ))}
         </section>
       )}
-
-      <Suspense fallback={<RelatedProductsSkeleton />}>
-        <RelatedProducts products={relatedProducts} />
-      </Suspense>
-
-      <ProductReviews
-        productId={product.id}
-        slug={product.slug}
-        summary={reviewSummary}
-        reviews={reviews}
-      />
 
       {!isPreview && (
         <RecentlyViewed

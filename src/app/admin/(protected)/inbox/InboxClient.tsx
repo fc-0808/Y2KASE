@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Inbox,
   RefreshCw,
@@ -13,19 +13,21 @@ import {
   User,
   ChevronLeft,
   Reply,
-  Send,
-  X,
   Paperclip,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { InboxAttachment } from "@/lib/inbox/attachments";
+import type { InboxAttachment, InboxMailbox } from "@/lib/inbox/attachments";
 import { EmailAttachments } from "./EmailAttachments";
 import { EmailBody } from "./EmailBody";
+import { ReplyComposer } from "./ReplyComposer";
 
 interface EmailHeader {
   uid: number;
+  mailbox?: InboxMailbox;
   from: string;
   fromEmail: string;
+  to?: string;
+  toEmail?: string;
   subject: string;
   date: string;
   isRead: boolean;
@@ -61,13 +63,19 @@ function formatDate(iso: string): string {
 
 function EmailRow({
   email,
+  mailbox,
   selected,
   onClick,
 }: {
   email: EmailHeader;
+  mailbox: InboxMailbox;
   selected: boolean;
   onClick: () => void;
 }) {
+  const outbound = mailbox === "sent";
+  const title = outbound
+    ? email.to || email.toEmail || "Unknown"
+    : email.from || email.fromEmail;
   return (
     <button
       onClick={onClick}
@@ -95,7 +103,7 @@ function EmailRow({
                   : "font-bold text-[var(--foreground)]",
               )}
             >
-              {email.from || email.fromEmail}
+              {outbound ? `To ${title}` : title}
             </span>
           </div>
           <p
@@ -127,48 +135,22 @@ function EmailPane({
   onDelete,
   onMarkUnread,
   onClose,
+  onReplied,
 }: {
   email: EmailDetail;
   onDelete: () => void;
   onMarkUnread: () => void;
   onClose: () => void;
+  onReplied: () => void;
 }) {
   const [showReply, setShowReply] = useState(false);
-  const [replyBody, setReplyBody] = useState("");
-  const [quoteOriginal, setQuoteOriginal] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [sendStatus, setSendStatus] = useState<"idle" | "ok" | "error">("idle");
   const attachmentCount = email.attachments?.length ?? 0;
-
-  async function handleSend() {
-    if (!replyBody.trim()) return;
-    setSending(true);
-    setSendStatus("idle");
-    try {
-      const res = await fetch("/api/admin/inbox/reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: email.fromEmail,
-          subject: email.subject,
-          body: replyBody.trim(),
-          quotedText: quoteOriginal ? (email.text || undefined) : undefined,
-        }),
-      });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw new Error((e as { error?: string }).error ?? `HTTP ${res.status}`);
-      }
-      setSendStatus("ok");
-      setReplyBody("");
-      setTimeout(() => setShowReply(false), 2000);
-    } catch (err) {
-      console.error(err);
-      setSendStatus("error");
-    } finally {
-      setSending(false);
-    }
-  }
+  const outbound = email.mailbox === "sent";
+  const personName = outbound
+    ? email.to || email.toEmail || "Unknown"
+    : email.from || email.fromEmail;
+  const personEmail = outbound ? email.toEmail || "" : email.fromEmail;
+  const canReply = Boolean(personEmail);
 
   return (
     <div className="flex h-full flex-col">
@@ -187,11 +169,16 @@ function EmailPane({
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--foreground)]/55">
             <span className="flex items-center gap-1">
               <User className="h-3.5 w-3.5" />
-              <strong>{email.from}</strong>
-              {email.fromEmail !== email.from && (
-                <span className="opacity-60">&lt;{email.fromEmail}&gt;</span>
+              {outbound ? "To" : "From"} <strong>{personName}</strong>
+              {personEmail && personEmail !== personName && (
+                <span className="opacity-60">&lt;{personEmail}&gt;</span>
               )}
             </span>
+            {outbound && (
+              <span className="flex items-center gap-1">
+                From <strong>{email.from || email.fromEmail}</strong>
+              </span>
+            )}
             <span className="flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" />
               {dateFmt.format(new Date(email.date))}
@@ -211,19 +198,22 @@ function EmailPane({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            onClick={() => setShowReply((v) => !v)}
-            title="Reply"
-            className={cn(
-              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition",
-              showReply
-                ? "bg-[var(--primary)] text-white"
-                : "border border-[var(--border)] text-[var(--foreground)]/60 hover:border-[var(--primary)] hover:text-[var(--primary)]",
-            )}
-          >
-            <Reply className="h-3.5 w-3.5" />
-            Reply
-          </button>
+          {canReply && (
+            <button
+              type="button"
+              onClick={() => setShowReply((v) => !v)}
+              title="Reply"
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                showReply
+                  ? "bg-[var(--primary)] text-white"
+                  : "border border-[var(--border)] text-[var(--foreground)]/60 hover:border-[var(--primary)] hover:text-[var(--primary)]",
+              )}
+            >
+              <Reply className="h-3.5 w-3.5" />
+              Reply
+            </button>
+          )}
           <button
             onClick={onMarkUnread}
             title="Mark as unread"
@@ -242,76 +232,41 @@ function EmailPane({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
         <EmailBody uid={email.uid} html={email.html} text={email.text} />
         <EmailAttachments
           uid={email.uid}
+          mailbox={email.mailbox === "sent" ? "sent" : "inbox"}
           attachments={email.attachments ?? []}
         />
       </div>
 
-      {/* Reply composer */}
-      {showReply && (
-        <div className="border-t border-[var(--border)] bg-[var(--card)] p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-[var(--foreground)]/60">
-              Replying to <span className="text-[var(--foreground)]">{email.fromEmail}</span>
-            </p>
-            <button
-              onClick={() => setShowReply(false)}
-              className="rounded-full p-1 text-[var(--foreground)]/40 hover:text-[var(--foreground)]"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          <textarea
-            value={replyBody}
-            onChange={(e) => setReplyBody(e.target.value)}
-            placeholder="Type your reply…"
-            rows={5}
-            className="w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm leading-relaxed text-[var(--foreground)] outline-none placeholder:text-[var(--foreground)]/30 focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/30"
-          />
-
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--foreground)]/50">
-              <input
-                type="checkbox"
-                checked={quoteOriginal}
-                onChange={(e) => setQuoteOriginal(e.target.checked)}
-                className="rounded"
-              />
-              Quote original message
-            </label>
-
-            <div className="flex items-center gap-2">
-              {sendStatus === "ok" && (
-                <span className="text-xs font-semibold text-emerald-500">✓ Sent!</span>
-              )}
-              {sendStatus === "error" && (
-                <span className="text-xs font-semibold text-red-500">Failed — try again</span>
-              )}
-              <button
-                onClick={handleSend}
-                disabled={sending || !replyBody.trim()}
-                className="flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {sending ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Send className="h-3.5 w-3.5" />
-                )}
-                {sending ? "Sending…" : "Send"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {showReply && canReply && (
+        <ReplyComposer
+          recipient={personEmail}
+          subject={email.subject}
+          quotedText={email.text}
+          onClose={() => setShowReply(false)}
+          onSent={() => {
+            setShowReply(false);
+            onReplied();
+          }}
+        />
       )}
     </div>
   );
 }
 
+function mailboxParams(mailbox: InboxMailbox, uid?: number): string {
+  const params = new URLSearchParams();
+  if (uid) params.set("uid", String(uid));
+  if (mailbox === "sent") params.set("mailbox", "sent");
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 export function InboxClient() {
+  const [mailbox, setMailbox] = useState<InboxMailbox>("inbox");
   const [emails, setEmails] = useState<EmailHeader[]>([]);
   const [selected, setSelected] = useState<EmailDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -319,24 +274,31 @@ export function InboxClient() {
   const [error, setError] = useState<string | null>(null);
   const [hideSpam, setHideSpam] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const listRequest = useRef(0);
+  const detailRequest = useRef(0);
 
   const loadEmails = useCallback(async () => {
+    const requestId = ++listRequest.current;
+    const box = mailbox;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/inbox");
+      const res = await fetch(`/api/admin/inbox${mailboxParams(box)}`);
+      if (requestId !== listRequest.current) return;
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
       const data: EmailHeader[] = await res.json();
+      if (requestId !== listRequest.current) return;
       setEmails(data);
     } catch (e) {
+      if (requestId !== listRequest.current) return;
       setError(e instanceof Error ? e.message : "Failed to load emails");
     } finally {
-      setLoading(false);
+      if (requestId === listRequest.current) setLoading(false);
     }
-  }, []);
+  }, [mailbox]);
 
   useEffect(() => {
     // Initial fetch plus a poll — the effect IS the external subscription here.
@@ -357,34 +319,55 @@ export function InboxClient() {
     };
   }, [loadEmails]);
 
+  function selectMailbox(next: InboxMailbox) {
+    if (next === mailbox) {
+      void loadEmails();
+      return;
+    }
+    listRequest.current += 1;
+    detailRequest.current += 1;
+    setSelected(null);
+    setShowDetail(false);
+    setEmails([]);
+    setError(null);
+    setMailbox(next);
+  }
+
   async function openEmail(uid: number) {
+    const requestId = ++detailRequest.current;
+    const box = mailbox;
     setDetailLoading(true);
     setShowDetail(true);
     try {
-      const res = await fetch(`/api/admin/inbox?uid=${uid}`);
+      const res = await fetch(`/api/admin/inbox${mailboxParams(box, uid)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const detail: EmailDetail = await res.json();
+      if (requestId !== detailRequest.current) return;
       setSelected(detail);
-      // Mark as read in local state.
       setEmails((prev) =>
         prev.map((e) => (e.uid === uid ? { ...e, isRead: true } : e)),
       );
     } catch {
+      if (requestId !== detailRequest.current) return;
       setSelected(null);
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequest.current) setDetailLoading(false);
     }
   }
 
   async function handleDelete(uid: number) {
-    await fetch(`/api/admin/inbox?uid=${uid}`, { method: "DELETE" });
+    await fetch(`/api/admin/inbox${mailboxParams(mailbox, uid)}`, {
+      method: "DELETE",
+    });
     setEmails((prev) => prev.filter((e) => e.uid !== uid));
     setSelected(null);
     setShowDetail(false);
   }
 
   async function handleMarkUnread(uid: number) {
-    await fetch(`/api/admin/inbox?uid=${uid}&read=false`, { method: "PATCH" });
+    const params = new URLSearchParams({ uid: String(uid), read: "false" });
+    if (mailbox === "sent") params.set("mailbox", "sent");
+    await fetch(`/api/admin/inbox?${params}`, { method: "PATCH" });
     setEmails((prev) =>
       prev.map((e) => (e.uid === uid ? { ...e, isRead: false } : e)),
     );
@@ -400,17 +383,42 @@ export function InboxClient() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       {/* Page header */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--primary)]/10">
             <Inbox className="h-5 w-5 text-[var(--primary)]" />
           </div>
           <div>
-            <h1 className="text-xl font-black leading-none">Inbox</h1>
+            <h1 className="text-xl font-black leading-none">
+              {mailbox === "sent" ? "Sent" : "Inbox"}
+            </h1>
             <p className="text-xs text-[var(--foreground)]/50">
               hello@y2kase.com
             </p>
           </div>
-          {unreadCount > 0 && (
+          <div className="flex rounded-full bg-[var(--muted)] p-1">
+            {(
+              [
+                ["inbox", "Inbox"],
+                ["sent", "Sent"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={mailbox === id}
+                onClick={() => selectMailbox(id)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-bold transition",
+                  mailbox === id
+                    ? "bg-[var(--primary)] text-white"
+                    : "text-[var(--foreground)]/55 hover:text-[var(--foreground)]",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {mailbox === "inbox" && unreadCount > 0 && (
             <span className="rounded-full bg-[var(--primary)] px-2 py-0.5 text-xs font-bold text-white">
               {unreadCount} new
             </span>
@@ -418,7 +426,7 @@ export function InboxClient() {
         </div>
 
         <div className="flex items-center gap-2">
-          {spamCount > 0 && (
+          {mailbox === "inbox" && spamCount > 0 && (
             <button
               onClick={() => setHideSpam((v) => !v)}
               className={cn(
@@ -469,7 +477,9 @@ export function InboxClient() {
             ) : displayed.length === 0 ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--foreground)]/40">
                 <MailOpen className="h-8 w-8" />
-                <p className="text-sm font-semibold">All clear!</p>
+                <p className="text-sm font-semibold">
+                  {mailbox === "sent" ? "No sent mail yet" : "All clear!"}
+                </p>
               </div>
             ) : (
               <ul className="flex flex-col gap-1 p-2">
@@ -477,6 +487,7 @@ export function InboxClient() {
                   <li key={email.uid}>
                     <EmailRow
                       email={email}
+                      mailbox={mailbox}
                       selected={selected?.uid === email.uid}
                       onClick={() => openEmail(email.uid)}
                     />
@@ -500,11 +511,14 @@ export function InboxClient() {
               </div>
             ) : selected ? (
               <EmailPane
-                key={selected.uid}
+                key={`${mailbox}-${selected.uid}`}
                 email={selected}
                 onDelete={() => handleDelete(selected.uid)}
                 onMarkUnread={() => handleMarkUnread(selected.uid)}
                 onClose={() => setShowDetail(false)}
+                onReplied={() => {
+                  if (mailbox === "sent") void loadEmails();
+                }}
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-[var(--foreground)]/30">

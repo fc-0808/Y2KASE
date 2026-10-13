@@ -4,7 +4,10 @@ import { headers } from "next/headers";
 import { getSession } from "@/lib/auth";
 import { hit } from "@/lib/rate-limit";
 import { submitReview, type SubmitReviewResult } from "@/lib/reviews";
-import { revalidateStorefrontProduct } from "@/lib/cache";
+import {
+  revalidateReviewSurfaces,
+  revalidateStorefrontProduct,
+} from "@/lib/cache";
 
 export type { SubmitReviewResult };
 
@@ -21,6 +24,7 @@ export async function submitReviewAction(input: {
   rating: number;
   title?: string;
   body: string;
+  reviewToken?: string;
 }): Promise<SubmitReviewResult> {
   const h = await headers();
   const ip = (h.get("x-forwarded-for")?.split(",")[0] ?? "unknown").trim();
@@ -47,10 +51,12 @@ export async function submitReviewAction(input: {
     body: input.body,
     userId,
     authenticatedEmail: sessionEmail,
+    reviewToken: input.reviewToken,
   });
 
   if (result.ok && result.status === "published") {
     revalidateStorefrontProduct(input.slug);
+    revalidateReviewSurfaces();
   }
   return result;
 }

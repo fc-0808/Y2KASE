@@ -1,26 +1,28 @@
 /**
  * POST /api/admin/inbox/reply
  *
- * Send a reply via Namecheap Private Email SMTP (nodemailer).
- * Using the actual hello@y2kase.com SMTP account ensures the sent email
- * is saved to the Sent folder on privateemail.com automatically.
+ * Send a reply via Namecheap Private Email SMTP (nodemailer), then APPEND
+ * the same bytes to the Sent folder. SMTP only relays; it does not file a
+ * copy, so the admin Sent view would miss these replies otherwise.
  *
- * Env vars used (reuse IMAP credentials — same server/account):
- *   IMAP_HOST  — mail.privateemail.com
- *   IMAP_USER  — hello@y2kase.com
- *   IMAP_PASS  — email password
- *
- * Body (JSON):
- *   to          — recipient email address
- *   subject     — email subject (auto-prefixed with "Re: " if needed)
- *   body        — plain-text reply body
- *   quotedText  — (optional) original message to quote below the reply
+ * Body is multipart form data:
+ *   to, subject, body, quotedText (optional), images (repeatable files)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import nodemailer from "nodemailer";
 import { requireAdmin } from "@/lib/auth";
+import { archiveSentCopy, isImapConfigured } from "@/lib/imap";
+import {
+  buildReplyRaw,
+  isReplyRecipient,
+  readReplyImages,
+} from "@/lib/inbox/reply-message";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 async function auth() {
   return requireAdmin(await headers());
@@ -38,75 +40,73 @@ function getTransport() {
   });
 }
 
+function field(form: FormData, key: string): string {
+  const value = form.get(key);
+  return typeof value === "string" ? value : "";
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!process.env.IMAP_USER || !process.env.IMAP_PASS) {
+  const user = process.env.IMAP_USER ?? "";
+  if (!user || !process.env.IMAP_PASS || !isImapConfigured()) {
     return NextResponse.json(
       { error: "SMTP not configured (IMAP_USER / IMAP_PASS missing)" },
       { status: 503 },
     );
   }
 
-  const { to, subject, body, quotedText } = (await req.json()) as {
-    to: string;
-    subject: string;
-    body: string;
-    quotedText?: string;
-  };
-
-  if (!to || !body) {
-    return NextResponse.json({ error: "Missing to or body" }, { status: 400 });
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return NextResponse.json({ error: "Could not read the reply." }, { status: 400 });
   }
 
-  const reSubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
+  const to = field(form, "to").trim();
+  const subject = field(form, "subject");
+  const body = field(form, "body");
+  const quotedText = field(form, "quotedText").trim();
 
-  const plainText = quotedText
-    ? `${body}\n\n---\nOn ${new Date().toDateString()}, you wrote:\n${quotedText
-        .split("\n")
-        .map((l) => `> ${l}`)
-        .join("\n")}`
-    : body;
+  if (!isReplyRecipient(to)) {
+    return NextResponse.json({ error: "That recipient address is not valid." }, { status: 400 });
+  }
 
-  const htmlBody = `
-    <div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;max-width:600px">
-      ${body
-        .split("\n")
-        .map((l) => `<p style="margin:0 0 8px">${l || "&nbsp;"}</p>`)
-        .join("")}
-      ${
-        quotedText
-          ? `<br/>
-             <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
-             <p style="color:#6b7280;font-size:12px">On ${new Date().toDateString()}, you wrote:</p>
-             <blockquote style="border-left:3px solid #e5e7eb;margin:0;padding:0 0 0 12px;color:#6b7280;font-size:13px">
-               ${quotedText
-                 .split("\n")
-                 .map((l) => `<p style="margin:0 0 4px">${l || "&nbsp;"}</p>`)
-                 .join("")}
-             </blockquote>`
-          : ""
-      }
-      <br/>
-      <p style="color:#6b7280;font-size:13px;border-top:1px solid #f3f4f6;padding-top:12px;margin-top:16px">
-        — Y2KASE Team &middot;
-        <a href="https://y2kase.com" style="color:#6366f1">y2kase.com</a>
-      </p>
-    </div>
-  `;
+  const images = await readReplyImages(form.getAll("images"));
+  if ("error" in images) {
+    return NextResponse.json({ error: images.error }, { status: 400 });
+  }
+  if (!body.trim() && images.images.length === 0) {
+    return NextResponse.json(
+      { error: "Write a message or attach a photo." },
+      { status: 400 },
+    );
+  }
+
+  let raw: Buffer;
+  try {
+    const built = await buildReplyRaw({
+      from: `Y2KASE <${user}>`,
+      to,
+      subject,
+      body,
+      quotedText: quotedText || undefined,
+      images: images.images,
+    });
+    raw = built.raw;
+  } catch (err) {
+    console.error("[inbox/reply] could not build message", err);
+    return NextResponse.json({ error: "Could not build the email." }, { status: 500 });
+  }
 
   const transport = getTransport();
-
   try {
     await transport.sendMail({
-      from: `Y2KASE <${process.env.IMAP_USER}>`,
-      to,
-      subject: reSubject,
-      text: plainText,
-      html: htmlBody,
+      envelope: { from: user, to },
+      raw,
     });
   } catch (err) {
     console.error("[inbox/reply] SMTP error:", err);
@@ -114,5 +114,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true });
+  let archived = true;
+  try {
+    await archiveSentCopy(raw);
+  } catch (err) {
+    archived = false;
+    console.error("[inbox/reply] could not save Sent copy", err);
+  }
+
+  return NextResponse.json({ ok: true, archived });
 }

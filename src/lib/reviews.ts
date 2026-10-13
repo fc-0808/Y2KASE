@@ -7,11 +7,18 @@
  * rankings the store already holds. Only PUBLISHED reviews count toward anything
  * customer- or crawler-facing.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
-import { reviews, orders, orderItems, products } from "@/lib/db/schema";
+import { reviews, orders, orderItems, productImages, products } from "@/lib/db/schema";
 import type { Review } from "@/lib/db/schema";
+import {
+  pickLeadQuote,
+  pickQuoteBand,
+  reviewAuthorLabel,
+  type StorefrontQuote,
+} from "@/lib/reviews/display";
+import { verifyReviewInvite } from "@/lib/reviews/invite";
 
 export const REVIEW_STATUSES = ["pending", "published", "rejected"] as const;
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
@@ -71,7 +78,7 @@ export function getPublishedReviews(
 
 const getPublishedReviewsCached = cachedCatalogRead(
   computePublishedReviews,
-  ["published-product-reviews-v1"],
+  ["published-product-reviews-v2"],
   { tags: [CACHE_TAGS.reviews] },
 );
 
@@ -127,6 +134,151 @@ export async function getReviewSummaries(
   return out;
 }
 
+export type StorefrontProof = {
+  lead: StorefrontQuote | null;
+  band: StorefrontQuote[];
+};
+
+const EMPTY_PROOF: StorefrontProof = { lead: null, band: [] };
+
+/** Homepage line, plus the three-quote band once the file is large enough. */
+export function getStorefrontProof(): Promise<StorefrontProof> {
+  if (!isDbConfigured()) return Promise.resolve(EMPTY_PROOF);
+  return getStorefrontProofCached();
+}
+
+const getStorefrontProofCached = cachedCatalogRead(
+  computeStorefrontProof,
+  ["storefront-review-proof-v2"],
+  { tags: [CACHE_TAGS.reviews] },
+);
+
+async function computeStorefrontProof(): Promise<StorefrontProof> {
+  try {
+    const rows = await db
+      .select({
+        id: reviews.id,
+        productId: reviews.productId,
+        rating: reviews.rating,
+        body: reviews.body,
+        authorName: reviews.authorName,
+        verified: reviews.verified,
+        productTitle: products.title,
+        productSlug: products.slug,
+        imageUrl: sql<string | null>`(
+          SELECT ${productImages.url}
+          FROM ${productImages}
+          WHERE ${productImages.productId} = ${products.id}
+          ORDER BY ${productImages.position} ASC
+          LIMIT 1
+        )`,
+        createdAt: reviews.createdAt,
+      })
+      .from(reviews)
+      .innerJoin(products, eq(products.id, reviews.productId))
+      .where(
+        and(eq(reviews.status, "published"), eq(products.status, "active")),
+      )
+      .orderBy(desc(reviews.verified), desc(reviews.createdAt), asc(reviews.id))
+      .limit(40);
+
+    const candidates = rows.map((row) => ({
+      id: row.id,
+      productId: row.productId,
+      rating: row.rating,
+      body: row.body,
+      authorName: row.authorName,
+      verified: row.verified,
+      productTitle: row.productTitle,
+      productSlug: row.productSlug,
+      imageUrl: row.imageUrl,
+    }));
+    const lead = pickLeadQuote(candidates);
+    return {
+      lead,
+      band: pickQuoteBand(candidates, lead?.id),
+    };
+  } catch (error) {
+    console.error("[reviews] storefront proof unavailable:", error);
+    return EMPTY_PROOF;
+  }
+}
+
+export type ReviewInviteState =
+  | { status: "none" }
+  | { status: "expired" }
+  | {
+      status: "valid";
+      token: string;
+      authorName: string;
+      initialRating: number;
+      alreadyReviewed: boolean;
+    };
+
+const REVIEWABLE_ORDER_STATUSES = ["paid", "shipped", "delivered"] as const;
+
+/** What the product page should do with `?review=` from the post-purchase email. */
+export async function resolveReviewInvite(input: {
+  token?: string;
+  productId: number;
+  stars?: string;
+}): Promise<ReviewInviteState> {
+  const token = input.token?.trim() ?? "";
+  if (!token || !isDbConfigured()) return { status: "none" };
+
+  const parsed = verifyReviewInvite(token);
+  if (!parsed) return { status: "expired" };
+  if (parsed.productId !== input.productId) return { status: "none" };
+
+  const order = await matchingReviewOrder(parsed.orderId, parsed.productId);
+  if (!order) return { status: "expired" };
+
+  const stars = Number(input.stars);
+  const initialRating =
+    Number.isInteger(stars) && stars >= 1 && stars <= 5 ? stars : 0;
+
+  return {
+    status: "valid",
+    token,
+    authorName: reviewAuthorLabel(order.shippingAddress?.name ?? ""),
+    initialRating,
+    alreadyReviewed: await hasOpenReview(parsed.orderId, parsed.productId),
+  };
+}
+
+async function matchingReviewOrder(orderId: number, productId: number) {
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+    columns: { id: true, email: true, status: true, shippingAddress: true },
+    with: { items: { columns: { productId: true } } },
+  });
+  if (!order?.email) return null;
+  if (
+    !REVIEWABLE_ORDER_STATUSES.includes(
+      order.status as (typeof REVIEWABLE_ORDER_STATUSES)[number],
+    )
+  ) {
+    return null;
+  }
+  if (!order.items.some((item) => item.productId === productId)) return null;
+  return order;
+}
+
+async function hasOpenReview(orderId: number, productId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: reviews.id })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.orderId, orderId),
+        eq(reviews.productId, productId),
+        inArray(reviews.status, ["pending", "published"]),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
 function summarize(rows: { rating: number; n: number }[]): ReviewSummary {
   const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as Record<
     1 | 2 | 3 | 4 | 5,
@@ -159,6 +311,8 @@ export type SubmitReviewInput = {
   userId?: string | null;
   /** Server-derived session email; never accept this value from the browser. */
   authenticatedEmail?: string;
+  /** Signed post-purchase link. Verifies the order without an account. */
+  reviewToken?: string;
 };
 
 export type SubmitReviewResult =
@@ -193,13 +347,33 @@ export async function submitReview(
     return { ok: false, error: "Please write a few words about the product." };
   }
 
-  // Verified-purchase detection requires control of the matching account email,
-  // not merely knowledge of a buyer's address.
+  // A signed email link proves the purchase. Otherwise verification requires
+  // a signed-in account whose email matches the order — typing an address
+  // into the form does not.
   let verified = false;
   let orderId: number | null = null;
+  let authorEmail = email;
+
+  const invite = input.reviewToken ? verifyReviewInvite(input.reviewToken) : null;
+  if (
+    invite &&
+    invite.productId === input.productId &&
+    (await hasOpenReview(invite.orderId, invite.productId))
+  ) {
+    return { ok: false, error: "You've already reviewed this case." };
+  }
+  if (invite && invite.productId === input.productId) {
+    const order = await matchingReviewOrder(invite.orderId, invite.productId);
+    if (order) {
+      verified = true;
+      orderId = order.id;
+      authorEmail = order.email?.trim().toLowerCase() ?? null;
+    }
+  }
+
   const authenticatedEmail =
     input.authenticatedEmail?.trim().toLowerCase() || null;
-  if (email && authenticatedEmail === email) {
+  if (!verified && email && authenticatedEmail === email) {
     try {
       const match = await db
         .select({ orderId: orders.id })
@@ -230,7 +404,7 @@ export async function submitReview(
       orderId,
       userId: input.userId ?? null,
       authorName: name.slice(0, 80),
-      authorEmail: email,
+      authorEmail,
       rating,
       title: title?.slice(0, 120) ?? null,
       body: body.slice(0, 4000),
@@ -281,6 +455,21 @@ export async function getReviewStatusCounts(): Promise<
     // empty
   }
   return out;
+}
+
+/** Admin: public reply shown under the review. Empty clears it. */
+export async function setMerchantReply(
+  id: number,
+  reply: string | null,
+): Promise<void> {
+  const text = reply?.trim() || null;
+  await db
+    .update(reviews)
+    .set({
+      merchantReply: text ? text.slice(0, 2000) : null,
+      merchantRepliedAt: text ? new Date() : null,
+    })
+    .where(eq(reviews.id, id));
 }
 
 /** Admin: set a review's moderation status. Stamps publishedAt on publish. */

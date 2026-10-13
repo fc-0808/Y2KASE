@@ -12,6 +12,7 @@ import { fetchEmailAttachment, isImapConfigured } from "@/lib/imap";
 import {
   contentDispositionHeader,
   parseAttachmentId,
+  parseInboxMailbox,
   parseInboxUid,
 } from "@/lib/inbox/attachments";
 
@@ -38,7 +39,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid attachment" }, { status: 400 });
   }
 
-  const part = await fetchEmailAttachment(uid, id);
+  const mailbox = parseInboxMailbox(req.nextUrl.searchParams.get("mailbox"));
+  const part = await fetchEmailAttachment(uid, id, mailbox);
   if (!part) {
     return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
   }

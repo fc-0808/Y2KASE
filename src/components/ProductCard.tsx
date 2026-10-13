@@ -93,7 +93,7 @@ export function ProductCard({
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_8px_24px_-20px_rgba(120,60,120,0.45)] transition duration-300 hover:-translate-y-1.5 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.55)] active:scale-[0.99] md:rounded-3xl md:shadow-[0_10px_30px_-22px_rgba(120,60,120,0.5)]"
+      className="group flex h-full min-h-0 w-full flex-1 flex-col bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
     >
       <ProductMedia
         src={product.imageUrl}
@@ -102,6 +102,7 @@ export function ProductCard({
         loading={imagePriority ? "eager" : "lazy"}
         fetchPriority={imagePriority ? "high" : "auto"}
         fit={media.fit}
+        bare
         className={`${PRODUCT_CARD_FRAME} shrink-0`}
         imageClassName={media.imageClassName}
       >
@@ -123,7 +124,7 @@ export function ProductCard({
         The kicker slot is reserved whenever badges are on; the title slot is
         always two lines; the price is pinned to the bottom with `mt-auto`.
       */}
-      <div className="flex min-h-0 flex-1 flex-col gap-1 p-2.5 text-left md:gap-2 md:p-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 pt-2 text-left md:gap-1.5 md:pt-2.5">
         {showDeviceBadge && deviceKicker ? (
           <p className={KICKER_SLOT}>{deviceKicker}</p>
         ) : showDeviceBadge ? (

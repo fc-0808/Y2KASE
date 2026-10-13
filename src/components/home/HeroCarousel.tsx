@@ -4,9 +4,8 @@
  * HeroCarousel — auto-rotating brand hero (CASETiFY-style).
  *
  * Desktop fills the viewport below the sticky header and cross-fades slides
- * over the art. On a phone the same photo is the hero background all the way
- * down to the slide dots, with the headline and buttons sitting on a soft
- * bottom scrim so the type stays readable.
+ * over the art. On a phone the same photo is a tall background, and the
+ * headline sits on it. Subtitles and the second button wait until `md`.
  *
  * - Cross-fades between slides with a slow Ken-Burns zoom for a premium feel.
  * - Auto-advances every 6s; pauses on hover/focus; respects reduced-motion.
@@ -189,8 +188,8 @@ export function HeroCarousel() {
                 : "pointer-events-none hidden opacity-0 md:block"
             }`}
           >
-            {/* Photo fills the hero, including the area behind the copy, and
-                stops at the dots. Desktop keeps the full-viewport crop. */}
+            {/* Photo fills the hero behind the copy. Desktop keeps the
+                full-viewport crop. */}
             <div className="absolute inset-0">
               {(active || loadedSlides.has(i)) && (
                 <Image
@@ -200,14 +199,14 @@ export function HeroCarousel() {
                   loading={i === 0 ? "eager" : "lazy"}
                   fetchPriority={i === 0 ? "high" : "low"}
                   sizes="100vw"
-                  className={`object-cover object-[center_32%] transition-transform duration-[7000ms] ease-out md:object-center ${
+                  className={`object-cover object-[center_42%] transition-transform duration-[7000ms] ease-out md:object-center ${
                     active && autoPlayArmed ? "md:scale-110" : "scale-100"
                   }`}
                 />
               )}
-              {/* Phone: fade the lower half so the headline can sit on the
-                  photo. Desktop: directional wash matching the copy side. */}
-              <div className="absolute inset-0 bg-[linear-gradient(to_top,#fff6fb_0%,rgba(255,246,251,0.94)_30%,rgba(255,246,251,0.45)_48%,transparent_66%)] md:hidden" />
+              {/* Phone: a short wash under the headline only, so the cases
+                  stay visible above the type. */}
+              <div className="absolute inset-0 bg-[linear-gradient(to_top,#fff6fb_0%,rgba(255,246,251,0.92)_18%,rgba(255,246,251,0.45)_34%,transparent_52%)] md:hidden" />
               <div
                 className={`absolute inset-0 hidden md:block ${
                   slide.align === "left"
@@ -219,8 +218,8 @@ export function HeroCarousel() {
               />
             </div>
 
-            {/* Copy. In normal flow on a phone so the photo (absolute) has a
-                height to cover, down to the dots. */}
+            {/* Copy overlays the photo. On a phone it is only the sticker,
+                headline, and one button. */}
             <div className="relative z-10 md:absolute md:inset-0">
               <div
                 className={`mx-auto flex min-h-[34rem] max-w-[1800px] flex-col justify-end px-4 pb-14 pt-28 md:h-full md:min-h-0 md:justify-center md:px-6 md:pb-0 md:pt-0 lg:px-8 ${
@@ -242,9 +241,9 @@ export function HeroCarousel() {
                     {slide.title}
                   </h2>
                   <p
-                    className={`mt-2 text-sm leading-relaxed text-[var(--foreground)]/75 sm:mt-5 sm:text-lg ${
+                    className={`mt-2 hidden max-w-md text-sm leading-relaxed text-[var(--foreground)]/75 sm:mt-5 sm:text-lg md:block ${
                       slide.align === "right" ? "md:ml-auto" : ""
-                    } ${slide.align === "center" ? "md:mx-auto" : ""} max-w-md`}
+                    } ${slide.align === "center" ? "md:mx-auto" : ""}`}
                   >
                     {slide.subtitle}
                   </p>
@@ -268,7 +267,7 @@ export function HeroCarousel() {
                       <Link
                         href={slide.secondary.href}
                         tabIndex={active ? 0 : -1}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-full border-2 border-[var(--border)] bg-[var(--card)] px-6 py-3 font-bold transition hover:border-[var(--primary)] hover:text-[var(--primary)] sm:w-auto md:bg-[var(--card)]/80 md:backdrop-blur"
+                        className="hidden w-full items-center justify-center gap-2 rounded-full border-2 border-[var(--border)] bg-[var(--card)] px-6 py-3 font-bold transition hover:border-[var(--primary)] hover:text-[var(--primary)] sm:w-auto md:inline-flex md:bg-[var(--card)]/80 md:backdrop-blur"
                       >
                         {slide.secondary.label}
                       </Link>

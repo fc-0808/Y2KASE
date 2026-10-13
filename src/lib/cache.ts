@@ -162,6 +162,16 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
  * response while the entry refreshes in the background after the next visit.
  * (Admin-facing routes are still expired immediately via `revalidatePath`.)
  */
+/** A review was published, rejected, or answered. Listing stars read this tag. */
+export function revalidateReviewSurfaces(): void {
+  devCatalogCache.clear();
+  try {
+    revalidateTag(CACHE_TAGS.reviews, "max");
+  } catch (err) {
+    console.warn("[catalog-cache] review tag revalidation skipped", err);
+  }
+}
+
 export function revalidateStorefrontCatalog(): void {
   devCatalogCache.clear();
   try {

@@ -35,6 +35,8 @@ export type OrderConfirmationProps = {
   items: OrderConfirmationItem[];
   subtotalCents: number;
   shippingCents: number;
+  discountCents?: number;
+  discountLabel?: string | null;
   totalCents: number;
   shippingAddress: {
     name: string;
@@ -71,6 +73,8 @@ export function OrderConfirmation({
   items,
   subtotalCents,
   shippingCents,
+  discountCents = 0,
+  discountLabel,
   totalCents,
   shippingAddress,
   siteUrl,
@@ -230,6 +234,12 @@ export function OrderConfirmation({
           {/* Totals */}
           <Section style={{ padding: "0 32px" }}>
             <TotalRow label="Subtotal" value={money(subtotalCents, currency)} />
+            {discountCents > 0 ? (
+              <TotalRow
+                label={discountLabel?.trim() || "Discount"}
+                value={`−${money(discountCents, currency)}`}
+              />
+            ) : null}
             <TotalRow
               label="Shipping"
               value={shippingCents === 0 ? "Free ✨" : money(shippingCents, currency)}

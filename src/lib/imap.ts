@@ -17,6 +17,7 @@ import {
   prepareInboxBody,
   type InboxAttachment,
   type InboxBinaryPart,
+  type InboxMailbox,
 } from "@/lib/inbox/attachments";
 import {
   getInboxAttachment,
@@ -24,12 +25,18 @@ import {
   rememberInboxAttachments,
 } from "@/lib/inbox/attachment-cache";
 
-export type { InboxAttachment };
+export type { InboxAttachment, InboxMailbox };
+
+const SENT_FALLBACKS = ["Sent", "Sent Items", "Sent Messages", "INBOX.Sent"];
+let sentMailboxPath: string | null = null;
 
 export interface EmailHeader {
   uid: number;
+  mailbox: InboxMailbox;
   from: string;
   fromEmail: string;
+  to: string;
+  toEmail: string;
   subject: string;
   date: Date;
   isRead: boolean;
@@ -71,6 +78,80 @@ export function isImapConfigured(): boolean {
   return Boolean(process.env.IMAP_USER && process.env.IMAP_PASS);
 }
 
+function missingMailbox(err: unknown): boolean {
+  const responseText =
+    err && typeof err === "object" && "responseText" in err
+      ? String((err as { responseText?: unknown }).responseText ?? "")
+      : "";
+  const message = `${err instanceof Error ? err.message : String(err)} ${responseText}`;
+  return /does(?:n't| not) exist|nonexistent|unknown mailbox|no such mailbox|trycreate/i.test(
+    message,
+  );
+}
+
+function isSentBox(box: {
+  path: string;
+  name?: string;
+  specialUse?: string;
+  flags?: Set<string>;
+}): boolean {
+  if (box.specialUse === "\\Sent") return true;
+  if (box.flags) {
+    for (const flag of box.flags) {
+      if (flag.toLowerCase() === "\\sent") return true;
+    }
+  }
+  const name = (box.name || box.path.split(/[./]/).pop() || "").toLowerCase();
+  return name === "sent" || name === "sent items" || name === "sent messages";
+}
+
+async function resolveSentPath(client: ImapFlow): Promise<string> {
+  if (sentMailboxPath) return sentMailboxPath;
+  const boxes = await client.list();
+  const match =
+    boxes.find((box) => isSentBox(box)) ??
+    boxes.find((box) =>
+      SENT_FALLBACKS.some(
+        (candidate) =>
+          box.path === candidate ||
+          box.name.toLowerCase() === candidate.toLowerCase(),
+      ),
+    );
+  const path = match?.path ?? "Sent";
+  sentMailboxPath = path;
+  return path;
+}
+
+async function mailboxPath(
+  client: ImapFlow,
+  mailbox: InboxMailbox,
+): Promise<string> {
+  if (mailbox === "inbox") return "INBOX";
+  return resolveSentPath(client);
+}
+
+async function openMailbox(client: ImapFlow, mailbox: InboxMailbox) {
+  const path = await mailboxPath(client, mailbox);
+  try {
+    return await client.mailboxOpen(path);
+  } catch (err) {
+    if (mailbox !== "sent") throw err;
+    sentMailboxPath = null;
+    for (const candidate of SENT_FALLBACKS) {
+      if (candidate === path) continue;
+      try {
+        const opened = await client.mailboxOpen(candidate);
+        sentMailboxPath = candidate;
+        return opened;
+      } catch {
+        // Try the next known Sent folder name.
+      }
+    }
+    console.error("[imap] could not open Sent", err);
+    throw new Error("Sent folder was not found on the mail server.");
+  }
+}
+
 function makeClient(): ImapFlow {
   return new ImapFlow({
     host: process.env.IMAP_HOST ?? "mail.privateemail.com",
@@ -86,10 +167,13 @@ function makeClient(): ImapFlow {
 }
 
 /**
- * Fetch the most recent `limit` emails from INBOX, newest first.
+ * Fetch the most recent `limit` emails from INBOX or Sent, newest first.
  * Returns lightweight headers only — no body content.
  */
-export async function fetchEmails(limit = 40): Promise<EmailHeader[]> {
+export async function fetchEmails(
+  limit = 40,
+  mailbox: InboxMailbox = "inbox",
+): Promise<EmailHeader[]> {
   if (!isImapConfigured()) return [];
 
   const client = makeClient();
@@ -97,12 +181,12 @@ export async function fetchEmails(limit = 40): Promise<EmailHeader[]> {
 
   try {
     await client.connect();
-    const mailbox = await client.mailboxOpen("INBOX");
+    const opened = await openMailbox(client, mailbox);
 
-    if (mailbox.exists === 0) return [];
+    if (opened.exists === 0) return [];
 
     // Always fetch the last `limit` sequence numbers (most recent).
-    const start = Math.max(1, mailbox.exists - limit + 1);
+    const start = Math.max(1, opened.exists - limit + 1);
     const range = `${start}:*`;
 
     for await (const msg of client.fetch(range, {
@@ -114,8 +198,11 @@ export async function fetchEmails(limit = 40): Promise<EmailHeader[]> {
       if (!msg.envelope || !msg.flags) continue;
 
       const fromAddr = msg.envelope.from?.[0];
+      const toAddr = msg.envelope.to?.[0];
       const fromName = fromAddr?.name ?? fromAddr?.address ?? "Unknown";
       const fromEmail = fromAddr?.address ?? "";
+      const toName = toAddr?.name?.trim() || toAddr?.address || "";
+      const toEmail = toAddr?.address ?? "";
       const subject = msg.envelope.subject ?? "(no subject)";
 
       // Extract plain-text preview from the body part if available.
@@ -126,12 +213,15 @@ export async function fetchEmails(limit = 40): Promise<EmailHeader[]> {
 
       headers.push({
         uid: msg.uid,
+        mailbox,
         from: fromName,
         fromEmail,
+        to: toName,
+        toEmail,
         subject,
         date: msg.envelope.date ?? new Date(),
         isRead: msg.flags.has("\\Seen"),
-        isSpam: detectSpam(subject, fromEmail),
+        isSpam: mailbox === "sent" ? false : detectSpam(subject, fromEmail),
         preview,
       });
     }
@@ -152,10 +242,13 @@ type PreparedMessage = {
  * Fetch a single email's full content, rewrite inline images so the admin
  * iframe can render them, and mark the message as read.
  */
-export async function fetchEmailDetail(uid: number): Promise<EmailDetail | null> {
+export async function fetchEmailDetail(
+  uid: number,
+  mailbox: InboxMailbox = "inbox",
+): Promise<EmailDetail | null> {
   if (!isImapConfigured()) return null;
 
-  const prepared = await downloadAndPrepare(uid, { markSeen: true });
+  const prepared = await downloadAndPrepare(uid, { markSeen: true, mailbox });
   return prepared?.detail ?? null;
 }
 
@@ -166,14 +259,15 @@ export async function fetchEmailDetail(uid: number): Promise<EmailDetail | null>
 export async function fetchEmailAttachment(
   uid: number,
   id: string,
+  mailbox: InboxMailbox = "inbox",
 ): Promise<InboxBinaryPart | null> {
   if (!isImapConfigured()) return null;
 
-  const cached = getInboxAttachment(uid, id);
+  const cached = getInboxAttachment(uid, id, mailbox);
   if (cached) return cached;
 
-  const loaded = await loadInboxAttachments(uid, async () => {
-    const prepared = await downloadAndPrepare(uid, { markSeen: false });
+  const loaded = await loadInboxAttachments(uid, mailbox, async () => {
+    const prepared = await downloadAndPrepare(uid, { markSeen: false, mailbox });
     return prepared?.binaries ?? null;
   });
   return loaded?.parts.get(id) ?? null;
@@ -181,13 +275,13 @@ export async function fetchEmailAttachment(
 
 async function downloadAndPrepare(
   uid: number,
-  opts: { markSeen: boolean },
+  opts: { markSeen: boolean; mailbox: InboxMailbox },
 ): Promise<PreparedMessage | null> {
   const client = makeClient();
 
   try {
     await client.connect();
-    await client.mailboxOpen("INBOX");
+    await openMailbox(client, opts.mailbox);
 
     let prepared: PreparedMessage | null = null;
 
@@ -216,18 +310,22 @@ async function downloadAndPrepare(
       const body = prepareInboxBody(
         parsed ?? { html: null, text: "", attachments: [] },
         uid,
+        opts.mailbox,
       );
 
       prepared = {
         detail: {
           uid: msg.uid,
+          mailbox: opts.mailbox,
           from: fromAddr?.name ?? fromEmail,
           fromEmail,
+          to: toAddr?.name?.trim() || toAddr?.address || "",
           toEmail: toAddr?.address ?? "",
           subject,
           date: msg.envelope.date ?? new Date(),
           isRead: msg.flags.has("\\Seen"),
-          isSpam: detectSpam(subject, fromEmail),
+          isSpam:
+            opts.mailbox === "sent" ? false : detectSpam(subject, fromEmail),
           preview: body.text.slice(0, 140),
           html: body.html,
           text: body.text,
@@ -238,7 +336,7 @@ async function downloadAndPrepare(
     }
 
     if (prepared) {
-      rememberInboxAttachments(uid, prepared.binaries);
+      rememberInboxAttachments(uid, prepared.binaries, opts.mailbox);
       if (opts.markSeen) {
         await client
           .messageFlagsAdd({ uid: String(uid) }, ["\\Seen"], { uid: true })
@@ -255,14 +353,17 @@ async function downloadAndPrepare(
 /**
  * Move a message to Trash (or delete permanently if Trash doesn't exist).
  */
-export async function deleteEmail(uid: number): Promise<void> {
+export async function deleteEmail(
+  uid: number,
+  mailbox: InboxMailbox = "inbox",
+): Promise<void> {
   if (!isImapConfigured()) return;
 
   const client = makeClient();
 
   try {
     await client.connect();
-    await client.mailboxOpen("INBOX");
+    await openMailbox(client, mailbox);
 
     // Try to move to Trash; fall back to permanent delete.
     const trashMoved = await client
@@ -282,14 +383,18 @@ export async function deleteEmail(uid: number): Promise<void> {
 /**
  * Toggle the \Seen flag on a message.
  */
-export async function markEmail(uid: number, read: boolean): Promise<void> {
+export async function markEmail(
+  uid: number,
+  read: boolean,
+  mailbox: InboxMailbox = "inbox",
+): Promise<void> {
   if (!isImapConfigured()) return;
 
   const client = makeClient();
 
   try {
     await client.connect();
-    await client.mailboxOpen("INBOX");
+    await openMailbox(client, mailbox);
 
     if (read) {
       await client.messageFlagsAdd({ uid: String(uid) }, ["\\Seen"], { uid: true });
@@ -314,6 +419,41 @@ export async function getUnreadCount(): Promise<number> {
     const mailbox = await client.mailboxOpen("INBOX");
     // `exists` is the total count; `unseen` may not be on all server responses.
     return (mailbox as unknown as { unseen?: number }).unseen ?? 0;
+  } finally {
+    await client.logout().catch(() => {});
+  }
+}
+
+/**
+ * Save a copy of a message we just sent. SMTP only relays mail; Private Email
+ * does not put that copy in Sent unless we APPEND it.
+ */
+export async function archiveSentCopy(raw: Buffer): Promise<void> {
+  if (!isImapConfigured()) {
+    throw new Error("IMAP not configured");
+  }
+
+  const client = makeClient();
+  try {
+    await client.connect();
+    const preferred = await resolveSentPath(client);
+    const candidates = [...new Set([preferred, ...SENT_FALLBACKS])];
+    let lastError: unknown;
+    for (const path of candidates) {
+      try {
+        const saved = await client.append(path, raw, ["\\Seen"]);
+        if (!saved) throw new Error("Could not save a copy to Sent");
+        sentMailboxPath = path;
+        return;
+      } catch (err) {
+        lastError = err;
+        sentMailboxPath = null;
+        if (!missingMailbox(err)) break;
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Could not save a copy to Sent");
   } finally {
     await client.logout().catch(() => {});
   }

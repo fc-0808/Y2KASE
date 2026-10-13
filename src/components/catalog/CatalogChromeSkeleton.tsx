@@ -77,10 +77,10 @@ export function CatalogGridSkeleton({ count = 15 }: { count?: number }) {
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
-          className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] md:rounded-3xl"
+          className="overflow-hidden bg-transparent"
         >
           <div className={`${PRODUCT_CARD_FRAME} animate-pulse bg-[var(--muted)]`} />
-          <div className="flex flex-col gap-2 p-2.5 md:p-4">
+          <div className="flex flex-col gap-2 pt-2 md:pt-2.5">
             <div className="h-4 w-3/4 animate-pulse rounded bg-[var(--muted)]" />
             <div className="h-4 w-1/3 animate-pulse rounded bg-[var(--muted)]" />
           </div>

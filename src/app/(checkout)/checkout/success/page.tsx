@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { formatPrice } from "@/lib/utils";
+import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
 import { ClearCartOnMount } from "@/components/checkout/ClearCartOnMount";
 import { PurchaseTracking } from "@/components/checkout/PurchaseTracking";
 import { ClaimAccountCard } from "@/components/checkout/ClaimAccountCard";
@@ -173,6 +174,12 @@ export default async function CheckoutSuccessPage({
 
             <div className="mt-4 space-y-1.5 border-t border-[var(--border)] pt-4 text-sm">
               <Row label="Subtotal" value={formatPrice(order.subtotalCents / 100, order.currency)} />
+              {orderDiscountCents(order) > 0 ? (
+                <Row
+                  label={orderDiscountLabel(order)}
+                  value={`−${formatPrice(orderDiscountCents(order) / 100, order.currency)}`}
+                />
+              ) : null}
               <Row
                 label="Shipping"
                 value={

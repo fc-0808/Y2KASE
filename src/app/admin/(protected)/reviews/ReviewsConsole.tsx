@@ -7,7 +7,7 @@ import { Loader2, Check, X, BadgeCheck, RotateCcw } from "lucide-react";
 import { Stars } from "@/components/reviews/Stars";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import type { AdminReview } from "@/lib/reviews";
-import { moderateReview } from "./actions";
+import { moderateReview, saveMerchantReply } from "./actions";
 
 const dateFmt = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -78,6 +78,8 @@ export function ReviewsConsole({ reviews }: { reviews: AdminReview[] }) {
               )}
             </p>
 
+            <ReplyEditor id={r.id} initial={r.merchantReply ?? ""} />
+
             <div className="mt-3 flex items-center gap-2">
               {r.status !== "published" && (
                 <button
@@ -114,5 +116,49 @@ export function ReviewsConsole({ reviews }: { reviews: AdminReview[] }) {
         );
       })}
     </ul>
+  );
+}
+
+function ReplyEditor({ id, initial }: { id: number; initial: string }) {
+  const router = useRouter();
+  const [value, setValue] = useState(initial);
+  const [pending, startTransition] = useTransition();
+  const [note, setNote] = useState<string | null>(null);
+
+  function save() {
+    setNote(null);
+    startTransition(async () => {
+      const result = await saveMerchantReply(id, value);
+      setNote(result.message);
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="mt-3">
+      <label className="text-[11px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
+        Public reply
+      </label>
+      <textarea
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        rows={2}
+        placeholder="Answer a complaint. Leave blank to remove a reply."
+        className="mt-1 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending || value.trim() === initial.trim()}
+          className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-bold hover:border-[var(--primary)] disabled:opacity-50"
+        >
+          Save reply
+        </button>
+        {note && (
+          <span className="text-xs text-[var(--foreground)]/55">{note}</span>
+        )}
+      </div>
+    </div>
   );
 }

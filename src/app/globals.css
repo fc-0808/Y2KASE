@@ -226,11 +226,12 @@ body {
     radial-gradient(circle at 50% 100%, #ddf3ff 0%, rgba(221, 243, 255, 0) 45%);
 }
 
-/* Skip layout and paint for homepage shelves until they approach the viewport.
-   The intrinsic fallback keeps the scroll range stable before first render. */
+/* Homepage shelves used to skip paint with content-visibility: auto.
+   That containment isolates mix-blend-mode, so listing photos could not
+   drop their studio-white backdrop into the page. Leave the class as a
+   marker; do not put paint containment back on these sections. */
 .defer-render {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 500px;
+  content-visibility: visible;
 }
 
 /* Headings default to the rounded display face for kawaii character. */

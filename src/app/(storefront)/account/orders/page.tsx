@@ -12,6 +12,7 @@ import { isSignedInUser } from "@/lib/auth-redirect";
 import { normalizeEmail } from "@/lib/email-address";
 import { trackingLink } from "@/lib/carriers";
 import { formatCents, formatOptionValues } from "@/lib/utils";
+import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -256,6 +257,12 @@ export default async function AccountOrdersPage() {
                   label="Subtotal"
                   value={formatCents(order.subtotalCents, currency)}
                 />
+                {orderDiscountCents(order) > 0 ? (
+                  <MoneyLine
+                    label={orderDiscountLabel(order)}
+                    value={`−${formatCents(orderDiscountCents(order), currency)}`}
+                  />
+                ) : null}
                 <MoneyLine
                   label="Shipping"
                   value={

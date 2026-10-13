@@ -20,6 +20,7 @@ import { getSubscriberStats } from "@/lib/admin/subscribers";
 import { getVisitorOverview, getRecentVisits } from "@/lib/analytics";
 import { formatCents, cn, orderCustomerLabel } from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import { DashboardLiveRefresh } from "./DashboardLiveRefresh";
 
 export const metadata: Metadata = { title: "Admin · Dashboard" };
 export const dynamic = "force-dynamic";
@@ -91,6 +92,10 @@ export default async function AdminDashboardPage() {
         .catch(() => []),
       getRecentVisits(6).catch(() => []),
     ]);
+  // One stamp per request so the client can reset "Updated just now" after
+  // each soft refresh. This page is force-dynamic; a fresh value is the point.
+  // eslint-disable-next-line react-hooks/purity
+  const fetchedAt = Date.now();
 
   const stats = [
     {
@@ -150,6 +155,7 @@ export default async function AdminDashboardPage() {
         <p className="mt-1 max-w-prose text-sm text-[var(--foreground)]/60 text-pretty">
           A live overview of your store — revenue, orders, members and traffic.
         </p>
+        <DashboardLiveRefresh fetchedAt={fetchedAt} />
       </div>
 
       {/* KPI cards — min-w-0 keeps grid tracks from expanding past the viewport */}

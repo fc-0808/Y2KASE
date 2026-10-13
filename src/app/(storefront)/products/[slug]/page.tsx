@@ -16,6 +16,7 @@ import {
   loadProductPageCompanionData,
   ProductPageView,
 } from "@/components/product/ProductPageView";
+import { resolveReviewInvite } from "@/lib/reviews";
 
 /**
  * Public PDP: never durable ISR. CDN caches the HTML for new and returning
@@ -71,15 +72,22 @@ export async function generateMetadata({
 
 export default async function ProductPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ review?: string; stars?: string }>;
 }) {
-  const { slug } = await params;
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
   const product = await getProductBySlug(slug);
   if (!product) notFound();
 
   const { relatedProducts, reviewSummary, reviews, collectionLinks } =
     await loadProductPageCompanionData(product);
+  const invite = await resolveReviewInvite({
+    token: typeof query.review === "string" ? query.review : undefined,
+    productId: product.id,
+    stars: typeof query.stars === "string" ? query.stars : undefined,
+  });
   const currency = (product.currency || "USD").toUpperCase();
   const entryPrice = listingEntryPrice({
     productType: product.productType,
@@ -112,6 +120,7 @@ export default async function ProductPage({
         reviews={reviews}
         collectionLinks={collectionLinks}
         relatedProducts={relatedProducts}
+        invite={invite}
       />
     </>
   );

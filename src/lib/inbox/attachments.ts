@@ -19,6 +19,15 @@ export const INBOX_ATTACHMENT_ID_RE = /^a[0-9]{1,2}$/;
 export const MAX_INBOX_ATTACHMENTS = 40;
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
+/** `inbox` is the hello@ INBOX. `sent` is the mailbox Sent folder. */
+export type InboxMailbox = "inbox" | "sent";
+
+export function parseInboxMailbox(
+  raw: string | null | undefined,
+): InboxMailbox {
+  return raw === "sent" ? "sent" : "inbox";
+}
+
 export type InboxAttachmentDisposition = "inline" | "attachment" | null;
 
 export type InboxAttachment = {
@@ -127,7 +136,7 @@ function imgTagRe(): RegExp {
   return /<img\b[^>]*>/gi;
 }
 function attachUrlRe(): RegExp {
-  return /\/api\/admin\/inbox\/attachment\?uid=(\d+)&(amp;)?id=(a\d+)/g;
+  return /\/api\/admin\/inbox\/attachment\?uid=(\d+)&(amp;)?id=(a\d+)(?:&(amp;)?mailbox=(sent))?/g;
 }
 
 export function attachmentId(index: number): string {
@@ -152,9 +161,10 @@ export function parseAttachmentId(
 export function inboxAttachmentUrl(
   uid: number,
   id: string,
-  opts: { download?: boolean; html?: boolean } = {},
+  opts: { download?: boolean; html?: boolean; mailbox?: InboxMailbox } = {},
 ): string {
   const params = new URLSearchParams({ uid: String(uid), id });
+  if (opts.mailbox === "sent") params.set("mailbox", "sent");
   if (opts.download) params.set("download", "1");
   const url = `${INBOX_ATTACHMENT_PATH}?${params.toString()}`;
   return opts.html ? escapeHtmlAttr(url) : url;
@@ -280,7 +290,10 @@ export function isProbablyTrackingPixel(tag: string): boolean {
 export function collectInboxAttachmentUrls(html: string): string[] {
   const found = new Set<string>();
   for (const match of html.matchAll(attachUrlRe())) {
-    found.add(inboxAttachmentUrl(Number(match[1]), match[3]));
+    const id = match[3];
+    if (!id) continue;
+    const mailbox: InboxMailbox = match[5] === "sent" ? "sent" : "inbox";
+    found.add(inboxAttachmentUrl(Number(match[1]), id, { mailbox }));
   }
   return [...found];
 }
@@ -327,6 +340,7 @@ export function prepareInboxBody(
     attachments?: PostalAttachmentLike[];
   },
   uid: number,
+  mailbox: InboxMailbox = "inbox",
 ): PreparedInboxBody {
   const text = parsed.text ?? "";
   const rawParts = (parsed.attachments ?? []).slice(0, MAX_INBOX_ATTACHMENTS);
@@ -366,6 +380,9 @@ export function prepareInboxBody(
     return { html: null, text, attachments, binaries };
   }
 
+  const partUrl = (id: string) =>
+    inboxAttachmentUrl(uid, id, { html: true, mailbox });
+
   const inlinedIds = new Set<string>();
   const byCid = new Map<string, string>();
   for (const att of attachments) {
@@ -380,7 +397,7 @@ export function prepareInboxBody(
       const id = byCid.get(key);
       if (!id) continue;
       inlinedIds.add(id);
-      return inboxAttachmentUrl(uid, id, { html: true });
+      return partUrl(id);
     }
     return null;
   });
@@ -394,7 +411,7 @@ export function prepareInboxBody(
     const id = leftoverIds[leftover++];
     if (!id) return null;
     inlinedIds.add(id);
-    return inboxAttachmentUrl(uid, id, { html: true });
+    return partUrl(id);
   });
 
   let unbound = 0;
@@ -407,8 +424,7 @@ export function prepareInboxBody(
     const id = unboundIds[unbound++];
     if (!id) return tag;
     inlinedIds.add(id);
-    const url = inboxAttachmentUrl(uid, id, { html: true });
-    return replaceImgSrc(tag, url);
+    return replaceImgSrc(tag, partUrl(id));
   });
 
   for (const att of attachments) {

@@ -12,6 +12,7 @@ import {
   formatAttachmentSize,
   inboxAttachmentUrl,
   type InboxAttachment,
+  type InboxMailbox,
 } from "@/lib/inbox/attachments";
 import {
   useBodyScrollLock,
@@ -21,9 +22,11 @@ import { cn } from "@/lib/utils";
 
 export function EmailAttachments({
   uid,
+  mailbox = "inbox",
   attachments,
 }: {
   uid: number;
+  mailbox?: InboxMailbox;
   attachments: InboxAttachment[];
 }) {
   const listed = attachments.filter((att) => att.listed);
@@ -53,7 +56,7 @@ export function EmailAttachments({
                 className="group w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--muted)] text-left transition hover:border-[var(--primary)]"
               >
                 <span className="relative block aspect-square overflow-hidden bg-white">
-                  <GalleryImage uid={uid} attachment={att} />
+                  <GalleryImage uid={uid} mailbox={mailbox} attachment={att} />
                 </span>
                 <span className="block truncate px-2.5 py-1.5 text-[11px] font-semibold text-[var(--foreground)]/70">
                   {att.filename}
@@ -72,7 +75,7 @@ export function EmailAttachments({
           {files.map((att) => (
             <li key={att.id}>
               <a
-                href={inboxAttachmentUrl(uid, att.id, { download: true })}
+                href={inboxAttachmentUrl(uid, att.id, { download: true, mailbox })}
                 className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm transition hover:border-[var(--primary)]"
               >
                 <FileText className="h-4 w-4 shrink-0 text-[var(--foreground)]/45" />
@@ -92,6 +95,7 @@ export function EmailAttachments({
       {preview && (
         <AttachmentLightbox
           uid={uid}
+          mailbox={mailbox}
           attachment={preview}
           onClose={() => setPreview(null)}
         />
@@ -102,9 +106,11 @@ export function EmailAttachments({
 
 function GalleryImage({
   uid,
+  mailbox,
   attachment,
 }: {
   uid: number;
+  mailbox: InboxMailbox;
   attachment: InboxAttachment;
 }) {
   const [failed, setFailed] = useState(false);
@@ -121,7 +127,7 @@ function GalleryImage({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={inboxAttachmentUrl(uid, attachment.id)}
+      src={inboxAttachmentUrl(uid, attachment.id, { mailbox })}
       alt={attachment.filename}
       className="h-full w-full object-cover"
       onError={() => setFailed(true)}
@@ -131,10 +137,12 @@ function GalleryImage({
 
 function AttachmentLightbox({
   uid,
+  mailbox,
   attachment,
   onClose,
 }: {
   uid: number;
+  mailbox: InboxMailbox;
   attachment: InboxAttachment;
   onClose: () => void;
 }) {
@@ -142,7 +150,7 @@ function AttachmentLightbox({
   useBodyScrollLock(true);
   useModalFocusTrap(dialogRef, true, onClose, attachment.id);
 
-  const src = inboxAttachmentUrl(uid, attachment.id);
+  const src = inboxAttachmentUrl(uid, attachment.id, { mailbox });
 
   return (
     <div
@@ -173,7 +181,10 @@ function AttachmentLightbox({
           </p>
           <div className="flex shrink-0 items-center gap-2">
             <a
-              href={inboxAttachmentUrl(uid, attachment.id, { download: true })}
+              href={inboxAttachmentUrl(uid, attachment.id, {
+                download: true,
+                mailbox,
+              })}
               className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold hover:bg-white/25"
             >
               <Download className="h-3.5 w-3.5" />

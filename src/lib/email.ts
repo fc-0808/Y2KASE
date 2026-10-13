@@ -21,10 +21,11 @@ import { OrderConfirmation } from "@/emails/OrderConfirmation";
 import { MagicLinkEmail } from "@/emails/MagicLinkEmail";
 import { ShipmentEmail } from "@/emails/ShipmentEmail";
 import { AbandonedCartEmail } from "@/emails/AbandonedCartEmail";
-import { ReviewRequestEmail } from "@/emails/ReviewRequestEmail";
+import { ReviewRequestEmail, type ReviewRequestMailItem } from "@/emails/ReviewRequestEmail";
 import { trackingLink } from "@/lib/carriers";
 import { SUPPORT_EMAIL } from "@/lib/support/constants";
 import { SITE_URL } from "@/lib/site";
+import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
 import { listUnsubscribeHeaders } from "@/lib/unsubscribe";
 import { marketingMailReadiness } from "@/lib/marketing/compliance";
 import { recordMarketingSend } from "@/lib/marketing/send-log";
@@ -212,6 +213,9 @@ export async function sendOrderConfirmationOnce(
       })),
       subtotalCents: order.subtotalCents,
       shippingCents: order.shippingCents,
+      discountCents: orderDiscountCents(order),
+      discountLabel:
+        orderDiscountCents(order) > 0 ? orderDiscountLabel(order) : null,
       totalCents: order.totalCents,
       shippingAddress: order.shippingAddress ?? null,
       siteUrl: SITE_URL,
@@ -456,8 +460,8 @@ export async function sendAbandonedCartEmail(params: {
 export async function sendReviewRequestEmail(params: {
   to: string;
   name?: string;
-  productTitle: string;
-  reviewUrl: string;
+  items: ReviewRequestMailItem[];
+  reminder?: boolean;
   unsubscribeUrl?: string;
   idempotencyKey: string;
 }): Promise<boolean> {
@@ -466,6 +470,7 @@ export async function sendReviewRequestEmail(params: {
     console.error("[email] RESEND_API_KEY is missing; review-request mail skipped.");
     return false;
   }
+  if (params.items.length === 0) return false;
   const readiness = marketingMailReadiness();
   if (!readiness.ready) {
     console.error(
@@ -478,8 +483,8 @@ export async function sendReviewRequestEmail(params: {
   try {
     const element = ReviewRequestEmail({
       name: params.name,
-      productTitle: params.productTitle,
-      reviewUrl: params.reviewUrl,
+      items: params.items,
+      reminder: params.reminder,
       unsubscribeUrl: params.unsubscribeUrl,
       postalAddress,
     });
@@ -493,7 +498,9 @@ export async function sendReviewRequestEmail(params: {
         from: senderFor("marketing"),
         replyTo: EMAIL_REPLY_TO,
         to: params.to,
-        subject: "How are you loving your Y2KASE order? ⭐",
+        subject: params.reminder
+          ? "Still time to review your Y2KASE order"
+          : "Does your Y2KASE case look like the photos?",
         topicId,
         html,
         text,
