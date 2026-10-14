@@ -93,7 +93,7 @@ export function ProductCard({
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex h-full min-h-0 w-full flex-1 flex-col bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+      className="group block h-full min-h-0 w-full bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
     >
       <ProductMedia
         src={product.imageUrl}

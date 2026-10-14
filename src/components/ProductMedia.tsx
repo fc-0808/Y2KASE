@@ -69,28 +69,33 @@ export function ProductMedia({
 
   return (
     <div
-      className={`relative overflow-hidden ${
-        bare ? "bg-transparent" : "bg-[var(--product-surface)]"
+      className={`relative ${
+        bare ? "bg-transparent" : "overflow-hidden bg-[var(--product-surface)]"
       }${className ? ` ${className}` : ""}`}
     >
       {showImage && renderable ? (
         bare ? (
+          // The blend has to be outside `overflow: hidden`. Safari on iPhone
+          // otherwise isolates the photo and paints the studio white that
+          // desktop darken-blends away.
           <div className="absolute inset-0 mix-blend-darken">
-            <Image
-              src={renderable}
-              alt={alt}
-              fill
-              sizes={sizes}
-              quality={82}
-              unoptimized
-              loading={loading}
-              fetchPriority={fetchPriority}
-              onError={() => {
-                setFailedSrc(renderable);
-                onImageError?.(renderable);
-              }}
-              className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
-            />
+            <div className="absolute inset-0 overflow-hidden">
+              <Image
+                src={renderable}
+                alt={alt}
+                fill
+                sizes={sizes}
+                quality={82}
+                unoptimized
+                loading={loading}
+                fetchPriority={fetchPriority}
+                onError={() => {
+                  setFailedSrc(renderable);
+                  onImageError?.(renderable);
+                }}
+                className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
+              />
+            </div>
           </div>
         ) : (
           <Image

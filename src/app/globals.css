@@ -181,9 +181,14 @@ html {
   color: var(--foreground);
 }
 
+html {
+  background-color: var(--background);
+}
+
 body {
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  background-color: transparent;
   min-height: 100dvh;
   /* Keeps the footer clear of a page-owned fixed action bar. */
   padding-bottom: var(--bottom-bar-h, 0px);
