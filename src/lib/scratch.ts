@@ -2,11 +2,10 @@
  * Scratch-card prize draw — SERVER ONLY.
  *
  * WHY THIS EXISTS
- * The announcement bar advertises BESTIE10 on every page, so the welcome
- * pop-up cannot buy an email address with it — you cannot trade someone
- * something they can already read at the top of the screen. The scratch card
- * pays out a *subscriber-only* tier instead, and every tier beats the public
- * 10%. That is the whole exchange: the address buys a better price.
+ * Legacy prize draws. The storefront no longer runs the scratch card. A signed
+ * cookie from an old visit is still honoured by /api/subscribe, and a higher
+ * tier (BESTIE20, BESTIE25) still beats the welcome code. BESTIE15 is now the
+ * welcome signup code as well as the old common prize.
  *
  * WHY THE DRAW LIVES ON THE SERVER
  * A prize picked in the browser is not a prize, it is a suggestion — open
@@ -58,11 +57,10 @@ export type Prize = {
 /**
  * The prize table. THIS IS THE MARGIN DIAL — the only place odds are set.
  *
- * Expected discount = Σ(weight × percentOff) / Σ(weight) ≈ 16.75%, against the
- * 10% every visitor can already help themselves to. So the modelled cost of an
- * email address is roughly 6.75 points of margin on that shopper's first order.
- * Tune the weights (or drop the 25% tier entirely) to move that number; nothing
- * else in the codebase needs to change.
+ * Expected discount = Σ(weight × percentOff) / Σ(weight) ≈ 16.75%. New draws
+ * are no longer issued — this table only prices cookies already in the wild.
+ * The welcome signup code is now 15%, so a leftover BESTIE15 draw matches it
+ * and only BESTIE20 / BESTIE25 still beat it.
  *
  * Every tier is a win. That is deliberate on two counts: a "you lost" state
  * poisons the moment you were trying to create, and a promotion where every

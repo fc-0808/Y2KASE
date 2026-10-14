@@ -7,7 +7,7 @@
  * - Sends a branded welcome email with the discount code.
  *
  * WHICH CODE GETS ISSUED
- * WELCOME_COUPON (BESTIE10) by default. If a legacy scratch-draw cookie is still
+ * WELCOME_COUPON (BESTIE15) by default. If a legacy scratch-draw cookie is still
  * present (see `@/lib/scratch`), that signed httpOnly cookie wins instead — so
  * anyone who played the old scratch card before we retired it still receives the
  * tier they were promised. No cookie — footer signup, blocked cookie, expired

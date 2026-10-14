@@ -27,10 +27,9 @@ import {
   supportsExitIntent,
 } from "@/lib/marketing/exit-intent";
 import { readPopupPreview } from "@/lib/marketing/popup-preview";
-import { BUNDLE, computePromotions, WELCOME_COUPON } from "@/lib/promotions";
+import { BUNDLE, computePromotions } from "@/lib/promotions";
 import { cartCount, useCart } from "@/lib/store/cart";
 import {
-  usePromoActions,
   usePromoStore,
   useSavedPromoCode,
   selectSavedCode,
@@ -131,7 +130,6 @@ export function CartRecoveryPop() {
   const items = useCart((state) => state.items);
   const cartOpen = useCart((state) => state.isOpen);
   const savedCode = useSavedPromoCode();
-  const { autoApply } = usePromoActions();
   const blockingOverlay = useHasBlockingOverlay();
   const pathname = usePathname();
 
@@ -244,9 +242,8 @@ export function CartRecoveryPop() {
         markShown(now);
       }
 
-      // BESTIE10 is public and already advertised site-wide. Saving it removes
-      // checkout friction while `autoApply` protects any better incumbent code.
-      autoApply(WELCOME_COUPON.code, "cart-recovery-popup");
+      // The welcome code is earned by email. Recovery only reminds the shopper
+      // of a code they already saved, or of the automatic bundle.
       shownThisLifecycleRef.current = true;
       setTrigger(nextTrigger);
       setIsOpen(true);
@@ -271,7 +268,7 @@ export function CartRecoveryPop() {
       }
       return true;
     },
-    [autoApply, isPreview],
+    [isPreview],
   );
 
   // QA override: add an item, then open `?popup=cart` or `?cart-popup=1`.
@@ -423,7 +420,7 @@ export function CartRecoveryPop() {
     ? `${BUNDLE.label} unlocked`
     : promo.appliedLabel
       ? `${promo.appliedLabel} applied`
-      : `${WELCOME_COUPON.label} saved`;
+      : null;
 
   return (
     <>
@@ -471,7 +468,8 @@ export function CartRecoveryPop() {
                 className="mt-1.5 text-sm leading-relaxed text-[var(--foreground)]/65"
               >
                 You saved {itemCount} {itemCount === 1 ? "item" : "items"} on
-                this device. We also saved your available promo for checkout.
+                this device.
+                {offerLabel ? " Your offer is ready at checkout." : ""}
               </p>
             </div>
 
@@ -510,33 +508,35 @@ export function CartRecoveryPop() {
               </div>
             </div>
 
-            <div className="mt-3 space-y-2 rounded-2xl bg-[var(--primary-soft)]/55 px-4 py-3">
-              <div className="flex items-start gap-2.5">
-                {promo.bundleActive ? (
-                  <Gift
-                    className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <Sparkles
-                    className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]"
-                    aria-hidden="true"
-                  />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm">
-                    <span className="font-extrabold text-[var(--primary)]">
-                      {offerLabel}
-                    </span>
+            {offerLabel && (
+              <div className="mt-3 space-y-2 rounded-2xl bg-[var(--primary-soft)]/55 px-4 py-3">
+                <div className="flex items-start gap-2.5">
+                  {promo.bundleActive ? (
+                    <Gift
+                      className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Sparkles
+                      className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm">
+                      <span className="font-extrabold text-[var(--primary)]">
+                        {offerLabel}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] leading-snug text-[var(--foreground)]/55">
+                      {promo.bundleActive
+                        ? "Automatic bundle pricing takes priority over coupon codes."
+                        : `${promo.appliedCode} is saved to this bag.`}
+                    </p>
                   </div>
-                  <p className="mt-0.5 text-[11px] leading-snug text-[var(--foreground)]/55">
-                    {promo.bundleActive
-                      ? "Automatic bundle pricing takes priority over coupon codes."
-                      : `${promo.appliedCode ?? WELCOME_COUPON.code} is saved to this bag.`}
-                  </p>
                 </div>
               </div>
-            </div>
+            )}
 
             <Link
               href="/cart"

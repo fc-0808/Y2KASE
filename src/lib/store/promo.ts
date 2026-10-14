@@ -4,11 +4,10 @@
  * Saved promo code — the bridge between a marketing surface that hands out a
  * discount and the bag that has to honour it.
  *
- * The welcome offer is no longer gated behind an email, so the pop-up reveals
- * the code on sight. Revealing a *string* still leaves the shopper with
- * homework: remember it, find the promo field on /cart, type it correctly. This
- * store removes that step — a surface saves the code once, and the cart picks
- * it up already applied.
+ * The welcome code is earned by email. Once a surface has it — the pop-up
+ * after subscribe, the footer, the welcome-gift page — this store saves it so
+ * the cart picks it up already applied. The shopper should not have to
+ * remember the string and retype it.
  *
  * Deliberately separate from the cart store:
  *  - A code outlives any particular bag; it is usually saved before there are

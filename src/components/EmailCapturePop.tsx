@@ -4,28 +4,17 @@
  * EmailCapturePop — the welcome pop-up.
  *
  * WHAT IT SHOWS
- * The two promotions the storefront actually runs, stated plainly:
- *   1. Buy 2, Get 2 Free — automatic at 4 units, no code.
- *   2. BESTIE10 — 10% off, handed over on sight and saved to the bag.
- * Both are read from `@/lib/promotions`, so the pop-up cannot advertise a
- * label, a group size or a percentage that checkout does not honour.
- *
- * WHY THE CODE IS NOT GATED
- * It is already given away unconditionally on /welcome-gift, and a "discount"
- * the shopper can reach by closing the modal and clicking a footer link is not
- * something an email address can be charged for. Pretending otherwise reads as
- * a toll booth in front of an open gate. So the code is handed over first, and
- * the address is asked for on the strength of what it actually buys: early
- * access to drops, restock alerts, member-only offers, and a copy of the code
- * in an inbox where it will still be findable next week.
- *
- * That is the same order of operations as /welcome-gift — offer first, ask
- * second — and this pop-up is deliberately its smaller sibling rather than a
- * competing pitch.
+ * The welcome offer from `@/lib/promotions` (`WELCOME_COUPON`), plus a one-line
+ * reminder of the automatic bundle. The percentage is never typed here, so the
+ * pop-up cannot advertise a discount checkout does not honour.
  *
  * THE FLOW
- *   offer   — both promotions, the copyable code, then the membership ask.
- *   success — membership confirmed, with the code repeated for convenience.
+ *   claim   — "Claim your 15% off", with a yes / no. The code stays hidden.
+ *   email   — the address that earns the code.
+ *   success — the issued code, saved to the bag and repeated on screen.
+ *
+ * The code is applied only after a successful subscribe. Opening the dialog
+ * must not save it, or closing the first step would still discount the bag.
  *
  * WHEN IT APPEARS
  * Two triggers, whichever comes first: a short dwell on the page, or scrolling
@@ -96,7 +85,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  *  /welcome-gift landing page, which advertises the same offer at length. */
 const PROMOTION = {
   promotion_id: "welcome_popup",
-  promotion_name: "Welcome pop-up — Buy 2 Get 2 Free + BESTIE10",
+  promotion_name: `Welcome pop-up — ${WELCOME_COUPON.label}`,
   creative_slot: "site_modal",
 } as const;
 
@@ -124,7 +113,7 @@ function readStoredNumber(key: string): number {
   }
 }
 
-type PopupState = "hidden" | "offer" | "success";
+type PopupState = "hidden" | "claim" | "email" | "success";
 
 export function EmailCapturePop() {
   const [state, setState] = useState<PopupState>("hidden");
@@ -144,6 +133,7 @@ export function EmailCapturePop() {
   const [preview] = useState(isPreview);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
   const openAttemptedRef = useRef(false);
   const dwellStartedAtRef = useRef(0);
   const submitAbortRef = useRef<AbortController | null>(null);
@@ -175,6 +165,13 @@ export function EmailCapturePop() {
     setState("hidden");
   }, [preview, state]);
   useModalFocusTrap(dialogRef, isOpen, dismiss, state);
+
+  // The trap parks focus on the dialog when the step changes. The email field
+  // is the thing the shopper came to this step to fill, so it takes over.
+  useEffect(() => {
+    if (state !== "email") return;
+    emailInputRef.current?.focus();
+  }, [state]);
 
   // Dwell is measured per page, from arrival. Declared ahead of the trigger
   // effect so the clock is always set before anything reads it.
@@ -242,8 +239,7 @@ export function EmailCapturePop() {
     }
     openAttemptedRef.current = true;
 
-    autoApply(WELCOME_COUPON.code, "welcome-popup");
-    setState("offer");
+    setState("claim");
 
     if (preview) return;
     try {
@@ -252,7 +248,7 @@ export function EmailCapturePop() {
       // The session claim still prevents repeated dialogs in this lifecycle.
     }
     gaEvent("view_promotion", PROMOTION);
-  }, [autoApply, preview]);
+  }, [preview]);
 
   // Arm the triggers. Eligibility is re-checked whenever the shopper's state
   // changes, so a bag filled mid-countdown stands the campaign down and hands
@@ -331,6 +327,19 @@ export function EmailCapturePop() {
     pathname,
     preview,
   ]);
+
+  function handleClaim() {
+    setError("");
+    setState("email");
+    if (!preview) {
+      gaEvent("select_promotion", { ...PROMOTION, popup_stage: "claim" });
+    }
+  }
+
+  function handleBackToClaim() {
+    setError("");
+    setState("claim");
+  }
 
   function handleCopy() {
     if (!preview) gaEvent("select_promotion", PROMOTION);
@@ -442,86 +451,81 @@ export function EmailCapturePop() {
           </button>
 
           <div className="px-6 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-6">
-            {state === "offer" && (
+            {state === "claim" && (
+              <div className="text-center">
+                <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
+                  Welcome
+                </p>
+                <h2
+                  id="popup-title"
+                  className="mt-2 text-balance font-display text-[1.65rem] font-black leading-tight text-[var(--foreground)] sm:text-[1.85rem]"
+                >
+                  Claim your {WELCOME_COUPON.percentOff}% off
+                </h2>
+                <p className="mx-auto mt-2 max-w-[16rem] text-sm leading-snug text-[var(--foreground)]/65">
+                  Your code arrives by email.
+                </p>
+
+                <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[var(--muted)] px-3.5 py-2.5 text-left">
+                  <span
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-holo text-[var(--primary)]"
+                    aria-hidden="true"
+                  >
+                    <Gift className="h-4 w-4" />
+                  </span>
+                  <p className="min-w-0 text-[13px] font-bold leading-snug text-[var(--foreground)]">
+                    {BUNDLE.label}
+                    <span className="mt-0.5 block text-[11px] font-semibold text-[var(--foreground)]/45">
+                      Automatic on {BUNDLE.groupSize} items. Can’t be combined.
+                    </span>
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleClaim}
+                  className="btn-candy-solid mt-4 inline-flex w-full items-center justify-center gap-1.5 py-3 text-sm"
+                >
+                  Yes, claim it
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={dismiss}
+                  className="mt-1.5 w-full rounded-full px-5 py-2 text-sm font-bold text-[var(--foreground)]/50 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                >
+                  No thanks
+                </button>
+              </div>
+            )}
+
+            {state === "email" && (
               <>
-                <div className="mb-3 text-center">
+                <div className="mb-4 text-center">
                   <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
-                    Join the club
+                    {WELCOME_COUPON.percentOff}% off
                   </p>
                   <h2
                     id="popup-title"
-                    className="mt-1.5 text-balance font-display text-[1.35rem] font-black leading-tight text-[var(--foreground)] sm:text-2xl"
+                    className="mt-2 text-balance font-display text-2xl font-black leading-tight text-[var(--foreground)]"
                   >
-                    Two ways to save today ✨
+                    Enter your email
                   </h2>
+                  <p className="mt-1.5 text-sm leading-snug text-[var(--foreground)]/65">
+                    We’ll send your code.
+                  </p>
                 </div>
 
-                <section aria-labelledby="popup-code-banner">
-                  <p
-                    id="popup-code-banner"
-                    className="mb-1.5 text-center font-pixel text-[11px] font-bold uppercase tracking-tight text-[var(--primary)] sm:text-xs"
-                  >
-                    {codeBanner}
-                  </p>
-                  <PromoCodeBlock
-                    code={code}
-                    onCopy={handleCopy}
-                    hideEyebrow
-                    compact
-                  />
-                </section>
-
-                <section
-                  className="mt-2.5"
-                  aria-labelledby="popup-bundle-label"
-                >
-                  <div className="flex items-center gap-3 rounded-2xl bg-[var(--muted)] px-3.5 py-2.5">
-                    <span
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-holo text-[var(--primary)]"
-                      aria-hidden="true"
-                    >
-                      <Gift className="h-4 w-4" />
-                    </span>
-                    <p
-                      id="popup-bundle-label"
-                      className="min-w-0 text-[13px] font-bold leading-snug text-[var(--foreground)]"
-                    >
-                      {BUNDLE.label}
-                    </p>
-                  </div>
-                </section>
-
-                <p
-                  id="popup-stacking-note"
-                  className="mt-2 text-center text-[11px] leading-snug text-[var(--foreground)]/45"
-                >
-                  Bundle pricing and coupons cannot stack — checkout applies the
-                  offer your bag qualifies for.
-                </p>
-
-                <hr className="my-3 border-t border-[var(--border)]" />
-
-                <p
-                  id="popup-email-pitch"
-                  className="text-center text-[13px] font-semibold leading-snug text-[var(--foreground)]/70"
-                >
-                  Plus, get early access, restocks &amp; offers in your inbox!
-                </p>
-
-                <form
-                  onSubmit={handleSubmit}
-                  className="mt-2 space-y-2"
-                  noValidate
-                  aria-describedby="popup-stacking-note popup-email-pitch"
-                >
+                <form onSubmit={handleSubmit} className="space-y-2" noValidate>
                   <div>
                     <label
                       htmlFor="popup-email"
-                      className="mb-0.5 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50"
+                      className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50"
                     >
-                      Your Email:
+                      Email
                     </label>
                     <input
+                      ref={emailInputRef}
                       id="popup-email"
                       type="email"
                       value={email}
@@ -532,7 +536,7 @@ export function EmailCapturePop() {
                       inputMode="email"
                       aria-invalid={error ? true : undefined}
                       aria-describedby={
-                        error ? "popup-email-error" : undefined
+                        error ? "popup-email-error" : "popup-email-note"
                       }
                       className="w-full rounded-xl border border-[var(--border)] bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
                     />
@@ -553,40 +557,48 @@ export function EmailCapturePop() {
                     disabled={loading || !email.trim()}
                     className="btn-candy-solid w-full py-3 text-sm"
                   >
-                    {loading ? "Joining…" : "Join the Club ✨"}
+                    {loading ? "Sending…" : "Get my code"}
                   </button>
 
-                  <p className="pt-0.5 text-center text-[11px] leading-snug text-[var(--foreground)]/40">
-                    By joining, you agree to receive marketing emails. Unsubscribe
-                    anytime. See our{" "}
+                  <p
+                    id="popup-email-note"
+                    className="pt-0.5 text-center text-[11px] leading-snug text-[var(--foreground)]/40"
+                  >
+                    Marketing emails only. Unsubscribe anytime.
+                    <br />
                     <Link href="/policies/privacy-policy" className="underline">
                       Privacy Policy
                     </Link>
-                    .
                   </p>
                 </form>
+
+                <button
+                  type="button"
+                  onClick={handleBackToClaim}
+                  className="mt-1 w-full rounded-full px-5 py-2 text-sm font-bold text-[var(--foreground)]/50 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                >
+                  Back
+                </button>
               </>
             )}
 
             {state === "success" && (
-              <div role="status" className="py-2 text-center">
-                <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-[var(--primary-soft)]">
-                  <Sparkles className="h-8 w-8 text-[var(--primary)]" />
+              <div role="status" className="py-1 text-center">
+                <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--primary-soft)]">
+                  <Sparkles className="h-7 w-7 text-[var(--primary)]" />
                 </div>
                 <h2
                   id="popup-title"
-                  className="mb-2 text-balance font-display text-2xl font-black text-[var(--foreground)]"
+                  className="mb-1.5 text-balance font-display text-2xl font-black text-[var(--foreground)]"
                 >
-                  {alreadyMember
-                    ? "Welcome back, bestie! 💕"
-                    : "You're in, bestie! 🎉"}
+                  {alreadyMember ? "Welcome back" : "You’re in"}
                 </h2>
-                <p className="mb-5 text-sm leading-relaxed text-[var(--foreground)]/65">
+                <p className="mb-4 text-sm leading-snug text-[var(--foreground)]/65">
                   {alreadyMember
-                    ? "You're already on the VIP list — we'll keep the good stuff coming. 💌"
+                    ? "Your code is saved to your bag."
                     : emailed
-                      ? "Check your inbox 💌 Your code is in there, along with first dibs on every new drop."
-                      : "First dibs on every new drop are on their way. Here's your code again — copy it before you close this. 💾"}
+                      ? "Your code is saved, and a copy is in your inbox."
+                      : "Your code is saved to your bag. Copy it before you close this."}
                 </p>
 
                 <p className="mb-2 font-pixel text-[11px] font-bold uppercase tracking-tight text-[var(--primary)] sm:text-xs">
@@ -602,9 +614,9 @@ export function EmailCapturePop() {
                 <Link
                   href="/products"
                   onClick={dismiss}
-                  className="btn-candy-solid mt-5 inline-block px-8 py-3 text-sm"
+                  className="btn-candy-solid mt-4 inline-block px-8 py-3 text-sm"
                 >
-                  Shop Now ✨
+                  Shop now
                 </Link>
                 <CreateAccountInvite email={email} className="mt-4 text-center text-[13px] leading-snug text-[var(--foreground)]/65" />
               </div>

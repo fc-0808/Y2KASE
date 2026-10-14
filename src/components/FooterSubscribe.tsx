@@ -123,7 +123,7 @@ export function FooterSubscribe() {
           id="footer-email-note"
           className="text-[11px] leading-snug text-[var(--foreground)]/40"
         >
-          Marketing emails only, with {WELCOME_COUPON.code}. Unsubscribe anytime.
+          Marketing emails only. Unsubscribe anytime.
           See our{" "}
           <Link href="/policies/privacy-policy" className="underline">
             Privacy Policy

@@ -71,7 +71,7 @@ export const SUPPORT_TOPICS: SupportTopic[] = [
     question: "Are there any discount codes?",
     // Derived from the promotions engine so the widget can never quote a
     // discount that checkout won't actually apply.
-    answer: `New besties get ${WELCOME_COUPON.percentOff}% off with ${WELCOME_COUPON.code}, and ${BUNDLE.label} applies automatically to any ${BUNDLE.groupSize} items. Paste your code in the bag before you check out — note the two can't be stacked.`,
+    answer: `New besties get ${WELCOME_COUPON.percentOff}% off when they join the club, and ${BUNDLE.label} applies automatically to any ${BUNDLE.groupSize} items. The code arrives by email. The two can't be stacked.`,
     link: {
       label: `Claim ${WELCOME_COUPON.percentOff}% off`,
       href: ROUTES.welcomeGift,

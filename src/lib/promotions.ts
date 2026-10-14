@@ -18,8 +18,8 @@
  *   1. Automatic "Buy 2, Get 2 Free" bundle — activates at 4+ units and makes
  *      the cheapest units free. It tiers: every complete group of 4 units frees
  *      the 2 cheapest of the whole cart (4→2 free, 8→4 free, …).
- *   2. Coupon codes (BESTIE10) — a straight percentage off, only usable when
- *      the bundle is NOT active.
+ *   2. Coupon codes (BESTIE15, and older codes still in circulation) — a
+ *      straight percentage off, only usable when the bundle is NOT active.
  *
  * The bundle ALWAYS wins: if it is active, any entered coupon is ignored so the
  * store never gives away both at once.
@@ -52,11 +52,9 @@ export type LocalCoupon = {
  */
 export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
   /**
-   * PUBLIC. Advertised in the announcement bar on every page, so it is
-   * effectively ungated — anyone can read it without giving us anything.
-   * That is deliberate, and it is also why it can never be the reward for
-   * handing over an email address: there is no trade in swapping an address
-   * for something already printed at the top of the screen.
+   * Still redeemable. This was the public welcome code. Anyone who already
+   * saved or was emailed it keeps 10% off. It stays broadcast-approved so a
+   * full-list campaign can still offer 10% without exposing the signup code.
    */
   BESTIE10: {
     code: "BESTIE10",
@@ -66,15 +64,13 @@ export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
   },
 
   /**
-   * SUBSCRIBER-ONLY scratch-card prizes. Never advertised anywhere on the
-   * storefront — the only way to be told one is to win it and hand over an
-   * email address. Each one beats the public 10%, which is the entire reason
-   * the exchange is worth making.
+   * Welcome signup code. Issued after an email opt-in (pop-up, footer,
+   * welcome-gift page). Not a full-list broadcast code — campaign studio must
+   * not paste it into an announcement for people who never opted in. Checkout
+   * still redeems it for anyone who has the string.
    *
-   * Odds live in `src/lib/scratch.ts`; this map only says what each code is
-   * worth. Retiring a tier is a two-step job: drop it from the prize table
-   * first so it stops being issued, and leave it redeemable here until the
-   * subscribers who already have it have lapsed.
+   * Also the common tier of the retired scratch card, so older draws pay out
+   * the same code. BESTIE20 and BESTIE25 below stay scratch-only.
    */
   BESTIE15: {
     code: "BESTIE15",
@@ -82,6 +78,7 @@ export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
     label: "15% off",
     campaignUse: "individual",
   },
+  /** Retired scratch-card prizes. Still redeemable; never advertise. */
   BESTIE20: {
     code: "BESTIE20",
     percentOff: 20,
@@ -98,8 +95,8 @@ export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
   /**
    * RETIRED — do not advertise, do not issue.
    *
-   * This was the welcome-signup code until we consolidated on BESTIE10. It
-   * stays redeemable because subscribers were already emailed a 15% promise,
+   * This was an earlier welcome-signup code, retired when the offer moved on.
+   * It stays redeemable because subscribers were already emailed a 15% promise,
    * and silently invalidating a coupon you have already sent turns into
    * support tickets and chargebacks. Nothing in the storefront offers it any
    * more, so it retires naturally as those subscribers redeem or lapse.
@@ -121,7 +118,7 @@ export const LOCAL_COUPONS: Record<string, LocalCoupon> = {
  * previous copy hardcoded "15%" in six files, so changing the offer meant
  * finding all six or shipping a number that disagreed with checkout.
  */
-export const WELCOME_COUPON: LocalCoupon = LOCAL_COUPONS.BESTIE10;
+export const WELCOME_COUPON: LocalCoupon = LOCAL_COUPONS.BESTIE15;
 
 /** Resolve a raw, user-typed code to a known coupon (case/space-insensitive). */
 export function resolveLocalCoupon(

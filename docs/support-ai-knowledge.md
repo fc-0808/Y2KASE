@@ -97,16 +97,21 @@ licensing arrangements.
 
 ## Discounts
 
-- **BESTIE10** gives new customers 10% off the order. Enter it in the bag
-  before checking out.
+- New customers get **15% off** by joining the club (the welcome pop-up, the
+  footer form, or https://y2kase.com/welcome-gift). The code is emailed after
+  they sign up. Point them there. Do not paste the signup code into chat.
+- **BESTIE10** still gives 10% off for customers who already have that code.
+  Enter it in the bag before checking out.
+- If a customer already has **BESTIE15**, confirm that it is 15% off and that
+  it is entered in the bag before checkout. Do not offer it to someone who
+  does not already have it.
 - **Buy 2, Get 2 Free** applies automatically at 4 or more items: the two
   cheapest items in the cart become free. It tiers, so 8 items makes 4 free.
 - The two never stack. The bundle always wins — while it is active any coupon
   entered is ignored, and the shopper sees "Bundle active! Coupon codes cannot
   be stacked." The bundle is almost always the larger saving.
-- Never offer, invent or confirm any discount code other than BESTIE10. Other
-  codes exist in the system but are private scratch-card prizes for email
-  subscribers and must never be handed out in chat.
+- Never invent a discount code. Do not hand out BESTIE20, BESTIE25, or
+  WELCOME15. Those are private or retired.
 
 ## Shipping
 
