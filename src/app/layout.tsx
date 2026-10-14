@@ -140,6 +140,69 @@ export default function RootLayout({
         {/* Decorative only — see `.bg-ambient` in globals.css for why the brand
             gradients are a fixed layer instead of a body background. */}
         <div className="bg-ambient" aria-hidden="true" />
+        {/*
+          Listing photos are shot on white. Phone browsers will not run
+          mix-blend-mode through a sideways-scrolling row, so the white is
+          knocked out of the pixels here. The filter has to live in this
+          document — Safari ignores filter:url() that points at another file.
+          Near-white (every channel high) becomes transparent; a light pink
+          or cream pixel stays, because only the darkest channel is measured.
+        */}
+        <svg
+          aria-hidden="true"
+          focusable="false"
+          width="0"
+          height="0"
+          className="pointer-events-none absolute"
+        >
+          <filter
+            id="studio-white-knockout"
+            colorInterpolationFilters="sRGB"
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+          >
+            <feColorMatrix
+              in="SourceGraphic"
+              type="matrix"
+              values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 0 1"
+              result="inv"
+            />
+            <feColorMatrix
+              in="inv"
+              type="matrix"
+              values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 1 0"
+              result="r"
+            />
+            <feColorMatrix
+              in="inv"
+              type="matrix"
+              values="0 1 0 0 0  0 1 0 0 0  0 1 0 0 0  0 0 0 1 0"
+              result="g"
+            />
+            <feColorMatrix
+              in="inv"
+              type="matrix"
+              values="0 0 1 0 0  0 0 1 0 0  0 0 1 0 0  0 0 0 1 0"
+              result="b"
+            />
+            <feBlend in="r" in2="g" mode="lighten" result="rg" />
+            <feBlend in="rg" in2="b" mode="lighten" result="dist" />
+            <feComponentTransfer in="dist" result="mask">
+              <feFuncR type="table" tableValues="0 0 0.15 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1" />
+              <feFuncG type="table" tableValues="0 0 0.15 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1" />
+              <feFuncB type="table" tableValues="0 0 0.15 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1" />
+            </feComponentTransfer>
+            <feColorMatrix
+              in="mask"
+              type="matrix"
+              values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0"
+              result="alpha"
+            />
+            <feComposite in="SourceGraphic" in2="alpha" operator="in" />
+          </filter>
+        </svg>
         {children}
         <Analytics />
         <SpeedInsights />

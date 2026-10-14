@@ -49,8 +49,8 @@ export function ProductMedia({
   /** Extra image classes, e.g. hover transforms. */
   imageClassName?: string;
   /**
-   * Listing tiles only. Drops the white photo well so a studio-white backdrop
-   * blends into the page instead of reading as a card.
+   * Listing tiles only. Drops the white photo well and knocks the studio
+   * white out of the photo, so the page shows through on every browser.
    */
   bare?: boolean;
   /** Sizing for the emoji fallback shown when no image is available. */
@@ -75,11 +75,14 @@ export function ProductMedia({
     >
       {showImage && renderable ? (
         bare ? (
-          // The blend has to be outside `overflow: hidden`. Safari on iPhone
-          // otherwise isolates the photo and paints the studio white that
-          // desktop darken-blends away.
-          <div className="absolute inset-0 mix-blend-darken">
-            <div className="absolute inset-0 overflow-hidden">
+          // The knockout is a filter on these pixels, not a blend with the
+          // page. A scrolling row isolates blend mode on phones (Safari,
+          // Chrome, Firefox), which is why the studio white survived there.
+          <div className="absolute inset-0 overflow-hidden">
+            <div
+              className="absolute inset-0"
+              style={{ filter: "url(#studio-white-knockout)" }}
+            >
               <Image
                 src={renderable}
                 alt={alt}
