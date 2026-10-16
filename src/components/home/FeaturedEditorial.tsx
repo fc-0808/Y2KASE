@@ -78,6 +78,7 @@ function EditorialCard({
   return (
     <Link
       href={entry.href}
+      prefetch={false}
       className={`group relative overflow-hidden rounded-[2rem] border-2 border-white shadow-[0_18px_50px_-28px_rgba(120,60,120,0.6)] ${className}`}
     >
       <Image

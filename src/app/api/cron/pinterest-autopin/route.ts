@@ -25,6 +25,10 @@ import {
   runAutoPin,
   AUTO_PIN_PER_DAY,
 } from "@/lib/social/auto-pin";
+import {
+  heavyBackgroundPaused,
+  heavyBackgroundPausedResponse,
+} from "@/lib/fluid-cpu-reserve";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // seconds — leaves room for rate-limit pauses.
@@ -39,6 +43,7 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  if (heavyBackgroundPaused()) return heavyBackgroundPausedResponse();
   if (!isAutoPinEnabled()) {
     return NextResponse.json({ ok: true, pinned: 0, reason: "disabled" });
   }

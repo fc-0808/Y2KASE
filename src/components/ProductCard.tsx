@@ -93,6 +93,9 @@ export function ProductCard({
   return (
     <Link
       href={`/products/${product.slug}`}
+      // A cold product render is a Fluid function. Prefetch would run one
+      // for every card in view, including for someone who only scrolls.
+      prefetch={false}
       className="group block h-full min-h-0 w-full bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
     >
       <ProductMedia

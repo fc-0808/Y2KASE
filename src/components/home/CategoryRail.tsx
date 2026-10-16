@@ -72,6 +72,7 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
             <Link
               key={c.slug}
               href={`/collections/${c.slug}`}
+              prefetch={false}
               aria-label={c.name}
               className="group w-64 shrink-0 snap-start sm:w-80"
             >
@@ -89,6 +90,7 @@ export function CategoryRail({ categories }: { categories: RailCategory[] }) {
         {/* Trailing "view all" tile */}
         <Link
           href="/collections"
+          prefetch={false}
           className="group w-64 shrink-0 snap-start sm:w-80"
         >
           <div className="grid aspect-video place-items-center rounded-3xl border-2 border-dashed border-[var(--primary)]/40 bg-[var(--card)] p-5 text-center transition duration-300 group-hover:-translate-y-1.5 group-hover:border-[var(--primary)]">

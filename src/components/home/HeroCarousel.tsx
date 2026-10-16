@@ -258,6 +258,7 @@ export function HeroCarousel() {
                   >
                     <Link
                       href={slide.cta.href}
+                      prefetch={false}
                       className="btn-candy inline-flex w-full items-center justify-center gap-2 px-7 py-3 text-base sm:w-auto sm:py-3.5"
                       tabIndex={active ? 0 : -1}
                     >
@@ -266,6 +267,7 @@ export function HeroCarousel() {
                     {slide.secondary && (
                       <Link
                         href={slide.secondary.href}
+                        prefetch={false}
                         tabIndex={active ? 0 : -1}
                         className="hidden w-full items-center justify-center gap-2 rounded-full border-2 border-[var(--border)] bg-[var(--card)] px-6 py-3 font-bold transition hover:border-[var(--primary)] hover:text-[var(--primary)] sm:w-auto md:inline-flex md:bg-[var(--card)]/80 md:backdrop-blur"
                       >

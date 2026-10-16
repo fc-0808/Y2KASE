@@ -48,6 +48,7 @@ export function CatalogPagination({
       ) : (
         <Link
           href={buildCatalogHref(params, { page: params.page - 1 })}
+          prefetch={false}
           className={`${STEP_BASE} border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:text-[var(--primary)]`}
         >
           Prev
@@ -66,6 +67,7 @@ export function CatalogPagination({
           <Link
             key={p}
             href={buildCatalogHref(params, { page: p })}
+            prefetch={false}
             aria-current={p === params.page ? "page" : undefined}
             className={`grid h-10 w-10 place-items-center rounded-full text-sm font-bold transition ${
               p === params.page
@@ -88,6 +90,7 @@ export function CatalogPagination({
       ) : (
         <Link
           href={buildCatalogHref(params, { page: params.page + 1 })}
+          prefetch={false}
           className={`${STEP_BASE} border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:text-[var(--primary)]`}
         >
           Next

@@ -97,10 +97,10 @@ const BLAST_PATHS = [
 
 test("Data Cache is event-driven and storefront HTML uses CDN not ISR", () => {
   assert.equal(DATA_CACHE_REVALIDATE, false);
-  assert.equal(FACETED_CDN_MAX_AGE_SECONDS, 3_600);
-  assert.equal(CANONICAL_CDN_MAX_AGE_SECONDS, 86_400);
-  assert.match(FACETED_CDN_CACHE_CONTROL, /s-maxage=3600/);
-  assert.match(CANONICAL_CDN_CACHE_CONTROL, /s-maxage=86400/);
+  assert.equal(FACETED_CDN_MAX_AGE_SECONDS, 86_400);
+  assert.equal(CANONICAL_CDN_MAX_AGE_SECONDS, 604_800);
+  assert.match(FACETED_CDN_CACHE_CONTROL, /s-maxage=86400/);
+  assert.match(CANONICAL_CDN_CACHE_CONTROL, /s-maxage=604800/);
   assert.match(FEED_CDN_CACHE_CONTROL, /s-maxage=86400/);
   assert.match(OG_CDN_CACHE_CONTROL, /s-maxage=86400/);
 });
@@ -167,6 +167,35 @@ test("only canonical page-1 listings occupy durable catalog Data Cache", () => {
   const products = read("src/lib/products.ts");
   assert.match(products, /export function isDurableCatalogQuery/);
   assert.match(products, /isDurableCatalogQuery\(normalized\)/);
+});
+
+test("product cards do not prefetch a Fluid render per visible SKU", () => {
+  const src = read("src/components/ProductCard.tsx");
+  assert.match(src, /prefetch=\{false\}/);
+});
+
+test("image and metrics crons yield while Fluid CPU is reserved for shoppers", () => {
+  for (const file of [
+    "src/app/api/cron/social-generate/route.ts",
+    "src/app/api/cron/blog-generate/route.ts",
+    "src/app/api/cron/pinterest-autopin/route.ts",
+    "src/app/api/cron/meta-autopost/route.ts",
+    "src/app/api/cron/social-publish/route.ts",
+    "src/app/api/cron/social-analytics/route.ts",
+  ]) {
+    const src = read(file);
+    assert.match(src, /heavyBackgroundPaused\(\)/);
+  }
+  const reserve = read("src/lib/fluid-cpu-reserve.ts");
+  assert.match(reserve, /FLUID_CPU_RESERVE/);
+  assert.doesNotMatch(
+    read("src/app/api/checkout/route.ts"),
+    /heavyBackgroundPaused/,
+  );
+  assert.doesNotMatch(
+    read("src/app/api/webhooks/stripe/route.ts"),
+    /heavyBackgroundPaused/,
+  );
 });
 
 test("proxy matcher stays admin-only so shoppers skip Node CPU", () => {

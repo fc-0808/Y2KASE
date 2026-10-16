@@ -18,6 +18,10 @@ import {
 } from "@/lib/social/creatives";
 import { publishCreative } from "@/lib/social/publish";
 import { isPinterestConfigured } from "@/lib/social/pinterest";
+import {
+  heavyBackgroundPaused,
+  heavyBackgroundPausedResponse,
+} from "@/lib/fluid-cpu-reserve";
 
 export const runtime = "nodejs";
 
@@ -31,6 +35,7 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  if (heavyBackgroundPaused()) return heavyBackgroundPausedResponse();
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: true, published: 0, reason: "no-db" });
   }

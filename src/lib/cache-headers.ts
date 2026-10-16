@@ -12,25 +12,27 @@
  */
 
 /**
- * One hour. A 2-minute window re-ran the catalog function for every bot hit
- * on `/products` and each collection URL — that origin work is Fluid Active
- * CPU, and Hobby's included 4 hours was down to 10 minutes. Filter changes
- * still show up within the hour; the CDN keeps serving the previous HTML
- * while that refresh happens.
+ * One day. An hourly window re-ran the catalog function for every bot hit
+ * on `/products` and each collection URL. That origin work is Fluid Active
+ * CPU, and Hobby's included 4 hours is already spent. Filter changes show
+ * up within a day; the CDN keeps serving the previous HTML while a refresh
+ * happens, so a new visitor never waits on a function for a warm URL.
  */
-export const FACETED_CDN_MAX_AGE_SECONDS = 3_600;
-export const FACETED_CDN_STALE_WHILE_REVALIDATE_SECONDS = 86_400;
+export const FACETED_CDN_MAX_AGE_SECONDS = 86_400;
+export const FACETED_CDN_STALE_WHILE_REVALIDATE_SECONDS = 604_800;
 
 export const FACETED_CDN_CACHE_CONTROL = `public, s-maxage=${FACETED_CDN_MAX_AGE_SECONDS}, stale-while-revalidate=${FACETED_CDN_STALE_WHILE_REVALIDATE_SECONDS}`;
 
 /**
- * Home, PDP, blog, collections index, insights. One origin render per day
- * per path. An hourly crawl of a few hundred product URLs was enough to
- * spend most of the Hobby Fluid CPU allowance. CDN keeps serving stale for
- * a week so a crawler wave cannot reopen that bill.
+ * Home, PDP, blog, collections index, insights. One origin render per week
+ * per path. A daily crawl of the sitemap (about 400 URLs) was enough to
+ * spend the Hobby Fluid Active CPU allowance, and once that allowance is
+ * gone Vercel can stop functions — including checkout. The CDN keeps
+ * serving the previous HTML for 30 days, so a new visitor still gets the
+ * page without a function.
  */
-export const CANONICAL_CDN_MAX_AGE_SECONDS = 86_400;
-export const CANONICAL_CDN_STALE_WHILE_REVALIDATE_SECONDS = 604_800;
+export const CANONICAL_CDN_MAX_AGE_SECONDS = 604_800;
+export const CANONICAL_CDN_STALE_WHILE_REVALIDATE_SECONDS = 2_592_000;
 
 export const CANONICAL_CDN_CACHE_CONTROL = `public, s-maxage=${CANONICAL_CDN_MAX_AGE_SECONDS}, stale-while-revalidate=${CANONICAL_CDN_STALE_WHILE_REVALIDATE_SECONDS}`;
 

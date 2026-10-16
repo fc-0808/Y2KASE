@@ -12,6 +12,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isDbConfigured } from "@/lib/db";
 import { isImageGenConfigured } from "@/lib/social/image-gen";
 import { drainQueue } from "@/lib/social/worker";
+import {
+  heavyBackgroundPaused,
+  heavyBackgroundPausedResponse,
+} from "@/lib/fluid-cpu-reserve";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // seconds (Vercel Pro allows up to 300)
@@ -28,6 +32,7 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  if (heavyBackgroundPaused()) return heavyBackgroundPausedResponse();
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: true, processed: 0, reason: "no-db" });
   }

@@ -16,6 +16,10 @@ import { revalidatePath } from "next/cache";
 import { isDbConfigured } from "@/lib/db";
 import { isBlogGenConfigured } from "@/lib/blog/generate";
 import { runBlogGeneration, BLOG_CRON_BATCH } from "@/lib/blog/engine";
+import {
+  heavyBackgroundPaused,
+  heavyBackgroundPausedResponse,
+} from "@/lib/fluid-cpu-reserve";
 
 export const runtime = "nodejs";
 // Article writing is one chat call, but Nano Banana Pro hero generation polls
@@ -32,6 +36,7 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  if (heavyBackgroundPaused()) return heavyBackgroundPausedResponse();
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: true, generated: 0, reason: "no-db" });
   }

@@ -12,6 +12,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isDbConfigured } from "@/lib/db";
 import { isMetaConfigured } from "@/lib/social/meta";
 import { isMetaAutopostEnabled, runMetaAutopost } from "@/lib/social/meta-autopost";
+import {
+  heavyBackgroundPaused,
+  heavyBackgroundPausedResponse,
+} from "@/lib/fluid-cpu-reserve";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // seconds — video processing + rate-limit pauses.
@@ -26,6 +30,7 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+  if (heavyBackgroundPaused()) return heavyBackgroundPausedResponse();
   if (!isMetaAutopostEnabled()) {
     return NextResponse.json({ ok: true, posted: 0, reason: "disabled" });
   }
