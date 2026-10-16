@@ -36,6 +36,7 @@ export function ProductMedia({
   bare = false,
   fallbackClassName = "text-4xl",
   onImageError,
+  onLoad,
   children,
 }: {
   src?: string | null;
@@ -57,6 +58,8 @@ export function ProductMedia({
   fallbackClassName?: string;
   /** Fired after a requested `src` fails to decode, so galleries can drop it. */
   onImageError?: (src: string) => void;
+  /** Natural size, so a caller can choose cover vs contain. */
+  onLoad?: (size: { width: number; height: number }) => void;
   children?: ReactNode;
 }) {
   const renderable = isStorefrontRenderableUrl(src)
@@ -96,6 +99,15 @@ export function ProductMedia({
                   setFailedSrc(renderable);
                   onImageError?.(renderable);
                 }}
+                onLoad={(event) => {
+                  const img = event.currentTarget;
+                  if (img.naturalWidth > 0) {
+                    onLoad?.({
+                      width: img.naturalWidth,
+                      height: img.naturalHeight,
+                    });
+                  }
+                }}
                 className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
               />
             </div>
@@ -116,6 +128,15 @@ export function ProductMedia({
             onError={() => {
               setFailedSrc(renderable);
               onImageError?.(renderable);
+            }}
+            onLoad={(event) => {
+              const img = event.currentTarget;
+              if (img.naturalWidth > 0) {
+                onLoad?.({
+                  width: img.naturalWidth,
+                  height: img.naturalHeight,
+                });
+              }
             }}
             className={`${fitClass}${imageClassName ? ` ${imageClassName}` : ""}`}
           />

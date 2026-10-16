@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "i18n:check": "tsx scripts/check-i18n.ts",
     "seo:check": "tsx scripts/check-seo.ts",
-    "marketing:check": "tsx scripts/check-marketing.ts && tsx scripts/check-marketing-hero.ts && tsx scripts/check-cadence.ts",
+    "marketing:check": "tsx scripts/check-marketing.ts && tsx scripts/check-marketing-hero.ts && tsx scripts/check-cadence.ts && tsx scripts/check-today-desk.ts",
     "preview:check": "tsx scripts/check-preview.ts",
     "analytics:check": "tsx scripts/check-analytics-defense.ts && tsx scripts/check-analytics-route.ts",
     "performance:check": "tsx scripts/check-performance.ts && tsx scripts/check-cache-policy.ts",

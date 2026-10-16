@@ -31,12 +31,18 @@ import {
 } from "@/lib/collections";
 import { MAGSAFE_TAG, magsafeFacetHref } from "@/lib/catalog/magsafe";
 import { liveProductPageHref } from "@/lib/catalog/product-page";
+import { approvedThumbnailSourceImageId } from "@/lib/catalog/isolated-look";
 
 export type ProductPageCompanionData = {
   relatedProducts: Promise<ProductListItem[]>;
   reviewSummary: ReviewSummary;
   reviews: Review[];
   collectionLinks: StorefrontCollectionLink[];
+  /**
+   * Gallery image the approved cleaned thumbnail was cut from. Null when this
+   * listing has no approved isolated shot, or its source isn't one style.
+   */
+  isolatedSourceImageId: number | null;
 };
 
 /**
@@ -55,15 +61,23 @@ export async function loadProductPageCompanionData(product: {
     console.error("[product-page] related products unavailable:", error);
     return [];
   });
-  const [reviewSummary, reviews, collectionLinks] = await Promise.all([
-    getReviewSummary(product.id),
-    getPublishedReviews(product.id),
-    getProductCollectionLinks(product.id).catch((error) => {
-      console.error("[product-page] collection links unavailable:", error);
-      return [];
-    }),
-  ]);
-  return { relatedProducts, reviewSummary, reviews, collectionLinks };
+  const [reviewSummary, reviews, collectionLinks, isolatedSourceImageId] =
+    await Promise.all([
+      getReviewSummary(product.id),
+      getPublishedReviews(product.id),
+      getProductCollectionLinks(product.id).catch((error) => {
+        console.error("[product-page] collection links unavailable:", error);
+        return [];
+      }),
+      approvedThumbnailSourceImageId(product.id),
+    ]);
+  return {
+    relatedProducts,
+    reviewSummary,
+    reviews,
+    collectionLinks,
+    isolatedSourceImageId,
+  };
 }
 
 /**
@@ -80,6 +94,7 @@ export function ProductPageView({
   reviews,
   collectionLinks,
   relatedProducts,
+  isolatedSourceImageId = null,
   surface = "storefront",
   invite = { status: "none" },
 }: {
@@ -88,6 +103,8 @@ export function ProductPageView({
   reviews: Review[];
   collectionLinks: StorefrontCollectionLink[];
   relatedProducts: Promise<ProductListItem[]>;
+  /** See {@link ProductPageCompanionData.isolatedSourceImageId}. */
+  isolatedSourceImageId?: number | null;
   surface?: "storefront" | "preview";
   invite?: ReviewInviteState;
 }) {
@@ -141,7 +158,9 @@ export function ProductPageView({
           url: i.url,
           altText: i.altText,
           styleTags: i.styleTags ?? [],
+          sourceFilename: i.sourceFilename,
         }))}
+        isolatedSourceImageId={isolatedSourceImageId}
         options={product.options.map((o) => ({
           id: o.id,
           name: o.name,

@@ -81,7 +81,7 @@ export default async function ProductPage({
   const product = await getProductBySlug(slug);
   if (!product) notFound();
 
-  const { relatedProducts, reviewSummary, reviews, collectionLinks } =
+  const { relatedProducts, reviewSummary, reviews, collectionLinks, isolatedSourceImageId } =
     await loadProductPageCompanionData(product);
   const invite = await resolveReviewInvite({
     token: typeof query.review === "string" ? query.review : undefined,
@@ -120,6 +120,7 @@ export default async function ProductPage({
         reviews={reviews}
         collectionLinks={collectionLinks}
         relatedProducts={relatedProducts}
+        isolatedSourceImageId={isolatedSourceImageId}
         invite={invite}
       />
     </>

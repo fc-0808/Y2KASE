@@ -1,17 +1,35 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
-import { getCollectionBreadcrumb, getCollectionBySlug } from "@/lib/collections";
-import { getCatalogPage } from "@/lib/products";
+import type { Collection } from "@/lib/db/schema";
+import { CatalogIdentityLandingSkeleton } from "@/components/catalog/CatalogChromeSkeleton";
+import {
+  getCollectionBreadcrumb,
+  getCollectionBySlug,
+  getCollectionTree,
+  type CollectionNode,
+} from "@/lib/collections";
+import { getCatalogPage, type ProductQuery } from "@/lib/products";
+import { isColorFamilySlug } from "@/lib/catalog/colors";
+import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
 import { JsonLd } from "@/components/JsonLd";
+import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
+import {
+  CatalogSummary,
+  buildCatalogChips,
+} from "@/components/catalog/CatalogSummary";
 import { CatalogPagination } from "@/components/catalog/CatalogPagination";
+import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import {
   breadcrumbJsonLd,
+  catalogCanonicalHref,
   catalogPageMetadata,
   collectionPageJsonLd,
   faqJsonLd,
+  isIndexableCatalogPage,
 } from "@/lib/seo";
 import {
   IPHONE_18_COLLECTIONS,
@@ -23,9 +41,24 @@ import {
   isIphone18FitSlug,
   type Iphone18CollectionSlug,
 } from "@/lib/seo/fit-landings";
-import type { CatalogParams } from "@/lib/catalog/params";
+import {
+  buildCatalogHref,
+  dropIncompatibleFacets,
+  hasActiveFilters,
+  parseCatalogParams,
+  type CatalogParams,
+  type CatalogSearchParams,
+} from "@/lib/catalog/params";
 
-/** One indexable URL per character. Facet query strings are not this page. */
+/**
+ * iPhone 18 character landings.
+ *
+ * The route already scopes the grid to one collection and to iPhone cases.
+ * Sort, search, and the other facets use the same URL state as
+ * `/collections/{slug}` — written back onto this path, and omitted from the
+ * indexable URL. `device` and `collection` stay out of that state: they are
+ * the page, not filters a shopper can clear.
+ */
 export const dynamic = "force-dynamic";
 export const dynamicParams = false;
 
@@ -36,30 +69,72 @@ export function generateStaticParams() {
   }));
 }
 
-type FitSearchParams = Record<string, string | string[] | undefined>;
-
-function cleanFitPage(sp: FitSearchParams): { page: number; dirty: boolean } {
-  const dirty = Object.entries(sp).some(([key, value]) => {
-    if (key === "page" || value === undefined) return false;
-    return Array.isArray(value) ? value.length > 0 : value !== "";
-  });
-  const raw = Array.isArray(sp.page) ? sp.page[0] : sp.page;
-  const page = Number(raw);
-  return {
-    page: Number.isInteger(page) && page > 1 ? Math.min(page, 1_000) : 1,
-    dirty,
-  };
+function findNode(nodes: CollectionNode[], slug: string): CollectionNode | null {
+  for (const node of nodes) {
+    if (node.slug === slug) return node;
+    const hit = findNode(node.children, slug);
+    if (hit) return hit;
+  }
+  return null;
 }
 
-function fitCatalogParams(basePath: string, page: number): CatalogParams {
-  return {
-    basePath,
-    brands: [],
-    colors: [],
-    motifs: [],
-    sort: "newest",
-    page,
-  };
+/** "character" → "Characters", for the facet trigger. */
+function facetLabel(kind: string | undefined): string {
+  if (!kind) return "Collections";
+  return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}s`;
+}
+
+/** Stocked children of this collection — the only subtree facet that can match. */
+function stockedChildren(
+  tree: CollectionNode[],
+  slug: string,
+): CollectionNode[] {
+  return (findNode(tree, slug)?.children ?? []).filter(
+    (child) => child.totalCount > 0,
+  );
+}
+
+/**
+ * Blank the facets this route already applies, and drop brand slugs it cannot
+ * offer. Callers redirect when the resulting href differs from the request.
+ */
+function scopeFitCatalog(
+  requested: CatalogParams,
+  offered: ReadonlySet<string>,
+): CatalogParams {
+  return dropIncompatibleFacets({
+    ...requested,
+    device: undefined,
+    collection: undefined,
+    brands: requested.brands.filter((slug) => offered.has(slug)),
+  });
+}
+
+type FitCatalogState = {
+  basePath: string;
+  children: CollectionNode[];
+  catalogParams: CatalogParams;
+};
+
+async function readFitCatalog(
+  slug: string,
+  searchParams: Promise<CatalogSearchParams>,
+): Promise<FitCatalogState> {
+  const basePath = iphone18FitPath(slug);
+  const [raw, tree] = await Promise.all([
+    searchParams,
+    getCollectionTree().catch(() => [] as CollectionNode[]),
+  ]);
+  const requested = parseCatalogParams(raw, basePath);
+  const children = stockedChildren(tree, slug);
+  const catalogParams = scopeFitCatalog(
+    requested,
+    new Set(children.map((child) => child.slug)),
+  );
+  if (buildCatalogHref(catalogParams) !== buildCatalogHref(requested)) {
+    redirect(buildCatalogHref(catalogParams));
+  }
+  return { basePath, children, catalogParams };
 }
 
 export async function generateMetadata({
@@ -67,22 +142,20 @@ export async function generateMetadata({
   searchParams,
 }: {
   params: Promise<{ slug: string; fit: string }>;
-  searchParams: Promise<FitSearchParams>;
+  searchParams: Promise<CatalogSearchParams>;
 }): Promise<Metadata> {
   const { slug, fit } = await params;
   if (!isIphone18FitSlug(fit) || !isIphone18CollectionSlug(slug)) notFound();
-  const [{ page, dirty }, collection] = await Promise.all([
-    searchParams.then(cleanFitPage),
+  const [collection, { catalogParams }] = await Promise.all([
     getCollectionBySlug(slug),
+    readFitCatalog(slug, searchParams),
   ]);
   if (!collection) notFound();
-  const basePath = iphone18FitPath(slug);
-  if (dirty) redirect(page > 1 ? `${basePath}?page=${page}` : basePath);
   const copy = iphone18FitCopy(collection.name, slug);
   return catalogPageMetadata({
     title: copy.title,
     description: copy.description,
-    params: fitCatalogParams(basePath, page),
+    params: catalogParams,
     openGraphImage: null,
   });
 }
@@ -92,41 +165,80 @@ export default async function Iphone18FitPage({
   searchParams,
 }: {
   params: Promise<{ slug: string; fit: string }>;
-  searchParams: Promise<FitSearchParams>;
+  searchParams: Promise<CatalogSearchParams>;
 }) {
   const { slug, fit } = await params;
   if (!isIphone18FitSlug(fit) || !isIphone18CollectionSlug(slug)) notFound();
-
-  const basePath = iphone18FitPath(slug);
-  const [{ page, dirty }, collection] = await Promise.all([
-    searchParams.then(cleanFitPage),
+  const [collection, fitState] = await Promise.all([
     getCollectionBySlug(slug),
+    readFitCatalog(slug, searchParams),
   ]);
   if (!collection) notFound();
-  if (dirty) redirect(page > 1 ? `${basePath}?page=${page}` : basePath);
 
-  const catalogParams = fitCatalogParams(basePath, page);
-  const [{ items, total, pageSize }, breadcrumb] = await Promise.all([
-    getCatalogPage({
-      collection: slug,
-      device: "iphone",
-      page,
-      sort: "newest",
-    }),
-    getCollectionBreadcrumb(collection),
-  ]);
+  return (
+    <Suspense fallback={<CatalogIdentityLandingSkeleton />}>
+      <Iphone18FitCatalog
+        collection={collection}
+        slug={slug}
+        fitState={fitState}
+      />
+    </Suspense>
+  );
+}
 
-  if (total === 0) notFound();
+async function Iphone18FitCatalog({
+  collection,
+  slug,
+  fitState,
+}: {
+  collection: Collection;
+  slug: Iphone18CollectionSlug;
+  fitState: FitCatalogState;
+}) {
+  const { basePath, children, catalogParams } = fitState;
+  const indexable = isIndexableCatalogPage(catalogParams);
+  const canonical = catalogCanonicalHref(catalogParams);
+
+  const query: ProductQuery = {
+    search: catalogParams.q,
+    tag: catalogParams.tag,
+    device: "iphone",
+    collection: slug,
+    brands: catalogParams.brands,
+    colors: catalogParams.colors.filter(isColorFamilySlug),
+    motifs: catalogParams.motifs.filter(isMotifFamilySlug),
+    magsafe: catalogParams.magsafe,
+    page: catalogParams.page,
+    sort: catalogParams.sort,
+  };
+
+  const [{ items, total, pageSize, facetCounts }, breadcrumb] =
+    await Promise.all([
+      getCatalogPage(
+        query,
+        children.map((child) => child.slug),
+      ),
+      getCollectionBreadcrumb(collection),
+    ]);
+
+  const filtered = hasActiveFilters(catalogParams);
+  if (total === 0 && !filtered) notFound();
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (page > totalPages) {
-    redirect(
-      totalPages > 1 ? `${basePath}?page=${totalPages}` : basePath,
-    );
+  if (total > 0 && catalogParams.page > totalPages) {
+    redirect(buildCatalogHref(catalogParams, { page: totalPages }));
   }
 
-  const copy = iphone18FitCopy(collection.name, slug as Iphone18CollectionSlug);
+  const brandOptions = children.filter(
+    (child) =>
+      (facetCounts.brands[child.slug] ?? 0) > 0 ||
+      catalogParams.brands.includes(child.slug),
+  );
+  const copy = iphone18FitCopy(collection.name, slug);
   const accent = collection.accentColor ?? "var(--primary)";
+  const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
+  const rangeEnd = Math.min(catalogParams.page * pageSize, total);
+  const chips = buildCatalogChips(catalogParams, { brands: brandOptions });
   const chipClass =
     "inline-flex min-h-11 shrink-0 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2";
   const crumbs = [
@@ -144,16 +256,22 @@ export default async function Iphone18FitPage({
       <JsonLd
         data={[
           breadcrumbJsonLd(crumbs),
-          collectionPageJsonLd({
-            name: copy.heading,
-            description: copy.description,
-            url: catalogParams.page > 1 ? `${basePath}?page=${catalogParams.page}` : basePath,
-            items: items.map((product) => ({
-              name: product.title,
-              url: `/products/${product.slug}`,
-            })),
-          }),
-          ...(catalogParams.page === 1 ? [faqJsonLd(copy.faqs)] : []),
+          ...(indexable && total > 0
+            ? [
+                collectionPageJsonLd({
+                  name: copy.heading,
+                  description: copy.description,
+                  url: canonical,
+                  items: items.map((product) => ({
+                    name: product.title,
+                    url: `/products/${product.slug}`,
+                  })),
+                }),
+              ]
+            : []),
+          ...(indexable && catalogParams.page === 1
+            ? [faqJsonLd(copy.faqs)]
+            : []),
         ]}
       />
 
@@ -174,38 +292,66 @@ export default async function Iphone18FitPage({
             {collection.name}
           </Link>
           <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
-          <span aria-current="page" className="shrink-0 font-semibold text-[var(--foreground)]">
+          <span
+            aria-current="page"
+            className="shrink-0 font-semibold text-[var(--foreground)]"
+          >
             iPhone 18
           </span>
         </nav>
-        <div className="mt-1.5 flex items-baseline justify-between gap-3">
-          <h1 className="min-w-0 text-[1.65rem] font-black leading-none tracking-tight sm:text-4xl">
-            <span className="sr-only">{copy.heading}</span>
-            <span aria-hidden="true" className="block truncate">
-              {collection.name}
-            </span>
-          </h1>
-          <p className="shrink-0 text-xs font-semibold tabular-nums text-[var(--foreground)]/50">
-            {total} {total === 1 ? "design" : "designs"}
-          </p>
-        </div>
+        <h1 className="mt-1.5 min-w-0 text-[1.65rem] font-black leading-none tracking-tight sm:text-4xl">
+          <span className="sr-only">{copy.heading}</span>
+          <span aria-hidden="true" className="block truncate">
+            {collection.name}
+          </span>
+        </h1>
         <p className="mt-1 text-sm font-medium text-[var(--foreground)]/65">
           Pro & Pro Max
         </p>
       </header>
 
-      <div className={PRODUCT_MOSAIC}>
-        {items.map((product, index) => (
-          <ProductCard
-            key={product.id}
-            product={product}
-            imagePriority={index === 0}
-            headingLevel={2}
-            showDeviceBadge={false}
-          />
-        ))}
-      </div>
-      <CatalogPagination params={catalogParams} totalPages={totalPages} />
+      <CatalogToolbar
+        params={catalogParams}
+        brands={brandOptions}
+        counts={facetCounts}
+        brandsLabel={facetLabel(children[0]?.kind)}
+        lockedDevice="iphone"
+        searchPlaceholder={`Search ${collection.name}…`}
+        searchLabel={`Search ${collection.name} iPhone 18 cases`}
+        resultCount={total}
+        resetHref={filtered ? basePath : undefined}
+      />
+
+      <CatalogSummary
+        total={total}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        chips={chips}
+        resetHref={filtered ? basePath : undefined}
+      />
+
+      {items.length > 0 ? (
+        <>
+          <div className={PRODUCT_MOSAIC}>
+            {items.map((product, index) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                imagePriority={index === 0}
+                headingLevel={2}
+                showDeviceBadge={false}
+              />
+            ))}
+          </div>
+          <CatalogPagination params={catalogParams} totalPages={totalPages} />
+        </>
+      ) : (
+        <CatalogEmpty
+          filtered={filtered}
+          resetHref={basePath}
+          icon={collection.icon ?? "🔍"}
+        />
+      )}
 
       <section className="mt-8 min-w-0 max-w-3xl border-t border-[var(--border)] pt-6 sm:mt-12">
         <h2 className="text-base font-black sm:text-lg">Keep shopping</h2>
@@ -244,7 +390,7 @@ export default async function Iphone18FitPage({
         </div>
       </section>
 
-      {catalogParams.page === 1 && (
+      {indexable && catalogParams.page === 1 && (
         <section className="mt-8 max-w-3xl sm:mt-10">
           <h2 className="text-lg font-black">Questions</h2>
           <div className="mt-3 space-y-3">
@@ -253,7 +399,9 @@ export default async function Iphone18FitPage({
                 key={faq.question}
                 className="rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3.5"
               >
-                <h3 className="text-[15px] font-bold leading-snug">{faq.question}</h3>
+                <h3 className="text-[15px] font-bold leading-snug">
+                  {faq.question}
+                </h3>
                 <p className="mt-1.5 text-pretty text-sm leading-relaxed text-[var(--foreground)]/75">
                   {faq.answer}
                 </p>

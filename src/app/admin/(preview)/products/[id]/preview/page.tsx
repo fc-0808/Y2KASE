@@ -53,7 +53,7 @@ export default async function UnpublishedProductPreviewPage({
     redirect(liveProductPageHref(product.slug));
   }
 
-  const { relatedProducts, reviewSummary, reviews, collectionLinks } =
+  const { relatedProducts, reviewSummary, reviews, collectionLinks, isolatedSourceImageId } =
     await loadProductPageCompanionData(product);
 
   return (
@@ -69,6 +69,7 @@ export default async function UnpublishedProductPreviewPage({
         reviews={reviews}
         collectionLinks={collectionLinks}
         relatedProducts={relatedProducts}
+        isolatedSourceImageId={isolatedSourceImageId}
         surface="preview"
       />
     </>

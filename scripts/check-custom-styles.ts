@@ -32,6 +32,11 @@ import {
   validateCustomStylesDraft,
   variationImage,
 } from "../src/lib/catalog/custom-styles";
+import {
+  NORMALIZED_THUMBNAIL_FILENAME,
+  confirmationImageForStyle,
+} from "../src/lib/catalog/style-confirmation";
+import { NORMALIZED_THUMBNAIL_SOURCE } from "../src/lib/db/schema";
 import { normalizeImageStyleTags, styleTagsFor } from "../src/lib/pricing";
 import {
   editorCanonicalStyles,
@@ -428,6 +433,76 @@ test("removing every default bundle stays removed when custom styles remain", ()
   assert.deepEqual(
     editorCanonicalStyles("airpod_case", ["Case Only"], 1),
     ["Case Only"],
+  );
+});
+
+test("confirmation row keeps a photo for every style", () => {
+  assert.equal(NORMALIZED_THUMBNAIL_FILENAME, NORMALIZED_THUMBNAIL_SOURCE);
+  const images = [
+    {
+      id: 1,
+      url: "/thumb",
+      styleTags: [] as string[],
+      sourceFilename: "thumbnail-normalized",
+    },
+    {
+      id: 2,
+      url: "/scene-charm",
+      styleTags: ["Case + Grip + Charm"],
+      sourceFilename: "01_front_with_ch",
+    },
+    {
+      id: 3,
+      url: "/scene-grip",
+      styleTags: ["Case + Grip"],
+      sourceFilename: "original_01",
+    },
+    {
+      id: 4,
+      url: "/source-grip",
+      styleTags: ["Case + Grip"],
+      sourceFilename: "original_10",
+    },
+    {
+      id: 5,
+      url: "/white-case",
+      styleTags: ["Case Only"],
+      sourceFilename: "白底图",
+    },
+  ];
+  assert.equal(
+    confirmationImageForStyle(images, "Case + Grip", {
+      isolatedSourceImageId: 4,
+    })?.url,
+    "/thumb",
+  );
+  assert.equal(
+    confirmationImageForStyle(images, "Case + Grip + Charm", {
+      isolatedSourceImageId: 4,
+    })?.url,
+    "/scene-charm",
+  );
+  assert.equal(
+    confirmationImageForStyle(images, "Grip Only", {
+      isolatedSourceImageId: 4,
+    })?.url,
+    "/thumb",
+  );
+  assert.equal(
+    confirmationImageForStyle(images, "Case Only", {
+      isolatedSourceImageId: 4,
+    })?.url,
+    "/white-case",
+  );
+  assert.equal(
+    confirmationImageForStyle(images, "Charm Only", {
+      isolatedSourceImageId: 4,
+    })?.url,
+    "/scene-charm",
+  );
+  assert.equal(
+    confirmationImageForStyle(images, undefined, { isolatedSourceImageId: 4 }),
+    undefined,
   );
 });
 

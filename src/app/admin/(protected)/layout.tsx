@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/auth";
 import { AdminNavbar } from "@/components/admin/AdminNavbar";
+import { TodayDeskProvider } from "@/components/admin/TodayDesk";
+import { getTodayDesk } from "@/lib/admin/today-desk-data";
 
 export default async function AdminLayout({
   children,
@@ -15,15 +17,19 @@ export default async function AdminLayout({
     redirect("/admin/sign-in");
   }
 
+  const desk = await getTodayDesk();
+
   return (
-    <div className="min-h-dvh bg-background">
-      <AdminNavbar user={session.user} />
-      {/* lg:pl-64 offsets content to the right of the fixed 256px sidebar.
-          min-w-0 + overflow-x-clip stop wide flex/grid children from forcing
-          horizontal scroll on the whole admin shell (phones especially). */}
-      <div className="min-w-0 lg:pl-64">
-        <main className="min-h-dvh min-w-0 overflow-x-clip">{children}</main>
+    <TodayDeskProvider initial={desk}>
+      <div className="min-h-dvh bg-background">
+        <AdminNavbar user={session.user} />
+        {/* lg:pl-64 offsets content to the right of the fixed 256px sidebar.
+            min-w-0 + overflow-x-clip stop wide flex/grid children from forcing
+            horizontal scroll on the whole admin shell (phones especially). */}
+        <div className="min-w-0 lg:pl-64">
+          <main className="min-h-dvh min-w-0 overflow-x-clip">{children}</main>
+        </div>
       </div>
-    </div>
+    </TodayDeskProvider>
   );
 }

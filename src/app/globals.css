@@ -437,6 +437,23 @@ h1, h2, h3, .font-display {
   100% { background-position: 0% 50%; }
 }
 
+/* Variation thumb under the mobile pickers. A short crossfade — the new
+   shot fades in over the one leaving — so a style tap never flashes empty. */
+@keyframes style-preview-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes style-preview-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.style-preview-in {
+  animation: style-preview-in 220ms ease-out both;
+}
+.style-preview-out {
+  animation: style-preview-out 220ms ease-in both;
+}
+
 /* Mobile announcement bar: fade between two offers in a fixed-height slot.
    ~4s readable dwell per offer, ~0.6s crossfade, 8s total loop. */
 @keyframes announce-a {
@@ -469,7 +486,9 @@ h1, h2, h3, .font-display {
   .animate-twinkle,
   .bg-holo-shimmer,
   .announce-rotate__a,
-  .announce-rotate__b {
+  .announce-rotate__b,
+  .style-preview-in,
+  .style-preview-out {
     animation: none !important;
   }
   .animate-float-up,
@@ -478,8 +497,10 @@ h1, h2, h3, .font-display {
     opacity: 1 !important;
     transform: none !important;
   }
-  .announce-rotate__a { opacity: 1 !important; }
-  .announce-rotate__b { opacity: 0 !important; }
+  .announce-rotate__a,
+  .style-preview-in { opacity: 1 !important; }
+  .announce-rotate__b,
+  .style-preview-out { opacity: 0 !important; }
 }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */

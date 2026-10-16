@@ -16,6 +16,7 @@ import {
   normalizeCustomStyles,
   variationImage,
 } from "@/lib/catalog/custom-styles";
+import { confirmationImageForStyle } from "@/lib/catalog/style-confirmation";
 import { priceAxisFor } from "@/lib/catalog/product-types";
 import {
   AIRPODS_MODEL_OPTION_NAME,
@@ -34,6 +35,10 @@ import {
   type ProductGallerySlide,
 } from "@/components/product/ProductGallery";
 import { ProductOptions } from "@/components/product/ProductOptions";
+import {
+  PRODUCT_PHOTOS_ID,
+  SelectedLookPreview,
+} from "@/components/product/SelectedLookPreview";
 import { StickyBuyBar } from "@/components/product/StickyBuyBar";
 
 type Option = { id: number; name: string; values: string[] };
@@ -42,6 +47,7 @@ type Img = {
   url: string;
   altText: string | null;
   styleTags: string[];
+  sourceFilename?: string | null;
 };
 
 type Slide = ProductGallerySlide;
@@ -90,6 +96,7 @@ export function ProductDetailClient({
   options,
   customStyles: customStylesInput,
   stylePrices,
+  isolatedSourceImageId = null,
   trackCommerce = true,
 }: {
   productId: number;
@@ -112,6 +119,11 @@ export function ProductDetailClient({
   customStyles?: unknown;
   /** Canonical bundle prices that differ from the shared table. */
   stylePrices?: unknown;
+  /**
+   * Gallery image the approved cleaned thumbnail was cut from. The mobile
+   * confirmation row shows that thumbnail only for the style it depicts.
+   */
+  isolatedSourceImageId?: number | null;
   /**
    * Commerce pixels (view + add-to-cart). Off on unpublished admin previews
    * so draft inspections do not pollute storefront analytics.
@@ -256,6 +268,32 @@ export function ProductDetailClient({
     );
   }, [trackCommerce, productId, slug, title, currentPrice, currency, selected]);
 
+  const previewImage = confirmationImageForStyle(gallery, selectedStyle, {
+    customStyles,
+    isolatedSourceImageId,
+  });
+  const lookTitle = selectedStyle ?? "";
+  const lookDetail = axes
+    .filter((option) => option.name !== STYLE_OPTION_NAME)
+    .map((option) => selected[option.name])
+    .filter(Boolean)
+    .join(" · ");
+
+  function revealSelectedPhoto() {
+    const match = imageForStyleSelection(gallery, selectedStyle, customStyles);
+    if (match) {
+      const imgIdx = gallery.findIndex((img) => img.id === match.id);
+      if (imgIdx >= 0) setActiveSlide(imageIndexToSlideIndex(imgIdx));
+    }
+    const node = document.getElementById(PRODUCT_PHOTOS_ID);
+    if (!node) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    node.scrollIntoView({
+      behavior: reduce ? "auto" : "smooth",
+      block: "start",
+    });
+  }
+
   function handleAdd() {
     if (!allSelected) return;
     addItem({
@@ -264,11 +302,11 @@ export function ProductDetailClient({
       title,
       price: currentPrice,
       currency,
-      // Cart thumbnail reflects the chosen Style (its first tagged photo),
-      // falling back to the hero image when the style has no dedicated shot.
+      // Prefer the isolated confirmation shot. Otherwise the style's own
+      // tagged photo, then the hero.
       imageUrl:
+        previewImage?.url ??
         variationImage(gallery, selectedStyle, customStyles)?.url ??
-        gallery[0]?.url ??
         null,
       options: selected,
     });
@@ -291,12 +329,17 @@ export function ProductDetailClient({
 
   return (
     <div className="grid gap-5 pb-[max(5rem,calc(80px+env(safe-area-inset-bottom)))] sm:gap-8 lg:grid-cols-2 lg:pb-0">
-      <ProductGallery
-        slides={slides}
-        activeIndex={Math.min(activeSlide, lastSlide)}
-        onActiveIndexChange={setActiveSlide}
-        onImageError={noteBrokenImage}
-      />
+      <div
+        id={PRODUCT_PHOTOS_ID}
+        className="min-w-0 scroll-mt-[var(--storefront-header-h)]"
+      >
+        <ProductGallery
+          slides={slides}
+          activeIndex={Math.min(activeSlide, lastSlide)}
+          onActiveIndexChange={setActiveSlide}
+          onImageError={noteBrokenImage}
+        />
+      </div>
 
       <div className="flex min-w-0 flex-col gap-5 sm:gap-6">
         <div>
@@ -373,6 +416,16 @@ export function ProductDetailClient({
               : undefined
           }
         />
+
+        {previewImage ? (
+          <SelectedLookPreview
+            src={previewImage.url}
+            title={lookTitle || lookDetail}
+            detail={lookTitle ? lookDetail : ""}
+            onViewLarger={revealSelectedPhoto}
+            onImageError={noteBrokenImage}
+          />
+        ) : null}
 
         <button
           ref={addButtonRef}
