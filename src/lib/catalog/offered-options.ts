@@ -24,6 +24,7 @@ import {
   orderModels,
   orderStyles,
   summarizeModels,
+  usesIphoneStyleTable,
 } from "../pricing";
 import {
   customStyleByLabel,
@@ -118,7 +119,7 @@ export function normalizeOfferedPriceValues(
 ): string[] {
   const axis = priceAxisFor(productTypeId);
   if (!axis) return [];
-  if (productTypeId === "iphone_case") return orderStyles(values);
+  if (usesIphoneStyleTable(productTypeId)) return orderStyles(values);
   const allowed = new Set(axis.values);
   return orderAgainstCanon(
     axis.values,
@@ -160,7 +161,7 @@ export function editorCanonicalStyles(
   const normalized = normalizeOfferedPriceValues(productTypeId, stored);
   if (normalized.length > 0) return normalized;
   if (customCount > 0) return [];
-  if (productTypeId === "iphone_case") return ["Case Only"];
+  if (usesIphoneStyleTable(productTypeId)) return ["Case Only"];
   if (productTypeId === "airpod_case") return [...AIRPODS_STYLES];
   const axis = priceAxisFor(productTypeId);
   return axis ? [...axis.values] : [];

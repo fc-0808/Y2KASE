@@ -12,7 +12,7 @@ import {
 import * as React from "react";
 
 interface ShipmentEmailProps {
-  orderId: number;
+  orderNumber: string;
   name?: string;
   carrier?: string | null;
   trackingNumber?: string | null;
@@ -22,7 +22,7 @@ interface ShipmentEmailProps {
 }
 
 export function ShipmentEmail({
-  orderId,
+  orderNumber,
   name,
   carrier,
   trackingNumber,
@@ -35,7 +35,7 @@ export function ShipmentEmail({
   return (
     <Html lang="en">
       <Head />
-      <Preview>Your Y2KASE order #{String(orderId)} is on its way 📦✨</Preview>
+      <Preview>Your Y2KASE order {orderNumber} is on its way 📦✨</Preview>
       <Body style={bodyStyle}>
         <Container style={containerStyle}>
           <Section style={headerStyle}>
@@ -46,7 +46,7 @@ export function ShipmentEmail({
           <Section style={contentStyle}>
             <Text style={greetingStyle}>{greeting}</Text>
             <Text style={paraStyle}>
-              Your order <strong>#{orderId}</strong> has shipped and is heading
+              Your order <strong>{orderNumber}</strong> has shipped and is heading
               your way. 📦💕
             </Text>
 

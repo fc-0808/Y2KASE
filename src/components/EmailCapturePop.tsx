@@ -436,46 +436,46 @@ export function EmailCapturePop() {
         aria-modal="true"
         aria-labelledby="popup-title"
         tabIndex={-1}
-        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[51] mx-auto max-h-[min(100dvh-2rem,calc(100svh-2rem))] max-w-md overflow-y-auto overscroll-contain focus:outline-none sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2"
+        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[51] mx-auto max-h-[min(100dvh-2rem,calc(100svh-2rem))] max-w-md overflow-y-auto overscroll-contain focus:outline-none sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 md:w-[min(40rem,calc(100vw-4rem))] md:max-w-none"
       >
-        <div className="card-cute relative overflow-hidden animate-float-up">
-          <div className="h-1.5 w-full bg-holo-vivid" />
+        <div className="card-cute relative overflow-hidden animate-float-up md:flex md:min-h-[min(30rem,calc(100dvh-5rem))] md:flex-col">
+          <div className="h-1.5 w-full bg-holo-vivid md:h-2" />
 
           <button
             type="button"
             onClick={dismiss}
             aria-label="Close"
-            className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full bg-[var(--muted)] text-[var(--foreground)]/60 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] transition"
+            className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full bg-[var(--muted)] text-[var(--foreground)]/60 transition hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] md:right-5 md:top-5 md:h-10 md:w-10"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4 md:h-[18px] md:w-[18px]" />
           </button>
 
-          <div className="px-6 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-6">
+          <div className="px-6 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-6 md:flex md:flex-1 md:flex-col md:justify-center md:px-12 md:pb-11 md:pt-10">
             {state === "claim" && (
               <div className="text-center">
-                <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
+                <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)] md:text-[11px]">
                   Welcome
                 </p>
                 <h2
                   id="popup-title"
-                  className="mt-2 text-balance font-display text-[1.65rem] font-black leading-tight text-[var(--foreground)] sm:text-[1.85rem]"
+                  className="mt-2 text-balance font-display text-[1.65rem] font-black leading-tight text-[var(--foreground)] sm:text-[1.85rem] md:mt-3 md:text-[2.5rem] md:leading-[1.05]"
                 >
                   Claim your {WELCOME_COUPON.percentOff}% off
                 </h2>
-                <p className="mx-auto mt-2 max-w-[16rem] text-sm leading-snug text-[var(--foreground)]/65">
+                <p className="mx-auto mt-2 max-w-[16rem] text-sm leading-snug text-[var(--foreground)]/65 md:mt-3 md:max-w-sm md:text-base md:leading-relaxed">
                   Your code arrives by email.
                 </p>
 
-                <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[var(--muted)] px-3.5 py-2.5 text-left">
+                <div className="mt-4 flex items-center gap-3 rounded-2xl bg-[var(--muted)] px-3.5 py-2.5 text-left md:mt-7 md:gap-4 md:px-4 md:py-3.5">
                   <span
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-holo text-[var(--primary)]"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-holo text-[var(--primary)] md:h-11 md:w-11 md:rounded-2xl"
                     aria-hidden="true"
                   >
-                    <Gift className="h-4 w-4" />
+                    <Gift className="h-4 w-4 md:h-5 md:w-5" />
                   </span>
-                  <p className="min-w-0 text-[13px] font-bold leading-snug text-[var(--foreground)]">
+                  <p className="min-w-0 text-[13px] font-bold leading-snug text-[var(--foreground)] md:text-[15px]">
                     {BUNDLE.label}
-                    <span className="mt-0.5 block text-[11px] font-semibold text-[var(--foreground)]/45">
+                    <span className="mt-0.5 block text-[11px] font-semibold text-[var(--foreground)]/45 md:text-xs">
                       Automatic on {BUNDLE.groupSize} items. Can’t be combined.
                     </span>
                   </p>
@@ -484,15 +484,15 @@ export function EmailCapturePop() {
                 <button
                   type="button"
                   onClick={handleClaim}
-                  className="btn-candy-solid mt-4 inline-flex w-full items-center justify-center gap-1.5 py-3 text-sm"
+                  className="btn-candy-solid mt-4 inline-flex w-full items-center justify-center gap-1.5 py-3 text-sm md:mt-7 md:gap-2 md:py-3.5 md:text-base"
                 >
                   Yes, claim it
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Sparkles className="h-3.5 w-3.5 md:h-4 md:w-4" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
                   onClick={dismiss}
-                  className="mt-1.5 w-full rounded-full px-5 py-2 text-sm font-bold text-[var(--foreground)]/50 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                  className="mt-1.5 w-full rounded-full px-5 py-2 text-sm font-bold text-[var(--foreground)]/50 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)] md:mt-2 md:py-2.5 md:text-[15px]"
                 >
                   No thanks
                 </button>
@@ -501,26 +501,26 @@ export function EmailCapturePop() {
 
             {state === "email" && (
               <>
-                <div className="mb-4 text-center">
-                  <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)]">
+                <div className="mb-4 text-center md:mb-6">
+                  <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)] md:text-[11px]">
                     {WELCOME_COUPON.percentOff}% off
                   </p>
                   <h2
                     id="popup-title"
-                    className="mt-2 text-balance font-display text-2xl font-black leading-tight text-[var(--foreground)]"
+                    className="mt-2 text-balance font-display text-2xl font-black leading-tight text-[var(--foreground)] md:mt-3 md:text-[2.5rem] md:leading-[1.05]"
                   >
                     Enter your email
                   </h2>
-                  <p className="mt-1.5 text-sm leading-snug text-[var(--foreground)]/65">
+                  <p className="mt-1.5 text-sm leading-snug text-[var(--foreground)]/65 md:mt-3 md:text-base md:leading-relaxed">
                     We’ll send your code.
                   </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-2" noValidate>
+                <form onSubmit={handleSubmit} className="space-y-2 md:space-y-3" noValidate>
                   <div>
                     <label
                       htmlFor="popup-email"
-                      className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50"
+                      className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/50 md:mb-1.5 md:text-[13px]"
                     >
                       Email
                     </label>
@@ -538,7 +538,7 @@ export function EmailCapturePop() {
                       aria-describedby={
                         error ? "popup-email-error" : "popup-email-note"
                       }
-                      className="w-full rounded-xl border border-[var(--border)] bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                      className="w-full rounded-xl border border-[var(--border)] bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 md:rounded-2xl md:px-4 md:py-3.5 md:text-base"
                     />
                   </div>
 
@@ -555,14 +555,14 @@ export function EmailCapturePop() {
                   <button
                     type="submit"
                     disabled={loading || !email.trim()}
-                    className="btn-candy-solid w-full py-3 text-sm"
+                    className="btn-candy-solid w-full py-3 text-sm md:py-3.5 md:text-base"
                   >
                     {loading ? "Sending…" : "Get my code"}
                   </button>
 
                   <p
                     id="popup-email-note"
-                    className="pt-0.5 text-center text-[11px] leading-snug text-[var(--foreground)]/40"
+                    className="pt-0.5 text-center text-[11px] leading-snug text-[var(--foreground)]/40 md:pt-1 md:text-xs md:leading-relaxed"
                   >
                     Marketing emails only. Unsubscribe anytime.
                     <br />
@@ -575,7 +575,7 @@ export function EmailCapturePop() {
                 <button
                   type="button"
                   onClick={handleBackToClaim}
-                  className="mt-1 w-full rounded-full px-5 py-2 text-sm font-bold text-[var(--foreground)]/50 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                  className="mt-1 w-full rounded-full px-5 py-2 text-sm font-bold text-[var(--foreground)]/50 transition hover:bg-[var(--muted)] hover:text-[var(--foreground)] md:mt-2 md:py-2.5 md:text-[15px]"
                 >
                   Back
                 </button>
@@ -583,17 +583,17 @@ export function EmailCapturePop() {
             )}
 
             {state === "success" && (
-              <div role="status" className="py-1 text-center">
-                <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--primary-soft)]">
-                  <Sparkles className="h-7 w-7 text-[var(--primary)]" />
+              <div role="status" className="py-1 text-center md:py-0">
+                <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--primary-soft)] md:mb-4 md:h-16 md:w-16">
+                  <Sparkles className="h-7 w-7 text-[var(--primary)] md:h-8 md:w-8" />
                 </div>
                 <h2
                   id="popup-title"
-                  className="mb-1.5 text-balance font-display text-2xl font-black text-[var(--foreground)]"
+                  className="mb-1.5 text-balance font-display text-2xl font-black text-[var(--foreground)] md:mb-2 md:text-[2.5rem] md:leading-[1.05]"
                 >
                   {alreadyMember ? "Welcome back" : "You’re in"}
                 </h2>
-                <p className="mb-4 text-sm leading-snug text-[var(--foreground)]/65">
+                <p className="mb-4 text-sm leading-snug text-[var(--foreground)]/65 md:mb-5 md:text-base md:leading-relaxed">
                   {alreadyMember
                     ? "Your code is saved to your bag."
                     : emailed
@@ -601,7 +601,7 @@ export function EmailCapturePop() {
                       : "Your code is saved to your bag. Copy it before you close this."}
                 </p>
 
-                <p className="mb-2 font-pixel text-[11px] font-bold uppercase tracking-tight text-[var(--primary)] sm:text-xs">
+                <p className="mb-2 font-pixel text-[11px] font-bold uppercase tracking-tight text-[var(--primary)] sm:text-xs md:mb-3 md:text-[13px]">
                   {codeBanner}
                 </p>
                 <PromoCodeBlock
@@ -614,11 +614,11 @@ export function EmailCapturePop() {
                 <Link
                   href="/products"
                   onClick={dismiss}
-                  className="btn-candy-solid mt-4 inline-block px-8 py-3 text-sm"
+                  className="btn-candy-solid mt-4 inline-block px-8 py-3 text-sm md:mt-6 md:px-10 md:py-3.5 md:text-base"
                 >
                   Shop now
                 </Link>
-                <CreateAccountInvite email={email} className="mt-4 text-center text-[13px] leading-snug text-[var(--foreground)]/65" />
+                <CreateAccountInvite email={email} className="mt-4 text-center text-[13px] leading-snug text-[var(--foreground)]/65 md:mt-5 md:text-sm md:leading-relaxed" />
               </div>
             )}
           </div>

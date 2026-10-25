@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MapPin, User as UserIcon, CreditCard, Truck } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
-import { getOrderById } from "@/lib/admin/orders";
+import { resolveAdminOrder } from "@/lib/admin/orders";
 import { formatCents, formatOptionValues, countryFlag, countryName } from "@/lib/utils";
 import { trackingLink } from "@/lib/carriers";
 import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
@@ -32,10 +32,7 @@ export default async function AdminOrderDetailPage({
   }
 
   const { id } = await params;
-  const orderId = Number(id);
-  if (!Number.isFinite(orderId)) notFound();
-
-  const order = await getOrderById(orderId);
+  const order = await resolveAdminOrder(id);
   if (!order) notFound();
 
   const addr = order.shippingAddress;
@@ -61,7 +58,7 @@ export default async function AdminOrderDetailPage({
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-3 text-3xl font-black">
-            Order #{order.id}
+            Order {order.orderNumber}
             <StatusBadge status={order.status} />
           </h1>
           <p className="mt-1 text-sm text-[var(--foreground)]/60">

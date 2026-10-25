@@ -1,4 +1,4 @@
-import { count, desc, max, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, max, sql } from "drizzle-orm";
 import { db, isDbConfigured } from "@/lib/db";
 import { users, orders } from "@/lib/db/schema";
 
@@ -12,7 +12,13 @@ export type MemberRow = {
   image: string | null;
   isAnonymous: boolean;
   createdAt: Date;
-  orderCount: number;
+  /** Paid, shipped, or delivered. Pending checkouts are not included. */
+  paidOrderCount: number;
+  /** Checkouts started but not yet paid. */
+  pendingOrderCount: number;
+  cancelledOrderCount: number;
+  refundedOrderCount: number;
+  /** Spend from paid, shipped, and delivered orders only. */
   totalSpentCents: number;
   lastOrderAt: Date | null;
 };
@@ -31,9 +37,15 @@ const REVENUE_STATUSES = ["paid", "shipped", "delivered"] as const;
 /**
  * All members, newest first, each joined to lifetime order aggregates.
  *
- * We aggregate orders in a separate grouped query and merge in memory rather
- * than joining-then-grouping, which keeps the user row counts exact and avoids
- * fan-out double counting.
+ * Paid orders are paid, shipped, or delivered. Pending checkouts are counted
+ * separately so a member who never paid is not shown as a buyer. An order
+ * belongs to the account on `user_id` when that is set. Guest checkouts have
+ * no account id, so they are matched by email — the same rule as My Orders.
+ * Staff-preview orders (`admin_hidden`) stay out of these totals.
+ *
+ * Orders are aggregated in a separate grouped query and merged in memory
+ * rather than joining-then-grouping, which keeps the user row counts exact
+ * and avoids fan-out double counting.
  */
 export async function getMembers(): Promise<MemberRow[]> {
   if (!isDbConfigured()) return [];
@@ -54,16 +66,31 @@ export async function getMembers(): Promise<MemberRow[]> {
       .orderBy(desc(users.createdAt)),
     db
       .select({
-        userId: orders.userId,
-        orderCount: count(),
-        spent: sql<number>`coalesce(sum(case when ${orders.status} in ('paid','shipped','delivered') then ${orders.totalCents} else 0 end), 0)`,
+        memberId: sql<string | null>`coalesce(${orders.userId}, ${users.id})`.as(
+          "member_id",
+        ),
+        paidOrderCount: sql<number>`count(*) filter (where ${orders.status} in ('paid','shipped','delivered'))`,
+        pendingOrderCount: sql<number>`count(*) filter (where ${orders.status} = 'pending')`,
+        cancelledOrderCount: sql<number>`count(*) filter (where ${orders.status} = 'cancelled')`,
+        refundedOrderCount: sql<number>`count(*) filter (where ${orders.status} = 'refunded')`,
+        spent: sql<number>`coalesce(sum(${orders.totalCents}) filter (where ${orders.status} in ('paid','shipped','delivered')), 0)`,
         lastOrderAt: max(orders.createdAt),
       })
       .from(orders)
-      .groupBy(orders.userId),
+      .leftJoin(
+        users,
+        and(
+          isNull(orders.userId),
+          sql`lower(btrim(${users.email})) = lower(btrim(${orders.email}))`,
+        ),
+      )
+      .where(eq(orders.adminHidden, false))
+      .groupBy(sql`coalesce(${orders.userId}, ${users.id})`),
   ]);
 
-  const byUser = new Map(agg.filter((a) => a.userId).map((a) => [a.userId!, a]));
+  const byUser = new Map(
+    agg.filter((a) => a.memberId).map((a) => [a.memberId!, a]),
+  );
 
   return people.map((p) => {
     const a = byUser.get(p.id);
@@ -76,7 +103,10 @@ export async function getMembers(): Promise<MemberRow[]> {
       image: p.image,
       isAnonymous: Boolean(p.isAnonymous),
       createdAt: p.createdAt,
-      orderCount: a?.orderCount ?? 0,
+      paidOrderCount: Number(a?.paidOrderCount ?? 0),
+      pendingOrderCount: Number(a?.pendingOrderCount ?? 0),
+      cancelledOrderCount: Number(a?.cancelledOrderCount ?? 0),
+      refundedOrderCount: Number(a?.refundedOrderCount ?? 0),
       totalSpentCents: Number(a?.spent ?? 0),
       lastOrderAt: a?.lastOrderAt ?? null,
     };

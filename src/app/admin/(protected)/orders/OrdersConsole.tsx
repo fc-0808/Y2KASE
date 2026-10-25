@@ -64,7 +64,7 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
                     href={`/admin/orders/${o.id}`}
                     className="font-mono font-bold text-[var(--primary)] hover:underline"
                   >
-                    #{o.id}
+                    {o.orderNumber}
                   </Link>
                 </td>
                 <td className="max-w-[200px] px-4 py-3">

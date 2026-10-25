@@ -448,9 +448,12 @@ function termsFor(brand: BrandKnowledge): RegistryTerm[] {
 // loaded means nothing is lost — the registry simply falls back to the canon,
 // which is the behaviour that shipped before any of this existed.
 //
-// Every lookup below reads `active`, so all of them stay synchronous. That is
+// Lookups stay synchronous and read the process-wide registry. That is
 // deliberate: `./listing-title` is pure and I/O-free by contract, and turning
 // this async would make composing a title an awaitable operation everywhere.
+// A save that must see a brand just written passes a registry it compiled
+// from `collections` into `resolveBrandAssignment` instead of hoping this
+// module's copy was the one that got installed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type CompiledRegistry = {
@@ -582,7 +585,51 @@ function union(values: readonly string[]): string[] {
 }
 
 const CANON = compileRegistry(BRAND_KNOWLEDGE);
-let active: CompiledRegistry = CANON;
+
+/**
+ * One registry for the whole process.
+ *
+ * Next compiles this file once per server layer (the page render and the
+ * server action are not the same module instance). A `let` on the module is
+ * therefore a different variable in each copy: installing Usahana into the
+ * copy the page loaded leaves the copy the save action calls still on the
+ * built-in list, which is the "not in the brand registry" rejection. The
+ * slot lives on `globalThis` so every copy reads and writes the same one.
+ */
+const REGISTRY_GLOBAL = Symbol.for("y2kase.brandRegistry");
+
+type RegistrySlot = { current: CompiledRegistry };
+
+function registrySlot(): RegistrySlot {
+  const root = globalThis as typeof globalThis & {
+    [REGISTRY_GLOBAL]?: RegistrySlot;
+  };
+  let slot = root[REGISTRY_GLOBAL];
+  if (!slot) {
+    slot = { current: CANON };
+    root[REGISTRY_GLOBAL] = slot;
+  }
+  return slot;
+}
+
+function currentRegistry(): CompiledRegistry {
+  return registrySlot().current;
+}
+
+/**
+ * Canon plus these runtime entries, as a registry object.
+ *
+ * Pass the result into {@link resolveBrandAssignment} when the decision must
+ * not depend on which copy of this module is currently installed. An empty
+ * overlay is the canon itself.
+ */
+export function compileBrandRegistry(
+  overlay: readonly BrandKnowledge[],
+): CompiledRegistry {
+  return overlay.length === 0
+    ? CANON
+    : compileRegistry(mergeBrandRegistries(BRAND_KNOWLEDGE, overlay));
+}
 
 /**
  * Replace the active registry with the canon plus these runtime entries.
@@ -591,20 +638,17 @@ let active: CompiledRegistry = CANON;
  * run it once per request without a second thought.
  */
 export function installBrandRegistry(overlay: readonly BrandKnowledge[]): void {
-  active =
-    overlay.length === 0
-      ? CANON
-      : compileRegistry(mergeBrandRegistries(BRAND_KNOWLEDGE, overlay));
+  registrySlot().current = compileBrandRegistry(overlay);
 }
 
 /** Drop back to the built-in canon. Used by tests and by the guard suite. */
 export function resetBrandRegistry(): void {
-  active = CANON;
+  registrySlot().current = CANON;
 }
 
 /** Every brand currently classifiable — canon plus whatever was installed. */
 export function activeBrandKnowledge(): readonly BrandKnowledge[] {
-  return active.entries;
+  return currentRegistry().entries;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -613,14 +657,14 @@ export function activeBrandKnowledge(): readonly BrandKnowledge[] {
 
 /** The registry entry for a brand id, or null. */
 export function brandById(id: string): BrandKnowledge | null {
-  return active.entries.find((b) => b.id === id) ?? null;
+  return currentRegistry().entries.find((b) => b.id === id) ?? null;
 }
 
 /** The registry entry for a character id, with its owning brand. */
 export function characterById(
   id: string,
 ): { brand: BrandKnowledge; character: CharacterKnowledge } | null {
-  for (const brand of active.entries) {
+  for (const brand of currentRegistry().entries) {
     const character = brand.characters?.find((c) => c.id === id);
     if (character) return { brand, character };
   }
@@ -670,7 +714,12 @@ export type BrandResolution =
 export function resolveBrandAssignment(
   brandInput: string | null | undefined,
   characterInput?: string | null,
+  registry?: CompiledRegistry,
 ): BrandResolution {
+  // The installed registry is the default. Callers that just read the
+  // collections table pass that object in, so the answer cannot change
+  // because a different copy of this module is still on the built-in list.
+  const active = registry ?? currentRegistry();
   const brandKey = exactKey(brandInput);
   const characterKey = exactKey(characterInput);
   if (!brandKey && !characterKey) {
@@ -734,7 +783,7 @@ export function findBrandKnowledge(
   if (!text) return null;
   const hay = normalizeText(text);
   if (!hay) return null;
-  const hits = active.terms.filter((t) => hay.includes(t.needle));
+  const hits = currentRegistry().terms.filter((t) => hay.includes(t.needle));
   return bestTerm(hits)?.brand ?? null;
 }
 
@@ -766,7 +815,7 @@ export function classifyBrandContext(
   const hay = normalizeText(textParts.filter(Boolean).join(" "));
   if (!hay) return EMPTY_BRAND_CLASSIFICATION;
 
-  const hits = active.terms.filter((t) => hay.includes(t.needle));
+  const hits = currentRegistry().terms.filter((t) => hay.includes(t.needle));
   const best = bestTerm(hits);
   if (!best) return EMPTY_BRAND_CLASSIFICATION;
 
@@ -832,7 +881,7 @@ export type BrandOption = {
  */
 export function listBrandOptions(): BrandOption[] {
   const canonIds = new Set(BRAND_KNOWLEDGE.map((brand) => brand.id));
-  return active.entries
+  return currentRegistry().entries
     .map((brand) => ({
       id: brand.id,
       name: brand.brand,

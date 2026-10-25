@@ -216,7 +216,7 @@ export default async function AdminDashboardPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="shrink-0 font-mono text-sm font-bold">
-                            #{o.id}
+                            {o.orderNumber}
                           </span>
                           <StatusBadge status={o.status} className="shrink-0" />
                         </div>

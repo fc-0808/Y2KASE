@@ -40,6 +40,7 @@ import {
   displayedStylePrices,
   getStylePrice,
   STORE_CURRENCY,
+  usesIphoneStyleTable,
 } from "@/lib/pricing";
 import { compareFilenamesNatural } from "@/lib/utils";
 import { compatibilityAxisFor } from "@/lib/catalog/product-types";
@@ -750,7 +751,37 @@ function IndividualWorkspace({
                 </>
               ) : (
                 <>
-                  {hasPriceAxis(activeMeta.productType) && (
+                  {activeMeta.productType === "iphone_duo_case" ? (
+                    <div className="rounded-2xl border border-[var(--border)] p-3.5">
+                      <p className="mb-2 flex items-center gap-1.5 text-sm font-bold">
+                        <Layers className="h-4 w-4" /> Style
+                      </p>
+                      <p className="text-xs text-[var(--foreground)]/60">
+                        iPhone Duo ships Case Only, at the iPhone Case Only
+                        price. Grip and charm stay on the numbered iPhone line.
+                      </p>
+                      <label className="mt-2.5 flex items-center justify-between gap-2 text-[11px] font-semibold">
+                        <span>Case Only</span>
+                        <span className="flex items-center gap-1 text-[var(--foreground)]/45">
+                          <span>{activeMeta.currency}</span>
+                          <StylePriceSelect
+                            style="Case Only"
+                            currency={activeMeta.currency}
+                            value={active.stylePrices["Case Only"] ?? ""}
+                            onChange={(price) =>
+                              updateActive({
+                                styles: ["Case Only"],
+                                stylePrices: {
+                                  ...active.stylePrices,
+                                  "Case Only": price,
+                                },
+                              })
+                            }
+                          />
+                        </span>
+                      </label>
+                    </div>
+                  ) : hasPriceAxis(activeMeta.productType) && (
                     <div className="rounded-2xl border border-[var(--border)] p-3.5">
                       <p className="mb-2 flex items-center gap-1.5 text-sm font-bold">
                         <Layers className="h-4 w-4" /> Style variations
@@ -1578,7 +1609,7 @@ function draftFromProduct(p: BulkEditProduct): Draft {
     containsMultipleProducts: p.containsMultipleProducts,
     customStyles: p.customStyles,
     stylePrices: displayedStylePrices(
-      isIphoneCase ? STYLES : AIRPODS_STYLES,
+      usesIphoneStyleTable(p.productType) ? STYLES : AIRPODS_STYLES,
       p.currency,
       p.stylePrices,
     ),

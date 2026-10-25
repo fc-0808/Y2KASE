@@ -13,6 +13,7 @@ import { db, isDbConfigured } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
 import type { Order, OrderItem } from "@/lib/db/schema";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/admin/order-status";
+import { canonicalOrderNumber } from "@/lib/orders/number";
 
 export { ORDER_STATUSES, type OrderStatus };
 
@@ -45,19 +46,27 @@ export function isOrderView(value: string): boolean {
   );
 }
 
+/** Staff preview rows stay on the customer account and out of every admin view. */
+function adminVisible(extra?: SQL): SQL | undefined {
+  const visible = eq(orders.adminHidden, false);
+  return extra ? and(visible, extra) : visible;
+}
+
 /** Translate an admin view/status key into a Drizzle WHERE clause. */
 function viewWhere(view?: string): SQL | undefined {
   if (!view) {
     // "All" — real orders only (money was collected at some point).
-    return isNotNull(orders.stripePaymentIntentId);
+    return adminVisible(isNotNull(orders.stripePaymentIntentId));
   }
   if (view === "incomplete") {
-    return and(
-      isNull(orders.stripePaymentIntentId),
-      inArray(orders.status, [...UNPAID_STATUSES]),
+    return adminVisible(
+      and(
+        isNull(orders.stripePaymentIntentId),
+        inArray(orders.status, [...UNPAID_STATUSES]),
+      ),
     );
   }
-  return eq(orders.status, view);
+  return adminVisible(eq(orders.status, view));
 }
 
 /** The cart lines an admin needs in the orders table — title, options, qty. */
@@ -118,16 +127,37 @@ export type OrderWithDetail = Order & {
   user: { id: string; name: string; email: string } | null;
 };
 
-export async function getOrderById(id: number): Promise<OrderWithDetail | null> {
+async function findVisibleOrder(
+  where: SQL,
+): Promise<OrderWithDetail | null> {
   if (!isDbConfigured()) return null;
   const row = await db.query.orders.findFirst({
-    where: eq(orders.id, id),
+    where: and(where, eq(orders.adminHidden, false)),
     with: {
       items: true,
       user: { columns: { id: true, name: true, email: true } },
     },
   });
   return row ?? null;
+}
+
+export async function getOrderById(id: number): Promise<OrderWithDetail | null> {
+  return findVisibleOrder(eq(orders.id, id));
+}
+
+/**
+ * Admin URLs stay on the serial id. A pasted buyer reference (YK-482913)
+ * resolves too, so support can open the order from the email subject.
+ */
+export async function resolveAdminOrder(
+  param: string,
+): Promise<OrderWithDetail | null> {
+  const orderNumber = canonicalOrderNumber(param);
+  if (orderNumber) return findVisibleOrder(eq(orders.orderNumber, orderNumber));
+  if (/^\d+$/.test(param) && Number.isSafeInteger(Number(param))) {
+    return getOrderById(Number(param));
+  }
+  return null;
 }
 
 export async function getOrderStats(): Promise<OrderStats> {
@@ -155,7 +185,8 @@ export async function getOrderStats(): Promise<OrderStats> {
       revenue: sql<number>`coalesce(sum(${orders.totalCents}) filter (where ${orders.status} in ('paid','shipped','delivered')), 0)`,
       revenue7d: sql<number>`coalesce(sum(${orders.totalCents}) filter (where ${orders.status} in ('paid','shipped','delivered') and ${orders.createdAt} >= ${weekAgo.toISOString()}), 0)`,
     })
-    .from(orders);
+    .from(orders)
+    .where(eq(orders.adminHidden, false));
 
   return {
     total: row?.total ?? 0,

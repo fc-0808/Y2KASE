@@ -96,7 +96,7 @@ export function MembersConsole({
               <tr>
                 <th className="px-4 py-3 font-semibold">Member</th>
                 <th className="px-4 py-3 font-semibold">Role</th>
-                <th className="px-4 py-3 font-semibold">Orders</th>
+                <th className="px-4 py-3 font-semibold">Paid orders</th>
                 <th className="px-4 py-3 font-semibold">Spent</th>
                 <th className="px-4 py-3 font-semibold">Joined</th>
                 <th className="px-4 py-3 font-semibold text-right">Actions</th>
@@ -129,9 +129,15 @@ export function MembersConsole({
                       <RoleBadge role={m.isAnonymous ? "guest" : m.role} />
                     </td>
                     <td className="px-4 py-3 text-[var(--foreground)]/70">
-                      {m.orderCount}
+                      <OrderSummary member={m} />
                     </td>
-                    <td className="px-4 py-3 font-semibold">
+                    <td
+                      className={cn(
+                        "px-4 py-3 font-semibold",
+                        m.paidOrderCount === 0 &&
+                          "font-medium text-[var(--foreground)]/40",
+                      )}
+                    >
                       {formatCents(m.totalSpentCents)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-[var(--foreground)]/60">
@@ -179,6 +185,62 @@ export function MembersConsole({
       {filtered.length === 0 && (
         <p className="mt-6 text-center text-sm text-[var(--foreground)]/50">
           No members match your filters.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function OrderSummary({ member }: { member: MemberRow }) {
+  const notes: { text: string; tone: "pending" | "muted" }[] = [];
+  if (member.pendingOrderCount > 0) {
+    notes.push({
+      text: `${member.pendingOrderCount} awaiting payment`,
+      tone: "pending",
+    });
+  }
+  if (member.cancelledOrderCount > 0) {
+    notes.push({
+      text: `${member.cancelledOrderCount} cancelled`,
+      tone: "muted",
+    });
+  }
+  if (member.refundedOrderCount > 0) {
+    notes.push({
+      text: `${member.refundedOrderCount} refunded`,
+      tone: "muted",
+    });
+  }
+
+  const unpaidOnly = member.paidOrderCount === 0 && notes.length > 0;
+
+  return (
+    <div>
+      {member.paidOrderCount > 0 ? (
+        <p>{member.paidOrderCount}</p>
+      ) : unpaidOnly ? (
+        <p className="font-medium text-[var(--foreground)]/70">No paid orders</p>
+      ) : (
+        <p>0</p>
+      )}
+      {notes.length > 0 && (
+        <p className="mt-0.5 text-xs leading-snug">
+          {notes.map((note, index) => (
+            <span key={note.text}>
+              {index > 0 && (
+                <span className="text-[var(--foreground)]/30"> · </span>
+              )}
+              <span
+                className={
+                  note.tone === "pending"
+                    ? "font-medium text-amber-700 dark:text-amber-400"
+                    : "text-[var(--foreground)]/45"
+                }
+              >
+                {note.text}
+              </span>
+            </span>
+          ))}
         </p>
       )}
     </div>

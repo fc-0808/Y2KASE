@@ -88,7 +88,7 @@ export function Navbar({
   return (
     <header
       ref={headerRef}
-      className="relative border-b border-[var(--border)] bg-[var(--background)]/85 backdrop-blur-md"
+      className="relative border-b border-[var(--border)] bg-[var(--background)] md:bg-[var(--background)]/85 md:backdrop-blur-md"
     >
       <div className="mx-auto grid h-16 max-w-[1800px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 sm:px-6">
         {/* Left: mobile menu toggle + desktop nav triggers */}

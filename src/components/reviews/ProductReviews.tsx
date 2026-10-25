@@ -27,7 +27,7 @@ export function ProductReviews({
   const validInvite = invite.status === "valid" ? invite : null;
 
   return (
-    <section id="reviews" className="mt-16 max-w-3xl scroll-mt-24">
+    <section id="reviews" className="cv-auto mt-16 max-w-3xl scroll-mt-24">
       {summary.count > 0 && (
         <>
           <h2 className="mb-4 font-display text-2xl font-extrabold">

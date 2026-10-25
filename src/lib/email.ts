@@ -202,7 +202,7 @@ export async function sendOrderConfirmationOnce(
     // Render to HTML + plain text ourselves (more reliable than the Resend
     // SDK's built-in React rendering, which depends on package resolution).
     const element = OrderConfirmation({
-      orderId: order.id,
+      orderNumber: order.orderNumber,
       currency: order.currency,
       items: order.items.map((it) => ({
         title: it.productTitle,
@@ -230,7 +230,7 @@ export async function sendOrderConfirmationOnce(
         from: senderFor("transactional"),
         replyTo: EMAIL_REPLY_TO,
         to: order.email,
-        subject: `Your Y2KASE order #${order.id} is confirmed ✨`,
+        subject: `Your Y2KASE order ${order.orderNumber} is confirmed ✨`,
         html,
         text,
       },
@@ -277,7 +277,7 @@ export async function sendShipmentNotificationOnce(
     }
 
     const element = ShipmentEmail({
-      orderId: order.id,
+      orderNumber: order.orderNumber,
       name: order.shippingAddress?.name,
       carrier: order.carrier,
       trackingNumber: order.trackingNumber,
@@ -315,7 +315,7 @@ export async function sendShipmentNotificationOnce(
         replyTo: EMAIL_REPLY_TO,
         to: order.email,
         ...(afsBcc ? { bcc: [afsBcc] } : {}),
-        subject: `Your Y2KASE order #${order.id} has shipped 📦✨`,
+        subject: `Your Y2KASE order ${order.orderNumber} has shipped 📦✨`,
         html: htmlWithInvite,
         text,
       },

@@ -24,6 +24,10 @@ import {
   type BrandConfidence,
 } from "@/lib/catalog/brands";
 import { applyBrandAssignment } from "@/lib/catalog/brand-assignment";
+import {
+  ensureBrandRegistry,
+  resolveSavedBrand,
+} from "@/lib/catalog/brand-registry";
 import { refileProduct, type RefileResult } from "@/lib/catalog/collection-filing";
 import { findForbiddenScript } from "@/lib/catalog/copy-schema";
 import {
@@ -195,6 +199,10 @@ export async function updateProductTitle(
     return { ok: true, message: "No change.", title, brandHint: null };
   }
 
+  // The hint below compares the title with the registry. Operator-created
+  // brands are invisible until that registry is loaded.
+  await ensureBrandRegistry();
+
   // Title is the honest motif signal. An unlocked row follows the new copy so
   // a retitle from "Rainy Cloud" to "Pastel Bow" cannot leave Clouds on the
   // Theme facet. Locked rows stay as the operator last saved them.
@@ -313,7 +321,7 @@ export async function applyTitleProposal(
   // agrees with it, and the re-file below reads the brand columns.
   let brandNote = "";
   if (brand) {
-    const resolved = resolveBrandAssignment(brand.brandId, brand.characterId);
+    const resolved = await resolveSavedBrand(brand.brandId, brand.characterId);
     if (!resolved.ok) {
       return {
         ok: false,
@@ -459,6 +467,7 @@ export async function reclassifyBrandFromVision(
     return { ok: false, message: "Product not found.", suggestion: null };
   }
 
+  await ensureBrandRegistry();
   const imageUrls = product.images.map((img) => img.url);
   if (imageUrls.length === 0) {
     return {
@@ -575,7 +584,10 @@ export async function updateProductBrand(
     };
   }
 
-  const resolved = resolveBrandAssignment(brandId, characterId);
+  // Read the collections row and resolve against that object. The built-in
+  // list is a different variable in the server-action bundle than in the
+  // page that rendered the dropdown, so installing it first is not enough.
+  const resolved = await resolveSavedBrand(brandId, characterId);
   if (!resolved.ok) {
     return {
       ok: false,

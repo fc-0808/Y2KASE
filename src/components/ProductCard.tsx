@@ -56,7 +56,7 @@ function catalogCardMedia(productType?: string): {
   return {
     fit: "cover",
     imageClassName:
-      "scale-[1.08] transition duration-500 md:scale-100 md:group-hover:scale-105",
+      "scale-[1.08] md:scale-100 md:transition-transform md:duration-500 md:group-hover:scale-105",
   };
 }
 

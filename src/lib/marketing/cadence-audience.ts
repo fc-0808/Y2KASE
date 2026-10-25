@@ -198,6 +198,7 @@ export async function subscriberHasPaidOrder(email: string): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   const row = await db.query.orders.findFirst({
     where: and(
+      eq(orders.adminHidden, false),
       sql`lower(${orders.email}) = ${normalized}`,
       inArray(orders.status, [...PAID_ORDER_STATUSES]),
     ),

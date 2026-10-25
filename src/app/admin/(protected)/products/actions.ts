@@ -63,6 +63,7 @@ import {
   normalizeImageStyleTags,
   imageStyleTagsAreCanonical,
   stylePricesForSave,
+  usesIphoneStyleTable,
 } from "@/lib/pricing";
 import { saveProductVariations } from "@/lib/admin/product-variations";
 import {
@@ -842,6 +843,7 @@ export async function adoptTitleBrand(
   if (!(await requireAdmin(await headers()))) {
     return { ok: false, message: "Not authorized.", changed: 0 };
   }
+  await ensureBrandRegistry();
   const ids = Array.from(new Set(productIds)).filter((n) => Number.isFinite(n));
   if (ids.length === 0) {
     return { ok: false, message: "No products selected.", changed: 0 };
@@ -1414,14 +1416,18 @@ export async function bulkUpdateProducts(
         .where(eq(products.id, product.id));
     }
 
-    // Style/model axes only exist on phone cases.
+    // Numbered iPhone cases own the model axis. iPhone Duo uses the same
+    // Style table and must not be given those models.
     const isIphoneCase = product.productType === "iphone_case";
-    if ((wantsStyles || wantsModels) && !isIphoneCase) {
+    const phoneStyles = usesIphoneStyleTable(product.productType);
+    const styleWork = wantsStyles && phoneStyles;
+    const modelWork = wantsModels && isIphoneCase;
+    if ((wantsStyles || wantsModels) && !styleWork && !modelWork) {
       skipped += 1;
       if (!wantsStatus) continue;
     }
 
-    if (isIphoneCase && wantsStyles && targetStyles) {
+    if (styleWork && targetStyles) {
       const custom = normalizeCustomStyles(product.customStyles, {
         productType: product.productType,
       });
@@ -1483,7 +1489,7 @@ export async function bulkUpdateProducts(
       );
     }
 
-    if (isIphoneCase && wantsModels && targetModels) {
+    if (modelWork && targetModels) {
       await upsertOption(
         product.id,
         MODEL_OPTION_NAME,

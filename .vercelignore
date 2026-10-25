@@ -46,3 +46,5 @@
 # Local-only review/scratch output, regenerated on demand.
 /normalized-thumbnails
 /.tmp-preview
+/tmp
+/instagram-posting

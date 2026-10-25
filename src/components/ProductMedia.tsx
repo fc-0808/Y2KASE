@@ -79,13 +79,11 @@ export function ProductMedia({
       {showImage && renderable ? (
         bare ? (
           // The knockout is a filter on these pixels, not a blend with the
-          // page. A scrolling row isolates blend mode on phones (Safari,
-          // Chrome, Firefox), which is why the studio white survived there.
+          // page. A scrolling row isolates blend mode (Safari, Chrome,
+          // Firefox), so the studio white has to be removed here. It runs
+          // at every viewport — see `.studio-knockout`.
           <div className="absolute inset-0 overflow-hidden">
-            <div
-              className="absolute inset-0"
-              style={{ filter: "url(#studio-white-knockout)" }}
-            >
+            <div className="studio-knockout absolute inset-0">
               <Image
                 src={renderable}
                 alt={alt}

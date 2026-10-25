@@ -30,7 +30,7 @@ export type OrderConfirmationItem = {
 };
 
 export type OrderConfirmationProps = {
-  orderId: number;
+  orderNumber: string;
   currency: string;
   items: OrderConfirmationItem[];
   subtotalCents: number;
@@ -68,7 +68,7 @@ function money(cents: number, currency: string): string {
 }
 
 export function OrderConfirmation({
-  orderId,
+  orderNumber,
   currency,
   items,
   subtotalCents,
@@ -83,7 +83,7 @@ export function OrderConfirmation({
   return (
     <Html>
       <Head />
-      <Preview>Your Y2KASE order #{String(orderId)} is confirmed ✨</Preview>
+      <Preview>Your Y2KASE order {orderNumber} is confirmed ✨</Preview>
       <Body
         style={{
           backgroundColor: BRAND.bg,
@@ -148,7 +148,7 @@ export function OrderConfirmation({
                 color: BRAND.primary,
               }}
             >
-              Order #{orderId}
+              Order {orderNumber}
             </Text>
           </Section>
 

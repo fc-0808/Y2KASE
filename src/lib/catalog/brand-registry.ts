@@ -9,16 +9,19 @@
  * the registry from `collections` makes that failure structurally impossible: a
  * brand you can name is a brand you can browse, because they are one row.
  *
- * Reading is cached and tagged rather than per-request, because the vocabulary
- * changes a handful of times a year and is read on nearly every admin render.
- * Writes go through `./brand-admin`, which invalidates the tag.
+ * The read is memoized for the current request only. A longer cache is wrong
+ * here: creating Usahana and assigning it are two requests, and a stale
+ * snapshot makes the second one reject a brand that was just saved.
+ * Writes go through `./brand-admin`.
  */
 import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
-import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
 import {
+  compileBrandRegistry,
   installBrandRegistry,
+  resolveBrandAssignment,
   type BrandKnowledge,
+  type BrandResolution,
   type CharacterKnowledge,
 } from "@/lib/catalog/brands";
 import { BRAND_COLLECTION_KINDS } from "@/lib/catalog/collections-config";
@@ -79,34 +82,73 @@ async function computeBrandVocabulary(): Promise<BrandKnowledge[]> {
     }));
 }
 
-const getBrandVocabularyCached = cachedCatalogRead(
-  computeBrandVocabulary,
-  ["brand-vocabulary"],
-  { tags: [CACHE_TAGS.collections] },
-);
-
-/** The runtime vocabulary, memoized per request on top of the Data Cache. */
+/**
+ * The runtime vocabulary, memoized for this request.
+ *
+ * Not the Data Cache. That cache is allowed to answer a shopper with the
+ * previous snapshot while it refreshes; an operator who just added a brand
+ * cannot be told the name is unknown because of that snapshot. A failed read
+ * returns null so the caller can leave the current registry in place —
+ * installing an empty list would wipe it back to the built-in canon.
+ */
 export const getBrandVocabulary = reactCache(
-  async (): Promise<BrandKnowledge[]> => {
+  async (): Promise<BrandKnowledge[] | null> => {
+    if (!isDbConfigured()) return null;
     try {
-      return await getBrandVocabularyCached();
-    } catch {
-      // A vocabulary we cannot read is not a reason to fail a page: the canon
-      // in `brands.ts` is a complete, working registry on its own. Degrading to
-      // it loses runtime-defined brands and nothing else.
-      return [];
+      return await computeBrandVocabulary();
+    } catch (error) {
+      console.error("[brand-registry] collections read failed", error);
+      return null;
     }
   },
 );
 
 /**
- * Load the runtime vocabulary and make it the active registry for this request.
+ * Load the runtime vocabulary and publish it to every copy of the registry.
  *
- * Call this at the top of any server path that classifies, files or composes a
- * title. Forgetting to is safe rather than silently wrong: the registry falls
- * back to the built-in canon, which is exactly the behaviour that shipped
- * before operator-defined brands existed.
+ * Call this before resolving a brand the operator picked. The in-memory
+ * registry starts as the built-in canon, so a brand that exists only in
+ * `collections` — Usahana, for example — is rejected until this runs. A failed
+ * read does not install: an empty install is how a transient database error
+ * used to erase every operator-created brand for the rest of the process.
  */
 export async function ensureBrandRegistry(): Promise<void> {
-  installBrandRegistry(await getBrandVocabulary());
+  const vocabulary = await getBrandVocabulary();
+  if (vocabulary) installBrandRegistry(vocabulary);
+}
+
+/**
+ * Resolve a brand the operator chose, against the collections table.
+ *
+ * The page that lists brands and the action that saves one do not share a
+ * module-level registry. Loading and then calling `resolveBrandAssignment()`
+ * can still miss Usahana, because the load updates a different copy of the
+ * list than the resolve reads. This compiles the rows it just read and passes
+ * that object in, so the decision is the database row.
+ */
+export async function resolveSavedBrand(
+  brandInput: string | null | undefined,
+  characterInput?: string | null,
+): Promise<BrandResolution> {
+  if (!isDbConfigured()) {
+    return {
+      ok: false,
+      reason: "The database is not configured, so saved brands cannot be read.",
+    };
+  }
+
+  let vocabulary: BrandKnowledge[];
+  try {
+    vocabulary = await computeBrandVocabulary();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      reason: `The brand list could not be read (${detail}).`,
+    };
+  }
+
+  const registry = compileBrandRegistry(vocabulary);
+  installBrandRegistry(vocabulary);
+  return resolveBrandAssignment(brandInput, characterInput, registry);
 }

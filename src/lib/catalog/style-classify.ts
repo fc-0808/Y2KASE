@@ -14,6 +14,7 @@ import {
   STYLES,
   normalizeImageStyleTags,
   orderStyles,
+  usesIphoneStyleTable,
 } from "../pricing";
 import { normalizeOfferedPriceValues } from "./offered-options";
 import { priceAxisFor } from "./product-types";
@@ -31,7 +32,7 @@ export function styleClassifyKind(
   offered: readonly string[] = [],
 ): StyleClassifyKind {
   if (productType === "airpod_case") return "airpods";
-  if (productType === "iphone_case") return "iphone";
+  if (usesIphoneStyleTable(productType ?? "")) return "iphone";
   const hasGrip = offered.some((style) => /grip/i.test(style));
   const hasCharm = offered.some((style) => /charm/i.test(style));
   if (!hasGrip && hasCharm) return "airpods";

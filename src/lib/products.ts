@@ -922,11 +922,21 @@ export function getRelatedProducts(opts: {
 
 const getRelatedProductsCached = cachedCatalogRead(
   computeRelatedProducts,
-  ["related-products-v3"],
+  ["related-products-v5"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
   },
 );
+
+/**
+ * A numbered iPhone case does not fit iPhone Duo, and the reverse is also
+ * true. Same-character recommendations must not offer the wrong mould.
+ */
+function incompatibleMould(productType: string): string | null {
+  if (productType === "iphone_duo_case") return "iphone_case";
+  if (productType === "iphone_case") return "iphone_duo_case";
+  return null;
+}
 
 async function computeRelatedProducts(
   productId: number,
@@ -953,8 +963,22 @@ async function computeRelatedProducts(
       );
     const ids = idRows.map((r) => r.pid);
     if (ids.length > 0) {
+      const blocked = incompatibleMould(productType);
+      // Duo has few siblings in a character collection. Without this, the
+      // eight featured Hello Kitty rows are AirPods and the foldable case
+      // never appears. A Duo page should recommend other Duo cases.
+      const mouldClause =
+        productType === "iphone_duo_case"
+          ? eq(products.productType, productType)
+          : blocked
+            ? ne(products.productType, blocked)
+            : undefined;
       const rows = await db.query.products.findMany({
-        where: and(inArray(products.id, ids), eq(products.status, "active")),
+        where: and(
+          inArray(products.id, ids),
+          eq(products.status, "active"),
+          ...(mouldClause ? [mouldClause] : []),
+        ),
         orderBy: desc(products.featured),
         limit,
         with: {

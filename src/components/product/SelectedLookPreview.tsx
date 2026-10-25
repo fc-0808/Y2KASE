@@ -101,15 +101,10 @@ function PreviewPhoto({
 }) {
   const [shown, setShown] = useState(src);
   const [outgoing, setOutgoing] = useState<string | null>(null);
-  // Portrait supplier frames are ~3:4. In a square they letterbox, which
-  // leaves a white strip down the left of the well. Cover fills that frame.
-  // Square shots stay contained so a cover crop doesn't slice them.
-  const [fillFrame, setFillFrame] = useState(true);
 
   if (src !== shown) {
     setOutgoing(shown);
     setShown(src);
-    setFillFrame(true);
   }
 
   useEffect(() => {
@@ -119,11 +114,10 @@ function PreviewPhoto({
     return () => window.clearTimeout(id);
   }, [outgoing, shown]);
 
-  function noteSize(size: { width: number; height: number }) {
-    setFillFrame(size.height > size.width * 1.02);
-  }
-
   return (
+    // 3:4 matches the usual supplier frame. Cover fills it, so a squarer
+    // photo loses a little off the sides instead of gaining white bands
+    // above and below.
     <span className="relative block h-44 w-[8.25rem] shrink-0 overflow-hidden bg-[var(--product-surface)]">
       {outgoing ? (
         <span
@@ -133,7 +127,7 @@ function PreviewPhoto({
           <ProductMedia
             src={outgoing}
             alt=""
-            fit={fillFrame ? "cover" : "contain"}
+            fit="cover"
             sizes="132px"
             className="h-full w-full"
           />
@@ -146,12 +140,11 @@ function PreviewPhoto({
         <ProductMedia
           src={shown}
           alt=""
-          fit={fillFrame ? "cover" : "contain"}
+          fit="cover"
           sizes="132px"
           loading="lazy"
           className="h-full w-full"
           fallbackClassName="text-2xl"
-          onLoad={noteSize}
           onImageError={onImageError}
         />
       </span>

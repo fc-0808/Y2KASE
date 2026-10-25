@@ -156,6 +156,7 @@ export async function runWelcomeSeries(now: Date = new Date()): Promise<WelcomeS
       .from(orders)
       .where(
         and(
+          eq(orders.adminHidden, false),
           inArray(orders.status, ["paid", "shipped", "delivered"]),
           sql`lower(${orders.email}) in (${sql.join(
             emails.map((email) => sql`${email}`),

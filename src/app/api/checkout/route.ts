@@ -36,6 +36,10 @@ import {
   checkoutAccessCookieName,
   createCheckoutAccessToken,
 } from "@/lib/checkout-access";
+import {
+  generateOrderNumber,
+  isOrderNumberConflict,
+} from "@/lib/orders/number";
 
 // Stripe's SDK needs Node APIs (crypto) — not the edge runtime.
 export const runtime = "nodejs";
@@ -113,30 +117,46 @@ export async function POST(request: NextRequest) {
     // 1) Persist a pending order first so we never lose a paid transaction.
     // `subtotalCents` stays gross; `totalCents` reflects the applied discount so
     // the admin record matches what Stripe actually charges.
-    const [order] = await db
-      .insert(orders)
-      .values({
-        userId,
-        email: signedIn && session!.user.email
-          ? normalizeEmail(session!.user.email)
-          : "",
-        status: "pending",
-        subtotalCents: cart.subtotalCents,
-        shippingCents: cart.shippingCents,
-        taxCents: 0,
-        discountCents: promo.discountCents,
-        discountLabel: promo.appliedLabel,
-        discountCode: promo.appliedCode,
-        totalCents,
-        currency: cart.currency,
-        geoCountry,
-      })
-      .returning({ id: orders.id });
+    // Retry only when two checkouts draw the same public number. Anything else
+    // (a down database, a bad row) must surface on the first attempt.
+    let order: { id: number; orderNumber: string } | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const [created] = await db
+          .insert(orders)
+          .values({
+            orderNumber: generateOrderNumber(),
+            userId,
+            email: signedIn && session!.user.email
+              ? normalizeEmail(session!.user.email)
+              : "",
+            status: "pending",
+            subtotalCents: cart.subtotalCents,
+            shippingCents: cart.shippingCents,
+            taxCents: 0,
+            discountCents: promo.discountCents,
+            discountLabel: promo.appliedLabel,
+            discountCode: promo.appliedCode,
+            totalCents,
+            currency: cart.currency,
+            geoCountry,
+          })
+          .returning({ id: orders.id, orderNumber: orders.orderNumber });
+        order = created;
+        break;
+      } catch (err) {
+        if (!isOrderNumberConflict(err) || attempt === 4) throw err;
+      }
+    }
+    if (!order) {
+      throw new Error("Could not allocate an order number.");
+    }
+    const placed = order;
 
     try {
       await db.insert(orderItems).values(
         cart.lines.map((l) => ({
-          orderId: order.id,
+          orderId: placed.id,
           productId: l.productId,
           productSlug: l.slug,
           productTitle: l.title,
@@ -150,10 +170,10 @@ export async function POST(request: NextRequest) {
       // neon-http has no interactive transactions. Compensate before any
       // Stripe session exists so a partial write cannot become fulfillable.
       try {
-        await db.delete(orders).where(eq(orders.id, order.id));
+        await db.delete(orders).where(eq(orders.id, placed.id));
       } catch (cleanupError) {
         console.error(
-          `[checkout] failed to remove incomplete order ${order.id}:`,
+          `[checkout] failed to remove incomplete order ${placed.id}:`,
           cleanupError,
         );
       }
@@ -241,23 +261,23 @@ export async function POST(request: NextRequest) {
       // `allow_promotion_codes`, no `discounts`) — there is nothing left to stack.
       automatic_tax: { enabled: false },
       // Reconstruct & fulfill the order in the webhook.
-      client_reference_id: String(order.id),
-      metadata: { orderId: String(order.id), ...attribution },
+      client_reference_id: String(placed.id),
+      metadata: { orderId: String(placed.id), ...attribution },
       payment_intent_data: {
-        metadata: { orderId: String(order.id), ...attribution },
+        metadata: { orderId: String(placed.id), ...attribution },
       },
       ...(session?.user?.email
         ? { customer_email: session.user.email }
         : {}),
       success_url: `${SITE_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${SITE_URL}/checkout/cancel?order_id=${order.id}`,
+      cancel_url: `${SITE_URL}/checkout/cancel?order_id=${placed.id}`,
     });
 
     // Store the session id so the success page + webhook can reconcile.
     await db
       .update(orders)
       .set({ stripeSessionId: checkout.id, updatedAt: new Date() })
-      .where(eq(orders.id, order.id));
+      .where(eq(orders.id, placed.id));
 
     if (!checkout.url) {
       throw new Error("Stripe did not return a checkout URL.");
@@ -266,7 +286,7 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({ url: checkout.url });
     response.cookies.set(
       checkoutAccessCookieName(checkout.id),
-      createCheckoutAccessToken(checkout.id, order.id),
+      createCheckoutAccessToken(checkout.id, placed.id),
       {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",

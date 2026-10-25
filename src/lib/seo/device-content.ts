@@ -42,7 +42,7 @@ const DEVICE_SEO: Record<string, DeviceSeo> = {
   iphone: {
     heading: "iPhone Cases",
     tagline: `iPhone 18 Pro and iPhone 18 Pro Max, plus ${IPHONE_FIT.throughShort}.`,
-    intro: `iPhone 18 Pro cases and iPhone 18 Pro Max cases at Y2KASE — there is no base iPhone 18. Also ${IPHONE_FIT.throughShort}, in kawaii and Y2K designs, MagSafe when the product says so. ${FREE_SHIPPING_OFFER}.`,
+    intro: `iPhone 18 Pro cases and iPhone 18 Pro Max cases at Y2KASE — there is no base iPhone 18. Also ${IPHONE_FIT.throughShort}, in kawaii and Y2K designs, MagSafe when the product says so. iPhone Duo is a separate case and these designs do not fit it. ${FREE_SHIPPING_OFFER}.`,
     models: IPHONE_MODELS,
     faqs: [
       {
@@ -51,8 +51,13 @@ const DEVICE_SEO: Record<string, DeviceSeo> = {
           "Yes — iPhone 18 Pro and iPhone 18 Pro Max. This shop does not sell a base iPhone 18 case. Hello Kitty, Sanrio and Kuromi each have an iPhone 18 page, and every iPhone case in the catalog is offered for both 18 Pro and 18 Pro Max. Pick the exact model on the product page; the camera cutout is not shared.",
       },
       {
+        question: "Will these cases fit an iPhone Duo?",
+        answer:
+          "No. iPhone Duo is a foldable with its own case. The designs on this page are cut for the numbered iPhones and do not fit it. iPhone Duo cases are a separate section, and they use the same style prices when a design is listed.",
+      },
+      {
         question: "Which iPhone models do your cases fit?",
-        answer: `Our iPhone cases are available for ${IPHONE_FIT.listed} series, including the Pro and Pro Max models. Pick your exact model on each product page.`,
+        answer: `Our iPhone cases are available for ${IPHONE_FIT.listed} series, including the Pro and Pro Max models. Pick your exact model on each product page. iPhone Duo is not one of those models.`,
       },
       {
         question: "Are your iPhone cases MagSafe compatible?",
@@ -68,6 +73,23 @@ const DEVICE_SEO: Record<string, DeviceSeo> = {
         question: "Can I add a phone charm or grip?",
         answer:
           "Many designs offer a Case + Grip + Charm bundle. Choose your combination from the style selector on the product page.",
+      },
+    ],
+  },
+  "iphone-duo": {
+    heading: "iPhone Duo Cases",
+    tagline: "Its own mould. Case Only, the same price as an iPhone case.",
+    intro: `iPhone Duo cases are a separate line at Y2KASE. A case cut for iPhone 18, 17, or any earlier iPhone does not fit the foldable. Each design is Case Only, at the same price as an iPhone Case Only. ${FREE_SHIPPING_OFFER}.`,
+    faqs: [
+      {
+        question: "Will an iPhone case fit an iPhone Duo?",
+        answer:
+          "No. iPhone Duo needs its own case. The designs in the iPhone section do not fit it.",
+      },
+      {
+        question: "How much is an iPhone Duo case?",
+        answer:
+          "The same as an iPhone Case Only. iPhone Duo does not offer a grip or a charm.",
       },
     ],
   },

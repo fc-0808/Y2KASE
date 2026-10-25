@@ -1,6 +1,7 @@
 import type { ProductTypeConfig, ProductTypeId, OptionAxis } from "../types";
 import { axisByRole } from "../types";
 import { iphoneCaseType } from "./iphone-case";
+import { iphoneDuoCaseType } from "./iphone-duo-case";
 import { airpodCaseType } from "./airpod-case";
 import {
   samsungCaseType,
@@ -14,6 +15,7 @@ import {
 
 const REGISTRY: Record<ProductTypeId, ProductTypeConfig> = {
   iphone_case: iphoneCaseType,
+  iphone_duo_case: iphoneDuoCaseType,
   samsung_case: samsungCaseType,
   pixel_case: pixelCaseType,
   airpod_case: airpodCaseType,
@@ -38,6 +40,8 @@ export function getProductType(id: string): ProductTypeConfig {
 const CATEGORY_TO_TYPE: Record<string, ProductTypeId> = {
   iphone_case: "iphone_case",
   phone_case: "iphone_case",
+  iphone_duo_case: "iphone_duo_case",
+  iphone_duo: "iphone_duo_case",
   samsung_case: "samsung_case",
   galaxy_case: "samsung_case",
   pixel_case: "pixel_case",

@@ -264,6 +264,31 @@ h1, h2, h3, .font-display {
   animation: holo-shift 14s ease infinite;
 }
 
+/*
+ * Listing photos knock studio white out with an SVG filter. A sideways-
+ * scrolling row isolates mix-blend-mode, so the white has to come out of the
+ * pixels themselves. The filter stays on at every width and pointer type —
+ * a phone-width window was leaving the studio plate visible.
+ */
+.studio-knockout {
+  filter: url("#studio-white-knockout");
+}
+@media (pointer: coarse), (max-width: 1023px) {
+  /* background-position animation is main-thread paint. On a sticky bar it
+     keeps the header dirty for the whole scroll. */
+  .bg-holo-shimmer {
+    animation: none;
+    background-position: 0% 50%;
+  }
+}
+
+/* Below-fold blocks on a long PDP. The browser skips layout and paint until
+   the section is near the viewport, then remembers the real height. */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 28rem;
+}
+
 /* Faint Y2K grid overlay (use on a holo panel). */
 .bg-grid {
   background-image:

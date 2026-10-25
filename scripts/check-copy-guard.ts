@@ -39,10 +39,16 @@ import {
   IPHONE_MODELS,
   IPHONE_GENERATIONS,
   IPHONE_FIT,
+  MODEL_OPTION_NAME,
+  STYLE_OPTION_NAME,
   defaultModelFor,
+  defaultModels,
   extendModelsWithGeneration,
+  getStylePrice,
   summarizeModels,
 } from "../src/lib/pricing";
+import { iphoneCaseType } from "../src/lib/catalog/product-types/iphone-case";
+import { iphoneDuoCaseType } from "../src/lib/catalog/product-types/iphone-duo-case";
 import {
   auditListingTitle,
   composeListingTitle,
@@ -60,6 +66,7 @@ import {
   characterById,
   brandTerms,
   classifyBrandContext,
+  compileBrandRegistry,
   installBrandRegistry,
   isBuiltInBrand,
   isBuiltInCharacter,
@@ -74,9 +81,11 @@ import {
 import { parseAliases, slugifyBrand } from "../src/lib/catalog/brand-admin";
 import {
   BRAND_COLLECTION_KINDS,
+  brandFilingSlugChain,
   flattenTaxonomy,
   taxonomySlugChain,
 } from "../src/lib/catalog/collections-config";
+import { assessClassification } from "../src/lib/catalog/classification-health";
 
 let passed = 0;
 let failed = 0;
@@ -711,6 +720,17 @@ test("the client-facing options expose every brand and character", () => {
 // merge, because a bad fold here silently changes how the whole catalogue is
 // classified.
 
+test("a saved brand resolves from the registry object, not the module copy", () => {
+  resetBrandRegistry();
+  const saved = compileBrandRegistry([{ id: "usahana", brand: "Usahana" }]);
+  // The installed list is still the built-in canon. That is the state of the
+  // server-action bundle when the page bundle was the one that loaded Usahana.
+  assert.equal(resolveBrandAssignment("usahana", null).ok, false);
+  const resolved = resolveBrandAssignment("usahana", null, saved);
+  assert.equal(resolved.ok && resolved.brand.id, "usahana");
+  assert.equal(resolveBrandAssignment("usahana", null).ok, false);
+});
+
 test("a runtime brand becomes classifiable", () => {
   try {
     assert.equal(resolveBrandAssignment("Sumikko Gurashi", null).ok, false);
@@ -736,6 +756,42 @@ test("a runtime brand becomes classifiable", () => {
       "sumikkogurashi",
       "sumikko",
     ]);
+  } finally {
+    resetBrandRegistry();
+  }
+});
+
+test("an operator-created brand files under its own collection", () => {
+  const rows = [
+    { id: 1, slug: "sanrio", parentId: null, kind: "brand" },
+    { id: 2, slug: "hello-kitty", parentId: 1, kind: "character" },
+    { id: 3, slug: "usahana", parentId: null, kind: "brand" },
+    { id: 4, slug: "usa-chan", parentId: 3, kind: "character" },
+  ];
+  assert.deepEqual(brandFilingSlugChain("usahana", rows), ["usahana"]);
+  assert.deepEqual(brandFilingSlugChain("usa-chan", rows), ["usa-chan", "usahana"]);
+  assert.deepEqual(brandFilingSlugChain("hello-kitty", rows), [
+    "hello-kitty",
+    "sanrio",
+  ]);
+  // Not in the database yet: the code taxonomy is still the filing target.
+  assert.deepEqual(brandFilingSlugChain("pikachu", []), ["pikachu", "pokemon"]);
+});
+
+test("a confirmed runtime brand is not flagged as misfiled", () => {
+  try {
+    installBrandRegistry([{ id: "usahana", brand: "Usahana" }]);
+    const health = assessClassification(
+      {
+        title: "Pastel bunny AirPods case",
+        brandName: "Usahana",
+        characterName: null,
+        brandEvidence: ["operator override by admin"],
+      },
+      [{ slug: "usahana", kind: "brand" }],
+    );
+    assert.equal(health.state, "ok");
+    assert.deepEqual(health.unsupportedSlugs, []);
   } finally {
     resetBrandRegistry();
   }
@@ -892,6 +948,40 @@ test("iPhone 18 Pro and Pro Max are first-class catalogue SKUs", () => {
   );
   const once = extendModelsWithGeneration(CASE_15_TO_17, "18");
   assert.deepEqual(extendModelsWithGeneration(once, "18"), once);
+});
+
+test("iPhone Duo is not a fit on a numbered iPhone case", () => {
+  assert.equal(
+    (IPHONE_MODELS as readonly string[]).includes("iPhone Duo"),
+    false,
+  );
+  assert.equal(
+    IPHONE_GENERATIONS.some((g) => g.models.includes("iPhone Duo")),
+    false,
+  );
+  assert.equal(defaultModels().includes("iPhone Duo"), false);
+  assert.equal(defaultModelFor([...IPHONE_MODELS]), "iPhone 18 Pro");
+  assert.deepEqual(
+    iphoneDuoCaseType.options.find((axis) => axis.role === "price")?.values,
+    ["Case Only"],
+  );
+  assert.equal(
+    iphoneDuoCaseType.getPriceFromOptions(
+      { [STYLE_OPTION_NAME]: "Case Only" },
+      "USD",
+    ),
+    iphoneCaseType.getPriceFromOptions(
+      { [MODEL_OPTION_NAME]: "iPhone 18 Pro", [STYLE_OPTION_NAME]: "Case Only" },
+      "USD",
+    ),
+  );
+  assert.equal(
+    iphoneDuoCaseType.getPriceFromOptions(
+      { [STYLE_OPTION_NAME]: "Case Only" },
+      "USD",
+    ),
+    getStylePrice("Case Only", "USD"),
+  );
 });
 
 test("the Pro / Pro Max qualifier is only claimed when every generation has it", () => {

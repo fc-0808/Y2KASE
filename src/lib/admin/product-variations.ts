@@ -19,6 +19,7 @@ import { products, productOptions } from "@/lib/db/schema";
 import {
   STYLE_OPTION_NAME,
   orderStyles,
+  usesIphoneStyleTable,
   normalizeImageStyleTags,
   stylePricesForSave,
   normalizeStylePrices,
@@ -136,10 +137,11 @@ function canonicalStylesFor(
   if (!priceAxis) return [];
   let styles = normalizeOfferedPriceValues(productType, availableStyles);
   if (styles.length === 0 && !hasCustom) {
-    styles =
-      productType === "iphone_case" ? ["Case Only"] : [...priceAxis.values];
+    styles = usesIphoneStyleTable(productType)
+      ? ["Case Only"]
+      : [...priceAxis.values];
   }
-  if (productType === "iphone_case") {
+  if (usesIphoneStyleTable(productType)) {
     styles = orderStyles(styles);
   }
   return styles;

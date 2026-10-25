@@ -125,6 +125,12 @@ export const orders = pgTable(
   "orders",
   {
     id: serial("id").primaryKey(),
+    /**
+     * Buyer-facing reference, e.g. YK-482913. Random, not the serial id, so the
+     * number on the receipt does not reveal how many orders the shop has.
+     * Stripe, webhooks, and /admin/orders/[id] keep using `id`.
+     */
+    orderNumber: text("order_number").notNull(),
     /** Null for guest orders until the customer claims their account. */
     userId: text("user_id").references(() => users.id, {
       onDelete: "set null",
@@ -132,6 +138,11 @@ export const orders = pgTable(
     email: text("email").notNull(),
     /** pending | paid | shipped | delivered | cancelled | refunded */
     status: text("status").notNull().default("pending"),
+    /**
+     * Staff preview on the customer account. My Orders still shows it.
+     * Admin orders, revenue, member spend, and purchase emails skip it.
+     */
+    adminHidden: boolean("admin_hidden").notNull().default(false),
     subtotalCents: integer("subtotal_cents").notNull(),
     shippingCents: integer("shipping_cents").notNull().default(0),
     taxCents: integer("tax_cents").notNull().default(0),
@@ -203,6 +214,7 @@ export const orders = pgTable(
     index("orders_user_idx").on(t.userId),
     index("orders_email_idx").on(t.email),
     index("orders_status_idx").on(t.status),
+    uniqueIndex("orders_order_number_idx").on(t.orderNumber),
   ],
 );
 

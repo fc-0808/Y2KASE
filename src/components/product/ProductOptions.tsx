@@ -13,6 +13,7 @@
  *  • Model — two tiers. A generation segment (13/14 · 15 · 16 · 17 · 18)
  *    narrows the lineup to a few SKUs, then a tier row picks base / Pro /
  *    Pro Max (a generation that ships without a base model simply omits it).
+ *    iPhone Duo is not in this picker. It is a separate product line.
  *    The shopper knows both halves of their answer before they look, so it
  *    reads as two taps rather than a scan of near-identical strings. Moving
  *    between generations preserves the tier: a Pro Max owner who taps "16"
@@ -148,6 +149,8 @@ function tierLabels(models: string[]): string[] {
     const tier = modelTier(model);
     if (tier === "pro-max") return "Pro Max";
     if (tier === "pro") return "Pro";
+    // A foldable is not the base model of a numbered year.
+    if (!/\d/.test(model)) return model.replace(/^iPhone\s*/i, "") || model;
     return "Standard";
   });
   if (new Set(labels).size === labels.length) return labels;
@@ -167,13 +170,15 @@ const GRID_COLUMNS: Record<number, string> = {
 };
 
 /**
- * Generation chips have to keep growing (15, 16, 17, 18, …) without crowding
- * "13 / 14" off a phone. Four-or-fewer stay one equal row; five-plus wrap
- * 3-up on small screens and 5-up from `sm`.
+ * Generation chips have to keep growing (15, 16, 17, 18, Duo, …) without
+ * crowding "13 / 14" off a phone. Four-or-fewer stay one equal row; five
+ * wrap 3-up on small screens and 5-up from `sm`; six (the Duo section) is
+ * 3-up, then a full row of six.
  */
 function generationGridClass(count: number): string {
   if (count <= 4) return GRID_COLUMNS[count] ?? "grid-cols-4";
-  return "grid-cols-3 sm:grid-cols-5";
+  if (count === 5) return "grid-cols-3 sm:grid-cols-5";
+  return "grid-cols-3 sm:grid-cols-6";
 }
 
 function ModelPicker({ optionId, name, values, value, onSelect }: PickerProps) {

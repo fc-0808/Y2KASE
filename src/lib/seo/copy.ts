@@ -160,7 +160,7 @@ const AIRPODS_CASES_NOUN = "AirPods Cases";
 const CASES_NOUN = "Cases";
 
 /** Device ids whose products are phone cases. Anything else widens the noun. */
-const PHONE_DEVICE_IDS = new Set(["iphone", "galaxy", "pixel"]);
+const PHONE_DEVICE_IDS = new Set(["iphone", "iphone-duo", "galaxy", "pixel"]);
 
 /**
  * Product noun for a collection landing.

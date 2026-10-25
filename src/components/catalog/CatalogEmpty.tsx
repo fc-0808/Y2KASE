@@ -16,12 +16,20 @@ export function CatalogEmpty({
   filtered,
   resetHref,
   icon = "🔍",
+  title,
+  detail,
+  actionHref,
+  actionLabel,
 }: {
   /** True when the shopper narrowed their way here. */
   filtered: boolean;
   /** This surface, unfiltered. */
   resetHref: string;
   icon?: string;
+  title?: string;
+  detail?: string;
+  actionHref?: string;
+  actionLabel?: string;
 }) {
   return (
     <div className="card-cute border-dashed px-6 py-16 text-center">
@@ -29,18 +37,19 @@ export function CatalogEmpty({
         {icon}
       </div>
       <p className="mt-4 text-lg font-extrabold">
-        {filtered ? "No matches found" : "Nothing here yet"}
+        {title ?? (filtered ? "No matches found" : "Nothing here yet")}
       </p>
       <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--foreground)]/60">
-        {filtered
-          ? "We couldn’t find anything for these filters. Try a different search or clear them to see everything here."
-          : "We’re still stocking this one. Check back soon!"}
+        {detail ??
+          (filtered
+            ? "We couldn’t find anything for these filters. Try a different search or clear them to see everything here."
+            : "We’re still stocking this one. Check back soon!")}
       </p>
       <Link
-        href={filtered ? resetHref : CATALOG_PATH}
+        href={actionHref ?? (filtered ? resetHref : CATALOG_PATH)}
         className="btn-candy mt-6 inline-flex px-6 py-2.5 text-sm"
       >
-        {filtered ? "Clear filters" : "Browse all products"}
+        {actionLabel ?? (filtered ? "Clear filters" : "Browse all products")}
       </Link>
     </div>
   );

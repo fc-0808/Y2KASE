@@ -195,6 +195,26 @@ test("iPhone landing names the iPhone 18 models shoppers search", () => {
   assert.match(seo.tagline, /iPhone 18 Pro/);
   assert.equal(/base iPhone 18/.test(seo.intro), true);
   assert.ok(seo.faqs.some((faq) => /iPhone 18/.test(faq.question)));
+  assert.equal(seo.models?.includes("iPhone Duo"), false);
+  const duo = seo.faqs.find((faq) => /iPhone Duo/.test(faq.question));
+  assert.ok(duo, "iPhone landing must say Duo is a different case");
+  assert.match(duo.answer, /do not fit/i);
+});
+
+test("iPhone Duo is its own device and is not the iPhone case grid", () => {
+  const duo = findDevice("iphone-duo");
+  assert.ok(duo);
+  assert.deepEqual(duo.productTypes, ["iphone_duo_case"]);
+  assert.equal(findDevice("iphone")!.productTypes.includes("iphone_duo_case"), false);
+  assert.equal(deviceFilterLabel("iphone-duo"), "iPhone Duo cases");
+  assert.equal(deviceIsLive(duo, {}), false);
+  assert.equal(deviceBrowseHref(duo, {}), "/devices/iphone-duo");
+  assert.equal(deviceOffersMagSafe("iphone-duo"), true);
+  const seo = deviceSeo("iphone-duo", "iPhone Duo");
+  assert.equal(seo.heading, "iPhone Duo Cases");
+  assert.match(seo.intro, /does not fit/i);
+  assert.match(seo.faqs[1]!.answer, /same as an iPhone case/i);
+  assert.equal(productTypeOffersMagSafe("iphone_duo_case"), true);
 });
 
 test("AirPods landing copy is ready the day the line is live", () => {

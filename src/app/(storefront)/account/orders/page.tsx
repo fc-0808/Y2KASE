@@ -178,7 +178,10 @@ export default async function AccountOrdersPage() {
             <div className="h-1 w-full bg-holo-vivid" />
             <div className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-4">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-black leading-5">Order #{order.id}</p>
+                <p className="text-sm font-black leading-5">
+                  Order{" "}
+                  <span className="font-mono tracking-wide">{order.orderNumber}</span>
+                </p>
                 <p className="mt-0.5 text-xs leading-4 text-[var(--foreground)]/55">
                   {orderDate.format(new Date(order.createdAt))}
                 </p>

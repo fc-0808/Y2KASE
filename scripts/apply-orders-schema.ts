@@ -48,6 +48,58 @@ async function main() {
 
   // Added after initial release — safe to run on existing tables.
   await sql`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "confirmation_email_sent_at" timestamptz`;
+  await sql`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "admin_hidden" boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "order_number" text`;
+  // Public references are random YK-###### values. Fill any row that predates
+  // the column, then lock it. Safe to re-run.
+  await sql`
+    DO $$
+    DECLARE
+      r record;
+      candidate text;
+      tries int;
+    BEGIN
+      FOR r IN SELECT id FROM orders WHERE order_number IS NULL ORDER BY id LOOP
+        tries := 0;
+        LOOP
+          tries := tries + 1;
+          candidate := 'YK-' || (100000 + floor(random() * 900000))::int::text;
+          EXIT WHEN NOT EXISTS (
+            SELECT 1 FROM orders WHERE order_number = candidate
+          );
+          IF tries > 30 THEN
+            RAISE EXCEPTION 'Could not allocate an order number for order %', r.id;
+          END IF;
+        END LOOP;
+        UPDATE orders SET order_number = candidate WHERE id = r.id;
+      END LOOP;
+    END $$
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS "orders_order_number_idx" ON "orders" ("order_number")`;
+  // Default covers any writer that predates the app-side generator, so a
+  // checkout deploy cannot lag behind this column.
+  await sql`
+    CREATE OR REPLACE FUNCTION allocate_order_number() RETURNS text
+    LANGUAGE plpgsql AS $$
+    DECLARE
+      candidate text;
+      tries int := 0;
+    BEGIN
+      LOOP
+        tries := tries + 1;
+        candidate := 'YK-' || (100000 + floor(random() * 900000))::int::text;
+        EXIT WHEN NOT EXISTS (
+          SELECT 1 FROM orders WHERE order_number = candidate
+        );
+        IF tries > 30 THEN
+          RAISE EXCEPTION 'Could not allocate an order number';
+        END IF;
+      END LOOP;
+      RETURN candidate;
+    END $$
+  `;
+  await sql`ALTER TABLE "orders" ALTER COLUMN "order_number" SET DEFAULT allocate_order_number()`;
+  await sql`ALTER TABLE "orders" ALTER COLUMN "order_number" SET NOT NULL`;
   await sql`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "discount_cents" integer NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "discount_label" text`;
   await sql`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "discount_code" text`;

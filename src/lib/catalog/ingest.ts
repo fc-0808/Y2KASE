@@ -34,7 +34,11 @@ import {
   priceAxisFor,
 } from "@/lib/catalog/product-types";
 import { listingIp, repairListingTitle } from "@/lib/catalog/listing-title";
-import { normalizeImageStyleTags, stylesForAddons } from "@/lib/pricing";
+import {
+  normalizeImageStyleTags,
+  stylesForAddons,
+  usesIphoneStyleTable,
+} from "@/lib/pricing";
 import { styleClassifyLabel } from "@/lib/catalog/style-classify";
 import { fingerprintFromBuffer } from "@/lib/catalog/phash";
 import { sanitizeTag } from "@/lib/catalog/copy-schema";
@@ -427,8 +431,9 @@ export async function ingestProductFolder(
   }
 
   let styleMap: Record<string, string[]> = {};
-  // The type's price axis offers every style, including a grip. A grip is only
-  // listed when the photos show one; otherwise Includes grip stays off.
+  // Numbered iPhone cases offer every style, then drop the grip when the
+  // photos do not show one. iPhone Duo is Case Only — the grip check must
+  // not put charms back on that line.
   let offeredStyles = priceAxisFor(type.id)?.values ?? [];
   if (type.id === "iphone_case" && dataUrls.length > 0) {
     const grip = await verifyProductGrip(dataUrls);
@@ -643,7 +648,7 @@ export async function ingestProductFolder(
         name: opt.name,
         position,
         values:
-          opt.role === "price" && type.id === "iphone_case"
+          opt.role === "price" && usesIphoneStyleTable(type.id)
             ? offeredStyles
             : opt.values,
       })),

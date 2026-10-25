@@ -16,6 +16,7 @@ import { collections, productCollections, products } from "@/lib/db/schema";
 import {
   BRAND_COLLECTION_KINDS,
   ORIGINALS_SLUG,
+  brandFilingSlugChain,
   taxonomySlugChain,
 } from "@/lib/catalog/collections-config";
 import { collectionIdsForSlugs } from "@/lib/catalog/taxonomy-sync";
@@ -57,9 +58,15 @@ export async function syncBrandCollections(
   brandId: string | null,
   characterId: string | null,
 ): Promise<BrandCollectionSync> {
+  // Code taxonomy alone misses operator-created brands: their collection row
+  // exists, but `taxonomySlugChain` returns nothing, so the product's brand
+  // column changes and the browse membership does not.
+  const nodes = await db.query.collections.findMany({
+    columns: { id: true, slug: true, parentId: true, kind: true },
+  });
   const wanted = new Set<string>([
-    ...(characterId ? taxonomySlugChain(characterId) : []),
-    ...(brandId ? taxonomySlugChain(brandId) : []),
+    ...(characterId ? brandFilingSlugChain(characterId, nodes) : []),
+    ...(brandId ? brandFilingSlugChain(brandId, nodes) : []),
   ]);
 
   // An operator can remove a filing the title still names ("this bunny is not
@@ -187,6 +194,8 @@ export async function applyBrandAssignment(
     columns: { brandEvidence: true },
   });
   const wantedSlugs = [
+    ...(assignment.brandId ? [assignment.brandId] : []),
+    ...(assignment.characterId ? [assignment.characterId] : []),
     ...(assignment.characterId ? taxonomySlugChain(assignment.characterId) : []),
     ...(assignment.brandId ? taxonomySlugChain(assignment.brandId) : []),
   ];

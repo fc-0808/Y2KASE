@@ -46,6 +46,12 @@ export default async function AdminMembersPage() {
           </Link>
           ; joining the club does not create an account.
         </p>
+        <p className="mt-2 max-w-3xl text-sm text-[var(--foreground)]/60">
+          Orders and spend include purchases that are paid, shipped, or
+          delivered. A guest checkout is included when its email matches the
+          member’s account. Checkouts still awaiting payment are identified
+          on the row and omitted from spend.
+        </p>
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">

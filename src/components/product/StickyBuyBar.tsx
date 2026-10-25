@@ -92,7 +92,7 @@ export function StickyBuyBar({
       // visible, or the page grows a phantom second CTA.
       inert={!visible}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-sm lg:hidden",
+        "fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)] lg:hidden",
         "shadow-[0_-10px_30px_-20px_rgba(52,32,59,0.55)] transition-transform duration-300 motion-reduce:transition-none",
         visible ? "translate-y-0" : "translate-y-full",
       )}

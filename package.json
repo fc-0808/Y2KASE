@@ -88,6 +88,8 @@
     "backfill:variations": "tsx scripts/backfill-variations.ts",
     "backfill:iphone-18": "tsx scripts/backfill-iphone-18.ts",
     "backfill:iphone-18:apply": "tsx scripts/backfill-iphone-18.ts --apply",
+    "backfill:iphone-duo": "tsx scripts/backfill-iphone-duo.ts",
+    "backfill:iphone-duo:apply": "tsx scripts/backfill-iphone-duo.ts --apply",
     "backfill:airpods-styles": "tsx scripts/backfill-airpods-styles.ts",
     "backfill:airpods-styles:apply": "tsx scripts/backfill-airpods-styles.ts --apply",
     "backfill:airpods-style-tags": "tsx scripts/backfill-airpods-style-tags.ts",

@@ -329,20 +329,28 @@ export function getAirpodsBasePrice(currency: string): number {
 }
 
 /**
+ * iPhone Duo cases use the same Style table as numbered iPhone cases.
+ * They are a separate product line — not another value on `IPHONE_MODELS`.
+ */
+export function usesIphoneStyleTable(productType: string): boolean {
+  return productType === "iphone_case" || productType === "iphone_duo_case";
+}
+
+/**
  * Canonical price first shown for a product.
  *
- * Types with a live Style table (iPhone, AirPods) are priced from that table
- * so listing cards stay in lock-step with the PDP. Everything else uses its
- * stored catalog price. Cards, PDP metadata, JSON-LD and merchant feeds all
- * call this boundary so a crawler can never see a different price from the
- * shopper.
+ * Types with a live Style table (iPhone, iPhone Duo, AirPods) are priced from
+ * that table so listing cards stay in lock-step with the PDP. Everything else
+ * uses its stored catalog price. Cards, PDP metadata, JSON-LD and merchant
+ * feeds all call this boundary so a crawler can never see a different price
+ * from the shopper.
  */
 export function getProductEntryPrice(
   productType: string,
   storedPrice: string | number,
   currency: string,
 ): number {
-  if (productType === "iphone_case" || productType === "airpod_case") {
+  if (usesIphoneStyleTable(productType) || productType === "airpod_case") {
     return getBasePrice(currency);
   }
 
@@ -685,7 +693,7 @@ export function defaultModelRangeFromId(): string {
 
 /**
  * Compact, human-readable summary of an offered model set for table/badge
- * display — e.g. "iPhone 15–17", "iPhone 16", "All models", "8 of 14 models".
+ * display — e.g. "iPhone 15–17", "iPhone 16", "All models", "8 of 15 models".
  */
 export function summarizeModels(models: readonly string[]): string {
   const ordered = orderModels(models);
@@ -699,19 +707,35 @@ export function summarizeModels(models: readonly string[]): string {
   const coveredByFull = fullGens.reduce((n, g) => n + g.models.length, 0);
 
   // The selection is exactly some whole generations → show a clean range.
+  // A non-numeric generation id is appended by name instead of joining the year span.
   if (fullGens.length > 0 && coveredByFull === ordered.length) {
-    const nums = fullGens.map((g) => g.id);
-    return nums.length === 1
-      ? `iPhone ${nums[0]}`
-      : `iPhone ${nums[0]}–${nums[nums.length - 1]}`;
+    return formatFullGenerations(fullGens);
   }
   return `${ordered.length} of ${IPHONE_MODELS.length} models`;
+}
+
+function formatFullGenerations(gens: readonly IphoneGeneration[]): string {
+  const numbered = gens.filter((g) => /^\d+$/.test(g.id));
+  const named = gens.filter((g) => !/^\d+$/.test(g.id));
+  const range =
+    numbered.length === 0
+      ? ""
+      : numbered.length === 1
+        ? `iPhone ${numbered[0]!.id}`
+        : `iPhone ${numbered[0]!.id}–${numbered[numbered.length - 1]!.id}`;
+  const extras = named.map((g) => g.label);
+  if (range && extras.length > 0) return `${range}, ${extras.join(", ")}`;
+  if (range) return range;
+  return extras.join(", ");
 }
 
 /**
  * The model a product page opens on: the newest offered generation, first
  * SKU in that generation (base → Pro → Pro Max). Launch traffic is for the
  * phone that just shipped, not the mould from three years ago.
+ *
+ * iPhone Duo is not in this list. It is a different mould and its own product
+ * line, so a numbered iPhone case must not open on it.
  */
 export function defaultModelFor(models: readonly string[]): string {
   const ordered = orderModels(models);

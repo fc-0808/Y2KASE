@@ -10,6 +10,7 @@
 
 export type ProductTypeId =
   | "iphone_case"
+  | "iphone_duo_case"
   | "samsung_case"
   | "pixel_case"
   | "airpod_case"

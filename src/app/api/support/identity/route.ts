@@ -103,7 +103,7 @@ async function orderAttributes(
   try {
     const [latest] = await db
       .select({
-        id: orders.id,
+        orderNumber: orders.orderNumber,
         status: orders.status,
         totalCents: orders.totalCents,
         currency: orders.currency,
@@ -112,6 +112,7 @@ async function orderAttributes(
       .from(orders)
       .where(
         and(
+          eq(orders.adminHidden, false),
           or(eq(orders.userId, userId), eq(orders.email, email)),
           ne(orders.status, "pending"),
         ),
@@ -122,7 +123,7 @@ async function orderAttributes(
     if (!latest) return {};
 
     return {
-      "order-id": `#${latest.id}`,
+      "order-id": latest.orderNumber,
       "order-status": latest.status,
       "order-total": formatCents(latest.totalCents, latest.currency),
       "order-placed": latest.createdAt.toISOString().slice(0, 10),

@@ -126,10 +126,14 @@ export function assessClassification(
   // whatever the title itself names. Anything else is a leftover from an older
   // classification and is what makes a Shin-chan case show up under Hello Kitty.
   const supported = new Set<string>([
+    ...(resolved.ok ? [resolved.brand.id] : []),
+    ...(resolved.ok && resolved.character ? [resolved.character.id] : []),
     ...(resolved.ok ? taxonomySlugChain(resolved.brand.id) : []),
     ...(resolved.ok && resolved.character
       ? taxonomySlugChain(resolved.character.id)
       : []),
+    ...(fromTitle.brandId ? [fromTitle.brandId] : []),
+    ...(fromTitle.characterId ? [fromTitle.characterId] : []),
     ...(fromTitle.brandId ? taxonomySlugChain(fromTitle.brandId) : []),
     ...(fromTitle.characterId ? taxonomySlugChain(fromTitle.characterId) : []),
   ]);

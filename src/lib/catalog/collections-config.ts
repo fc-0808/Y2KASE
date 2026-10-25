@@ -465,6 +465,51 @@ export function taxonomySlugChain(slug: string): string[] {
   return chain;
 }
 
+/** A collection row, reduced to the parent walk filing needs. */
+export type CollectionParentRow = {
+  id: number;
+  slug: string;
+  parentId: number | null;
+  kind: string;
+};
+
+/**
+ * Slugs a brand assignment should file under.
+ *
+ * The code taxonomy does not know brands an operator created. Walking the
+ * live parent links picks those up (a character files under its brand), and
+ * the code chain still fills ancestors for entries that have not been synced
+ * into the database yet.
+ */
+export function brandFilingSlugChain(
+  slug: string,
+  rows: readonly CollectionParentRow[],
+): string[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const bySlug = new Map(rows.map((row) => [row.slug, row]));
+  const chain: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: string) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    chain.push(value);
+  };
+
+  let cur = bySlug.get(slug);
+  for (let i = 0; cur && i < 8; i++) {
+    if (!BRAND_COLLECTION_KINDS.has(cur.kind) || seen.has(cur.slug)) break;
+    push(cur.slug);
+    cur = cur.parentId != null ? byId.get(cur.parentId) : undefined;
+  }
+
+  for (const codeSlug of taxonomySlugChain(slug)) push(codeSlug);
+  const root = chain[chain.length - 1];
+  if (root) {
+    for (const ancestor of taxonomySlugChain(root)) push(ancestor);
+  }
+  return chain;
+}
+
 /**
  * Match a product's text signals (tags, title, source folder) against the
  * taxonomy's `match` keywords. Returns the slugs of every collection the

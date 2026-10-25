@@ -28,6 +28,11 @@ export type DeviceNode = {
    * exists. Liveness also requires active stock — see {@link deviceIsLive}.
    */
   comingSoon?: boolean;
+  /**
+   * Keep `/devices/<id>` as the browse URL before the first SKU exists.
+   * The tile still reads as not live, and the sitemap still waits for stock.
+   */
+  landingWhileEmpty?: boolean;
 };
 
 /** A brand grouping of devices, e.g. "Apple", "Samsung". */
@@ -50,6 +55,18 @@ export const DEVICE_FAMILIES: DeviceFamily[] = [
         label: "iPhone",
         productTypes: ["iphone_case"],
         icon: "📱",
+      },
+      {
+        id: "iphone-duo",
+        label: "iPhone Duo",
+        productTypes: ["iphone_duo_case"],
+        icon: "📱",
+        /**
+         * The foldable has no designs yet, but the section is the destination
+         * anyway. Numbered iPhone cases do not fit it, so shoppers must not
+         * land in that grid.
+         */
+        landingWhileEmpty: true,
       },
       {
         id: "airpods",
@@ -242,6 +259,9 @@ export function deviceBrowseHref(
   device: DeviceNode,
   stocked?: Record<string, number>,
 ): string {
+  if (device.landingWhileEmpty && !device.comingSoon) {
+    return `/devices/${device.id}`;
+  }
   return deviceIsLive(device, stocked)
     ? `/devices/${device.id}`
     : `/products?device=${device.id}`;
@@ -254,6 +274,7 @@ export function deviceBrowseHref(
  */
 const MAGSAFE_PRODUCT_TYPES: ReadonlySet<ProductTypeId> = new Set([
   "iphone_case",
+  "iphone_duo_case",
   "samsung_case",
   "pixel_case",
 ]);

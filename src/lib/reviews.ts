@@ -249,10 +249,16 @@ export async function resolveReviewInvite(input: {
 async function matchingReviewOrder(orderId: number, productId: number) {
   const order = await db.query.orders.findFirst({
     where: eq(orders.id, orderId),
-    columns: { id: true, email: true, status: true, shippingAddress: true },
+    columns: {
+      id: true,
+      email: true,
+      status: true,
+      shippingAddress: true,
+      adminHidden: true,
+    },
     with: { items: { columns: { productId: true } } },
   });
-  if (!order?.email) return null;
+  if (!order?.email || order.adminHidden) return null;
   if (
     !REVIEWABLE_ORDER_STATUSES.includes(
       order.status as (typeof REVIEWABLE_ORDER_STATUSES)[number],
@@ -381,6 +387,7 @@ export async function submitReview(
         .innerJoin(orders, eq(orders.id, orderItems.orderId))
         .where(
           and(
+            eq(orders.adminHidden, false),
             eq(orderItems.productId, input.productId),
             eq(orders.email, email),
             inArray(orders.status, ["paid", "shipped", "delivered"]),

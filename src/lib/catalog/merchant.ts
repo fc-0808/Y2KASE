@@ -9,6 +9,7 @@
  */
 const GOOGLE_PRODUCT_CATEGORY: Record<string, string> = {
   iphone_case: "267",
+  iphone_duo_case: "267",
   samsung_case: "267",
   pixel_case: "267",
   airpod_case: "505797",

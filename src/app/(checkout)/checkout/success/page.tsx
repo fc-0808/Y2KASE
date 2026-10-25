@@ -129,7 +129,8 @@ export default async function CheckoutSuccessPage({
           </p>
           {order && (
             <p className="mt-1 text-sm font-semibold text-[var(--primary)]">
-              Order #{order.id}
+              Order{" "}
+              <span className="font-mono tracking-wide">{order.orderNumber}</span>
             </p>
           )}
         </div>

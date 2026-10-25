@@ -172,7 +172,7 @@ export function ProductPageView({
       />
 
       {product.description && (
-        <section className="mt-12 max-w-3xl">
+        <section className="cv-auto mt-12 max-w-3xl">
           <h2 className="mb-3 text-xl font-black">Details</h2>
           <div className="whitespace-pre-line leading-relaxed text-[var(--foreground)]/80">
             {product.description}
@@ -195,7 +195,7 @@ export function ProductPageView({
       />
 
       {collectionLinks.length > 0 && (
-        <section className="mt-10 max-w-3xl">
+        <section className="cv-auto mt-10 max-w-3xl">
           <h2 className="mb-3 text-xl font-black">Shop this look</h2>
           <nav aria-label="Related collections" className="flex flex-wrap gap-2">
             {collectionLinks.map((link) => (
@@ -269,7 +269,7 @@ async function RelatedProducts({
   if (related.length === 0) return null;
 
   return (
-    <section className="mt-16">
+    <section className="cv-auto mt-16">
       <h2 className="mb-5 text-xl font-black">You may also like</h2>
       <div className={PRODUCT_MOSAIC}>
         {related.map((item) => (

@@ -115,6 +115,7 @@ async function loadFirstWave(now: number) {
   const earliest = new Date(now - EARLIEST_REVIEW_REQUEST_DAYS * DAY_MS);
   return db.query.orders.findMany({
     where: and(
+      eq(orders.adminHidden, false),
       inArray(orders.status, ["shipped", "delivered"]),
       isNull(orders.reviewRequestEmailSentAt),
       gte(orders.shippedAt, oldest),
@@ -139,6 +140,7 @@ async function loadReminderWave(now: number) {
   const sentBefore = new Date(now - REVIEW_REMINDER_AFTER_DAYS * DAY_MS);
   return db.query.orders.findMany({
     where: and(
+      eq(orders.adminHidden, false),
       inArray(orders.status, ["shipped", "delivered"]),
       isNotNull(orders.reviewRequestEmailSentAt),
       lte(orders.reviewRequestEmailSentAt, sentBefore),

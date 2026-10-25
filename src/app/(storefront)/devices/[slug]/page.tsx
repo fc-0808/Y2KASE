@@ -11,7 +11,11 @@ import {
   iphone18FitHeading,
   iphone18FitPath,
 } from "@/lib/seo/fit-landings";
-import { getCatalogPage, type ProductQuery } from "@/lib/products";
+import {
+  getCatalogPage,
+  getDeviceFacetCounts,
+  type ProductQuery,
+} from "@/lib/products";
 import { getBrandFacets } from "@/lib/collections";
 import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
 import { JsonLd } from "@/components/JsonLd";
@@ -23,6 +27,7 @@ import {
 import { CatalogPagination } from "@/components/catalog/CatalogPagination";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import {
+  FACET_PAGE_ROBOTS,
   breadcrumbJsonLd,
   catalogCanonicalHref,
   catalogPageMetadata,
@@ -66,12 +71,23 @@ export async function generateMetadata({
   const device = findDevice(slug);
   if (!device || device.comingSoon) notFound();
   const seo = deviceSeo(slug, device.label);
-  return catalogPageMetadata({
+  const metadata = catalogPageMetadata({
     title: seo.heading,
     description: seo.intro,
     params: parseCatalogParams(await searchParams, `/devices/${slug}`),
     openGraphImage: null,
   });
+  // An empty Duo landing is a real section, and it must not be indexed
+  // until a design actually exists for that mould.
+  if (device.landingWhileEmpty) {
+    const stock = await getDeviceFacetCounts().catch(
+      () => ({}) as Record<string, number>,
+    );
+    if ((stock[slug] ?? 0) === 0) {
+      return { ...metadata, robots: FACET_PAGE_ROBOTS };
+    }
+  }
+  return metadata;
 }
 
 export default async function DeviceLandingPage({
@@ -160,9 +176,11 @@ export default async function DeviceLandingPage({
   );
 
   const filtered = hasActiveFilters(catalogParams);
-  // An unstocked line must not occupy an indexable URL. Filtered emptiness
-  // (MagSafe on a real grid, a brand with no SKUs) still shows CatalogEmpty.
-  if (total === 0 && !filtered) notFound();
+  const bareEmpty = total === 0 && !filtered;
+  // An unstocked line must not occupy an indexable URL. iPhone Duo is the
+  // exception: the section exists so shoppers are not sent to iPhone cases
+  // that do not fit. Filtered emptiness still shows CatalogEmpty.
+  if (bareEmpty && !device.landingWhileEmpty) notFound();
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -251,6 +269,18 @@ export default async function DeviceLandingPage({
           {seo.tagline}
         </p>
         {slug === "iphone" && (
+          <p className="mt-2.5 text-sm font-semibold text-[var(--foreground)]/75">
+            Looking for the foldable?{" "}
+            <Link
+              href="/devices/iphone-duo"
+              className="text-[var(--primary)] underline-offset-2 hover:underline"
+            >
+              iPhone Duo cases
+            </Link>{" "}
+            are a separate mould. These designs do not fit it.
+          </p>
+        )}
+        {slug === "iphone" && (
           <nav
             aria-label="iPhone 18 cases by character"
             className="mt-2.5 flex gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible"
@@ -310,6 +340,15 @@ export default async function DeviceLandingPage({
           filtered={filtered}
           resetHref={basePath}
           icon={device.icon}
+          {...(bareEmpty && device.landingWhileEmpty
+            ? {
+                title: "No iPhone Duo designs yet",
+                detail:
+                  "Cases for the other iPhones do not fit iPhone Duo. This section is only for that mould, Case Only at the iPhone case price, and nothing is listed here yet.",
+                actionHref: "/devices/iphone",
+                actionLabel: "Shop iPhone cases",
+              }
+            : {})}
         />
       )}
 

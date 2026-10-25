@@ -256,7 +256,7 @@ export function ProductGallery({
       <div
         className={cn(
           "relative aspect-square min-w-0 overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:-mx-4 max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
-          "touch-pan-y",
+          "transform-gpu touch-pan-y",
           hasStrip && "lg:ml-[6rem]",
         )}
         onPointerDown={onStagePointerDown}
@@ -319,8 +319,8 @@ export function ProductGallery({
               onClick={() => goTo(activeIndex - 1)}
               className={cn(
                 "absolute left-2 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full",
-                "border border-white/80 bg-white/90 text-[var(--foreground)] shadow-sm backdrop-blur-sm",
-                "transition hover:bg-white hover:text-[var(--primary)]",
+                "border border-white/80 bg-white text-[var(--foreground)] shadow-sm",
+                "transition hover:text-[var(--primary)]",
                 FOCUS_RING,
                 "disabled:pointer-events-none disabled:opacity-30",
               )}
@@ -335,8 +335,8 @@ export function ProductGallery({
               onClick={() => goTo(activeIndex + 1)}
               className={cn(
                 "absolute right-2 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full",
-                "border border-white/80 bg-white/90 text-[var(--foreground)] shadow-sm backdrop-blur-sm",
-                "transition hover:bg-white hover:text-[var(--primary)]",
+                "border border-white/80 bg-white text-[var(--foreground)] shadow-sm",
+                "transition hover:text-[var(--primary)]",
                 FOCUS_RING,
                 "disabled:pointer-events-none disabled:opacity-30",
               )}
@@ -345,7 +345,7 @@ export function ProductGallery({
             </button>
             <p
               aria-hidden
-              className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-[var(--foreground)]/55 px-2.5 py-1 text-xs font-bold tabular-nums tracking-wide text-white backdrop-blur-sm"
+              className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-[var(--foreground)]/70 px-2.5 py-1 text-xs font-bold tabular-nums tracking-wide text-white"
             >
               {activeIndex + 1} / {slides.length}
             </p>

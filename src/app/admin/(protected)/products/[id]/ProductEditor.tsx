@@ -23,6 +23,7 @@ import {
   normalizeImageStyleTags,
   displayedStylePrices,
   getStylePrice,
+  usesIphoneStyleTable,
 } from "@/lib/pricing";
 import { compareFilenamesNatural, formatPrice } from "@/lib/utils";
 import type { BrandOption } from "@/lib/catalog/brands";
@@ -179,7 +180,9 @@ export function ProductEditor({
   thumbnail: ThumbnailStudioInput;
   hasMagneticRing: boolean;
 }) {
+  const phoneStyles = usesIphoneStyleTable(productType);
   const isIphoneCase = productType === "iphone_case";
+  const isDuoCase = productType === "iphone_duo_case";
   const isAirpodsCase = productType === "airpod_case";
   const showStyles = hasPriceAxis(productType);
   const fitAxis = compatibilityAxisFor(productType);
@@ -197,7 +200,7 @@ export function ProductEditor({
   );
   const [stylePrices, setStylePrices] = useState<Record<string, string>>(() =>
     displayedStylePrices(
-      isIphoneCase ? STYLES : AIRPODS_STYLES,
+      phoneStyles ? STYLES : AIRPODS_STYLES,
       currency,
       initialStylePrices,
     ),
@@ -723,11 +726,14 @@ export function ProductEditor({
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
             <h2 className="text-sm font-bold">Style variations</h2>
             <p className="mt-1 text-xs text-[var(--foreground)]/60">
-              {isAirpodsCase
-                ? "AirPods cases ship Case Only, Case + Charm and Charm Only (no grip). Prices match the phone-case Style table."
-                : "Pick which add-ons this product ships with. The available styles update automatically."}
+              {isDuoCase
+                ? "iPhone Duo ships Case Only, at the iPhone Case Only price. Grip and charm stay on the numbered iPhone line."
+                : isAirpodsCase
+                  ? "AirPods cases ship Case Only, Case + Charm and Charm Only (no grip). Prices match the phone-case Style table."
+                  : "Pick which add-ons this product ships with. The available styles update automatically."}
             </p>
 
+            {!isDuoCase && (
             <div className="mt-3 space-y-2">
               {isIphoneCase && (
                 <Toggle
@@ -749,6 +755,7 @@ export function ProductEditor({
                 }
               />
             </div>
+            )}
 
             <div className="mt-3 rounded-xl bg-[var(--muted)] p-2.5">
               <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--foreground)]/40">
