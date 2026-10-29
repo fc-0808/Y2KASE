@@ -165,9 +165,12 @@ async function main() {
       "image_url" text,
       "option_values" jsonb,
       "quantity" integer NOT NULL,
-      "unit_cents" integer NOT NULL
+      "unit_cents" integer NOT NULL,
+      "bundle_free" boolean NOT NULL DEFAULT false
     )
   `;
+
+  await sql`ALTER TABLE "order_items" ADD COLUMN IF NOT EXISTS "bundle_free" boolean NOT NULL DEFAULT false`;
 
   await sql`CREATE INDEX IF NOT EXISTS "order_items_order_idx" ON "order_items" ("order_id")`;
 

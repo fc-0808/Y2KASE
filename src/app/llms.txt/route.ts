@@ -20,6 +20,7 @@ Support: ${BRAND.email}
 - [Shop all products](${absoluteUrl("/products")}): Current catalog, prices, availability, product options and customer reviews.
 - [Browse collections](${absoluteUrl("/collections")}): Character, brand and aesthetic collections.
 - [Shop iPhone cases](${absoluteUrl("/devices/iphone")}): Compatibility guidance and available iPhone case designs.
+- [Magnetic grips](${absoluteUrl("/devices/magnetic-grips")}): Grips that snap onto a MagSafe case, at the same price as an iPhone case.
 - [Kawaii phone cases](${absoluteUrl("/collections/kawaii")}): Cute character and pastel designs.
 - [Y2K phone cases](${absoluteUrl("/collections/y2k")}): Early-2000s holographic and chrome looks.
 - [MagSafe phone cases](${absoluteUrl("/collections/magsafe")}): Cases that snap to MagSafe chargers and wallets. Most of these do not include a ring holder.

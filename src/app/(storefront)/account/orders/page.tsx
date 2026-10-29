@@ -13,6 +13,7 @@ import { normalizeEmail } from "@/lib/email-address";
 import { trackingLink } from "@/lib/carriers";
 import { formatCents, formatOptionValues } from "@/lib/utils";
 import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
+import { bundleFreeLineLabel } from "@/lib/orders/bundle-lines";
 import { PRIVATE_PAGE_ROBOTS } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -227,6 +228,11 @@ export default async function AccountOrdersPage() {
                       <p className="mt-0.5 text-xs leading-4 text-[var(--foreground)]/55">
                         Qty {item.quantity}
                       </p>
+                      {item.bundleFree ? (
+                        <p className="mt-0.5 text-xs font-semibold leading-4 text-[var(--primary)]">
+                          {bundleFreeLineLabel()}
+                        </p>
+                      ) : null}
                     </div>
                     <span className={`${priceCol} text-sm font-bold leading-5`}>
                       {formatCents(item.unitCents * item.quantity, currency)}

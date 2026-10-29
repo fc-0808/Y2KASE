@@ -310,7 +310,16 @@ Any non-English character causes the response to be rejected and regenerated.`;
 
 /** Valid `category` values the model may return (maps to our product types). */
 const CATEGORY_ENUM =
-  '"iphone_case", "samsung_case", "pixel_case", "airpod_case", "ipad_case", "macbook_case", "kindle_case", "watch_band", "accessory"';
+  '"iphone_case", "samsung_case", "pixel_case", "airpod_case", "ipad_case", "macbook_case", "kindle_case", "watch_band", "accessory", "magnetic_grip"';
+
+/**
+ * A phone case that includes a grip is still a phone case. magnetic_grip is
+ * only the grip by itself.
+ */
+const CATEGORY_RULES = `CATEGORY
+- A phone case is "iphone_case", even when a grip is attached to the case.
+- "magnetic_grip" is a grip sold on its own, with no phone case.
+- "accessory" is a charm or other add-on that is not a magnetic grip.`;
 
 /**
  * MagSafe classification rules, shared verbatim by the copy pass and the
@@ -437,6 +446,8 @@ Rilakkuma rather than green bear, Miffy rather than white rabbit, Hello Kitty
 rather than pink cat).
 
 ${MAGSAFE_RULES}
+
+${CATEGORY_RULES}
 
 Never write "MagSafe" in the title, the description or the tags. Our system adds
 that wording itself, and only after the classification has been independently
@@ -1004,6 +1015,8 @@ STEP 1 — Is this a physical product we can sell?
 
 STEP 2 — What kind of product? category must be EXACTLY one of:
 ${CATEGORY_ENUM}
+
+${CATEGORY_RULES}
 
 STEP 3 — Brand and character, from this catalogue and nothing else:
 ${BRAND_VOCABULARY}

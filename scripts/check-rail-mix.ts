@@ -377,8 +377,8 @@ test("homepage and catalog rail call the mixer (source contract)", () => {
 
   assert.match(pageSource, /selectDiverseRail/);
   assert.match(pageSource, /RAIL_POOL = 48/);
-  assert.match(pageSource, /title="Original designs"/);
   assert.match(pageSource, /title="Hello Kitty Spotlight"/);
+  assert.doesNotMatch(pageSource, /title="Original designs"/);
   assert.doesNotMatch(pageSource, /title="The Sanrio Collection"/);
 });
 

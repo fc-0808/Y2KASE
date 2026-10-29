@@ -337,20 +337,32 @@ export function usesIphoneStyleTable(productType: string): boolean {
 }
 
 /**
+ * Magnetic grips have no Style axis. They charge the iPhone case price
+ * (Case Only) in every currency, including after the shared table changes.
+ */
+export function pricedAsIphoneCase(productType: string): boolean {
+  return productType === "magnetic_grip";
+}
+
+/**
  * Canonical price first shown for a product.
  *
  * Types with a live Style table (iPhone, iPhone Duo, AirPods) are priced from
- * that table so listing cards stay in lock-step with the PDP. Everything else
- * uses its stored catalog price. Cards, PDP metadata, JSON-LD and merchant
- * feeds all call this boundary so a crawler can never see a different price
- * from the shopper.
+ * that table so listing cards stay in lock-step with the PDP. Magnetic grips
+ * use the same iPhone case price. Everything else uses its stored catalog
+ * price. Cards, PDP metadata, JSON-LD and merchant feeds all call this
+ * boundary so a crawler can never see a different price from the shopper.
  */
 export function getProductEntryPrice(
   productType: string,
   storedPrice: string | number,
   currency: string,
 ): number {
-  if (usesIphoneStyleTable(productType) || productType === "airpod_case") {
+  if (
+    usesIphoneStyleTable(productType) ||
+    productType === "airpod_case" ||
+    pricedAsIphoneCase(productType)
+  ) {
     return getBasePrice(currency);
   }
 

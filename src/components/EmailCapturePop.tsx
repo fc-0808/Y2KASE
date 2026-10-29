@@ -8,6 +8,10 @@
  * reminder of the automatic bundle. The percentage is never typed here, so the
  * pop-up cannot advertise a discount checkout does not honour.
  *
+ * On desktop the card is a split: the homepage hero photo fills the left,
+ * and the offer stays in the right column. On a phone the same photo is a
+ * short banner, so the claim button stays on screen.
+ *
  * THE FLOW
  *   claim   — "Claim your 15% off", with a yes / no. The code stays hidden.
  *   email   — the address that earns the code.
@@ -31,6 +35,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { X, Sparkles, Gift } from "lucide-react";
@@ -436,21 +441,37 @@ export function EmailCapturePop() {
         aria-modal="true"
         aria-labelledby="popup-title"
         tabIndex={-1}
-        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[51] mx-auto max-h-[min(100dvh-2rem,calc(100svh-2rem))] max-w-md overflow-y-auto overscroll-contain focus:outline-none sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 md:w-[min(40rem,calc(100vw-4rem))] md:max-w-none"
+        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-[51] mx-auto max-h-[min(100dvh-2rem,calc(100svh-2rem))] max-w-md overflow-y-auto overscroll-contain focus:outline-none sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 md:w-[min(52rem,calc(100vw-3rem))] md:max-w-none"
       >
-        <div className="card-cute relative overflow-hidden animate-float-up md:flex md:min-h-[min(30rem,calc(100dvh-5rem))] md:flex-col">
-          <div className="h-1.5 w-full bg-holo-vivid md:h-2" />
+        <div className="card-cute relative overflow-hidden animate-float-up md:flex md:min-h-[min(32rem,calc(100dvh-4.5rem))] md:flex-row md:items-stretch">
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1.5 bg-holo-vivid md:h-2"
+            aria-hidden="true"
+          />
+
+          <div
+            className="relative h-32 w-full shrink-0 overflow-hidden sm:h-36 md:h-auto md:w-[42%] md:self-stretch"
+            aria-hidden="true"
+          >
+            <Image
+              src="/brand/hero-2.webp"
+              alt=""
+              fill
+              sizes="(min-width: 768px) 380px, 100vw"
+              className="object-cover object-[22%_center] md:origin-[34%_70%] md:scale-[1.08]"
+            />
+          </div>
 
           <button
             type="button"
             onClick={dismiss}
             aria-label="Close"
-            className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full bg-[var(--muted)] text-[var(--foreground)]/60 transition hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] md:right-5 md:top-5 md:h-10 md:w-10"
+            className="absolute right-3 top-3 z-20 grid h-8 w-8 place-items-center rounded-full bg-white/90 text-[var(--foreground)]/60 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-[var(--primary)] md:right-4 md:top-4 md:h-10 md:w-10"
           >
             <X className="h-4 w-4 md:h-[18px] md:w-[18px]" />
           </button>
 
-          <div className="px-6 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-6 md:flex md:flex-1 md:flex-col md:justify-center md:px-12 md:pb-11 md:pt-10">
+          <div className="px-6 pb-5 pt-5 sm:px-8 sm:pb-6 sm:pt-6 md:flex md:min-w-0 md:flex-1 md:flex-col md:justify-center md:px-8 md:pb-9 md:pt-8 lg:px-10 lg:pb-10 lg:pt-9">
             {state === "claim" && (
               <div className="text-center">
                 <p className="font-pixel text-[10px] uppercase tracking-tight text-[var(--primary)] md:text-[11px]">
@@ -458,7 +479,7 @@ export function EmailCapturePop() {
                 </p>
                 <h2
                   id="popup-title"
-                  className="mt-2 text-balance font-display text-[1.65rem] font-black leading-tight text-[var(--foreground)] sm:text-[1.85rem] md:mt-3 md:text-[2.5rem] md:leading-[1.05]"
+                  className="mt-2 text-balance font-display text-[1.65rem] font-black leading-tight text-[var(--foreground)] sm:text-[1.85rem] md:mt-3 md:text-[2.15rem] md:leading-[1.05] lg:text-[2.45rem]"
                 >
                   Claim your {WELCOME_COUPON.percentOff}% off
                 </h2>
@@ -507,7 +528,7 @@ export function EmailCapturePop() {
                   </p>
                   <h2
                     id="popup-title"
-                    className="mt-2 text-balance font-display text-2xl font-black leading-tight text-[var(--foreground)] md:mt-3 md:text-[2.5rem] md:leading-[1.05]"
+                    className="mt-2 text-balance font-display text-2xl font-black leading-tight text-[var(--foreground)] md:mt-3 md:text-[2.15rem] md:leading-[1.05] lg:text-[2.45rem]"
                   >
                     Enter your email
                   </h2>

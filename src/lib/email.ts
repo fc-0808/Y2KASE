@@ -210,6 +210,7 @@ export async function sendOrderConfirmationOnce(
         options: it.optionValues ?? null,
         quantity: it.quantity,
         unitCents: it.unitCents,
+        bundleFree: it.bundleFree,
       })),
       subtotalCents: order.subtotalCents,
       shippingCents: order.shippingCents,
@@ -289,6 +290,7 @@ export async function sendShipmentNotificationOnce(
       items: order.items.map((it) => ({
         title: it.productTitle,
         quantity: it.quantity,
+        bundleFree: it.bundleFree,
       })),
       siteUrl: SITE_URL,
     });

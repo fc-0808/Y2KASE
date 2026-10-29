@@ -30,6 +30,7 @@ import {
 } from "@/lib/analytics/commerce";
 import { Stars } from "@/components/reviews/Stars";
 import { PurchaseAssurance } from "@/components/reviews/PurchaseAssurance";
+import { TrustpilotQuote } from "@/components/reviews/TrustpilotQuote";
 import {
   ProductGallery,
   type ProductGallerySlide,
@@ -444,6 +445,7 @@ export function ProductDetailClient({
           )}
         </button>
 
+        <TrustpilotQuote variant="compact" />
         <PurchaseAssurance magsafe={magsafe} variant="buybox" />
       </div>
 

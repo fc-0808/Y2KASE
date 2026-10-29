@@ -51,8 +51,9 @@ import { compareProductsByUpload } from "@/lib/admin/upload-date";
  * price is the canonical base ("Case Only") from the pricing table — NOT the
  * value stored on `products.price` (which is only a snapshot from ingest time).
  * Deriving it here keeps every card in lock-step with the product page and the
- * cart without needing a DB backfill. All other product types keep their stored
- * price, which is authoritative for them (and honours per-product overrides).
+ * cart without needing a DB backfill. Magnetic grips use that same iPhone case
+ * price. All other product types keep their stored price, which is authoritative
+ * for them (and honours per-product overrides).
  */
 function listingPriceFor(
   productType: string,
@@ -741,6 +742,30 @@ async function computeDeviceFacetCounts(): Promise<Record<string, number>> {
     .groupBy(products.productType);
 
   return rollupDeviceCounts(rows);
+}
+
+/**
+ * Device mix inside one collection. Collection titles need this ("iPhone cases"
+ * vs "phone cases") and used to load the whole listing — products, ratings,
+ * and every other facet — just to read the device column.
+ */
+export function getCollectionDeviceCounts(
+  slug: string,
+): Promise<Record<string, number>> {
+  if (!isDbConfigured()) return Promise.resolve({});
+  return getCollectionDeviceCountsCached(slug);
+}
+
+const getCollectionDeviceCountsCached = cachedCatalogRead(
+  computeCollectionDeviceCounts,
+  ["collection-device-counts-v1"],
+  { tags: [CACHE_TAGS.products, CACHE_TAGS.collections] },
+);
+
+async function computeCollectionDeviceCounts(
+  slug: string,
+): Promise<Record<string, number>> {
+  return countDeviceFacet({ collection: slug, page: 1, sort: "newest" });
 }
 
 /**

@@ -8,7 +8,14 @@
  * and gives search/answer engines explicit, visible Q&A context. Google limits
  * FAQ rich-result display to authoritative government and health sites.
  */
-import { FREE_SHIPPING_OFFER, IPHONE_FIT, IPHONE_MODELS } from "@/lib/pricing";
+import {
+  FREE_SHIPPING_OFFER,
+  IPHONE_FIT,
+  IPHONE_MODELS,
+  STORE_CURRENCY,
+  getBasePrice,
+} from "@/lib/pricing";
+import { formatPrice } from "@/lib/utils";
 import {
   AIRPODS_MODELS,
   AIRPODS_SHARED_FIT_NOTE,
@@ -36,7 +43,22 @@ export type DeviceSeo = {
   models?: readonly string[];
   /** Device-specific FAQ — rendered visibly and as FAQPage structured data. */
   faqs: { question: string; answer: string }[];
+  /**
+   * Copy for a real section that has no products yet. Without this, an empty
+   * landing uses the generic empty catalog state.
+   */
+  empty?: {
+    title: string;
+    detail: string;
+    actionHref: string;
+    actionLabel: string;
+  };
 };
+
+const IPHONE_CASE_PRICE = formatPrice(
+  getBasePrice(STORE_CURRENCY),
+  STORE_CURRENCY,
+);
 
 const DEVICE_SEO: Record<string, DeviceSeo> = {
   iphone: {
@@ -72,7 +94,7 @@ const DEVICE_SEO: Record<string, DeviceSeo> = {
       {
         question: "Can I add a phone charm or grip?",
         answer:
-          "Many designs offer a Case + Grip + Charm bundle. Choose your combination from the style selector on the product page.",
+          "Many designs offer a Case + Grip + Charm bundle. Choose your combination from the style selector on the product page. A magnetic grip on its own is a separate section, at the same price as an iPhone case.",
       },
     ],
   },
@@ -92,6 +114,40 @@ const DEVICE_SEO: Record<string, DeviceSeo> = {
           "The same as an iPhone Case Only. iPhone Duo does not offer a grip or a charm.",
       },
     ],
+    empty: {
+      title: "No iPhone Duo designs yet",
+      detail:
+        "Cases for the other iPhones do not fit iPhone Duo. This section is only for that mould, Case Only at the iPhone case price, and nothing is listed here yet.",
+      actionHref: "/devices/iphone",
+      actionLabel: "Shop iPhone cases",
+    },
+  },
+  "magnetic-grips": {
+    heading: "Magnetic Grips",
+    tagline: "The same price as an iPhone case.",
+    intro: `Magnetic grips at Y2KASE snap onto a MagSafe case. Each one is ${IPHONE_CASE_PRICE}, the same price as an iPhone case. ${FREE_SHIPPING_OFFER}.`,
+    faqs: [
+      {
+        question: "How much is a magnetic grip?",
+        answer: `The same as an iPhone case: ${IPHONE_CASE_PRICE}. The price stays tied to the iPhone case price in every currency.`,
+      },
+      {
+        question: "Is a magnetic grip a phone case?",
+        answer:
+          "No. A magnetic grip attaches to a MagSafe case. Phone cases, including a case that already includes a grip, stay in the iPhone section.",
+      },
+      {
+        question: "Which phones does a magnetic grip fit?",
+        answer:
+          "It attaches to MagSafe cases. It is not cut for one iPhone model.",
+      },
+    ],
+    empty: {
+      title: "No magnetic grips yet",
+      detail: `Magnetic grips are their own section, at the same price as an iPhone case (${IPHONE_CASE_PRICE}). Nothing is listed here yet.`,
+      actionHref: "/devices/iphone",
+      actionLabel: "Shop iPhone cases",
+    },
   },
   airpods: {
     heading: "AirPods Cases",

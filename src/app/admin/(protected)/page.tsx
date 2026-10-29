@@ -87,9 +87,7 @@ export default async function AdminDashboardPage() {
         views7d: 0,
         unique7d: 0,
       })),
-      getOrders()
-        .then((o) => o.slice(0, 6))
-        .catch(() => []),
+      getOrders(undefined, 6).catch(() => []),
       getRecentVisits(6).catch(() => []),
     ]);
   // One stamp per request so the client can reset "Updated just now" after

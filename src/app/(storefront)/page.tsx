@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
@@ -22,11 +23,13 @@ import { ProductCard, PRODUCT_RAIL_ITEM } from "@/components/ProductCard";
 import { HeroCarousel } from "@/components/home/HeroCarousel";
 import { HomeReviewBand } from "@/components/home/HomeReviewBand";
 import { CategoryRail, type RailCategory } from "@/components/home/CategoryRail";
+import { BestsellerMarquee } from "@/components/home/BestsellerMarquee";
 import { ScrollableProductRail } from "@/components/home/ScrollableProductRail";
 import { FeaturedEditorial } from "@/components/home/FeaturedEditorial";
 import { PixelHeart, SparkleField, Wordmark } from "@/components/brand/Decor";
 import { JsonLd } from "@/components/JsonLd";
 import { PurchaseAssurance } from "@/components/reviews/PurchaseAssurance";
+import { TrustpilotQuote } from "@/components/reviews/TrustpilotQuote";
 import { getStorefrontProof } from "@/lib/reviews";
 import { organizationJsonLd, publicPageMetadata, websiteJsonLd } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
@@ -42,42 +45,55 @@ export const metadata: Metadata = publicPageMetadata({
 // demand and held at the CDN (see next.config canonical headers).
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
-  // Over-fetch each collection so cross-rail de-dupe (Hello Kitty reserved
-  // before Originals) still leaves a full 12-card mix.
+export default function HomePage() {
+  return (
+    <Suspense fallback={<HomeSkeleton />}>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6">
+      <div className="h-[70vh] min-h-80 animate-pulse rounded-3xl bg-[var(--muted)]" />
+      <div className="mt-8 h-8 w-56 animate-pulse rounded-full bg-[var(--muted)]" />
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div
+            key={i}
+            className="h-40 animate-pulse rounded-2xl bg-[var(--muted)]"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+async function HomeContent() {
+  // Over-fetch so de-dupe against Bestsellers still leaves a full Hello Kitty row.
   const RAIL_POOL = 48;
   const col = (slug: string) =>
     getCollectionRail(slug, RAIL_POOL).catch(() => [] as ProductListItem[]);
 
-  const [featured, tree, helloKittyItems, originalsItems, deviceCounts, proof] =
+  const [featured, tree, helloKittyItems, deviceCounts, proof] =
     await Promise.all([
     getFeaturedProducts(),
     getCollectionTree().catch(() => []),
     col("hello-kitty"),
-    col("originals"),
     getDeviceFacetCounts().catch(() => undefined),
     getStorefrontProof().catch(() => ({ lead: null, band: [] })),
   ]);
 
-  // ── Global product de-duplication + type mix ─────────────────────────────
-  // No product should appear in more than one rail on the page. Hello Kitty
-  // is reserved first, then Originals is filled from what remains.
-  //
-  // `selectDiverseRail` re-weaves whatever remains after that reservation so
-  // skipping a few Hello Kitty iPhone cases (already in Bestsellers) cannot
-  // collapse Originals into a single product type.
+  // No product should appear in both Bestsellers and Hello Kitty Spotlight.
+  // `selectDiverseRail` re-weaves what remains so skipping a few iPhone cases
+  // cannot collapse the spotlight into a single product type.
   const usedIds = new Set<number>(featured.map((p) => p.id));
-  const pickDistinct = (items: ProductListItem[], n: number) => {
-    const out = selectDiverseRail(items, {
-      limit: n,
-      usedIds,
-      requireImage: true,
-    });
-    for (const p of out) usedIds.add(p.id);
-    return out;
-  };
-  const helloKittyPicks = pickDistinct(helloKittyItems, 12);
-  const originalsPicks = pickDistinct(originalsItems, 12);
+  const helloKittyPicks = selectDiverseRail(helloKittyItems, {
+    limit: 12,
+    usedIds,
+    requireImage: true,
+  });
 
   // Flatten the taxonomy (roots + character children), stocked collections
   // first, de-duplicated by slug. Each tile renders as a branded cover, so no
@@ -103,7 +119,9 @@ export default async function HomePage() {
   );
   const railCategories = orderRailCategories(cats, 14);
 
-  const devices = DEVICE_FAMILIES.flatMap((f) => f.devices).slice(0, 6);
+  const homepageDevices = DEVICE_FAMILIES.flatMap((f) => f.devices).slice(0, 6);
+  const liveDevices = homepageDevices.filter((d) => deviceIsLive(d, deviceCounts));
+  const soonDevices = homepageDevices.filter((d) => !deviceIsLive(d, deviceCounts));
 
   return (
     <div className="flex flex-col">
@@ -114,7 +132,7 @@ export default async function HomePage() {
       <HeroCarousel />
 
       {/* ── Shop the universe (category rail) ─────────────────────────────── */}
-      <section className="defer-render order-1 mx-auto w-full max-w-[1800px] px-4 pt-8 sm:px-6 sm:pt-14">
+      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-8 sm:px-6 sm:pt-14">
         <SectionHeading
           eyebrow="Find your character"
           title="Shop the universe"
@@ -123,10 +141,41 @@ export default async function HomePage() {
         <CategoryRail categories={railCategories} />
       </section>
 
-      {/* ── Featured collection (editorial) ───────────────────────────────── */}
-      {/* On a phone this follows bestsellers so a shopper sees products before
-          three campaign cards. Desktop keeps the editorial block first. */}
-      <section className="defer-render order-3 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16 md:order-2">
+      {/* ── Bestsellers — first thing a shopper can buy, on both layouts ─ */}
+      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
+        <SectionHeading eyebrow="Most loved" title="Bestsellers" href="/products" />
+        {featured.length > 0 ? (
+          // One row on every width. It drifts once the shelf is on screen.
+          <BestsellerMarquee products={featured} />
+        ) : (
+          <EmptyState />
+        )}
+      </section>
+
+      {proof.band.length > 0 && (
+        <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-8 sm:px-6 sm:pt-12">
+          <SectionHeading eyebrow="From buyers" title="In real life" />
+          <HomeReviewBand quotes={proof.band} />
+        </section>
+      )}
+
+      {/* Full outside quote after the first cases and the buyer photos.
+          A taller block here does not push the first product row down. */}
+      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-14">
+        <TrustpilotQuote />
+      </section>
+
+      {/* ── Hello Kitty spotlight ─────────────────────────────────────────── */}
+      <CollectionShowcase
+        eyebrow="Icon status"
+        title="Hello Kitty Spotlight"
+        href="/collections/hello-kitty"
+        accent="#ff4d6d"
+        products={helloKittyPicks}
+      />
+
+      {/* ── Featured collection — the offer, after products are on screen ─ */}
+      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
         <SectionHeading
           eyebrow="Editor's picks"
           title="Featured collection"
@@ -135,110 +184,67 @@ export default async function HomePage() {
         <FeaturedEditorial />
       </section>
 
-      {/* ── Bestsellers ───────────────────────────────────────────────────── */}
-      <section className="defer-render order-2 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16 md:order-3">
-        <SectionHeading eyebrow="Most loved" title="Bestsellers" href="/products" />
-        {featured.length > 0 ? (
-          <>
-            {/* One scrolling row on a phone, same as the other shelves. */}
-            <div className="md:hidden">
-              <ScrollableProductRail>
-                {featured.map((product) => (
-                  <div key={product.id} className={PRODUCT_RAIL_ITEM}>
-                    <ProductCard product={product} />
-                  </div>
-                ))}
-              </ScrollableProductRail>
-            </div>
-            <div className="hidden md:grid md:grid-cols-3 md:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-              {featured.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
-          </>
-        ) : (
-          <EmptyState />
-        )}
-      </section>
-
-      {proof.band.length > 0 && (
-        <section className="defer-render order-2 mx-auto w-full max-w-[1800px] px-4 pt-8 sm:px-6 sm:pt-12 md:order-3">
-          <SectionHeading eyebrow="From buyers" title="In real life" />
-          <HomeReviewBand quotes={proof.band} />
-        </section>
-      )}
-
-      {/* ── Originals (no licensed character) ─────────────────────────────── */}
-      <CollectionShowcase
-        className="order-4"
-        eyebrow="No character needed"
-        title="Original designs"
-        href="/collections/originals"
-        accent="#7ec8ff"
-        products={originalsPicks}
-      />
-
-      {/* ── Hello Kitty spotlight ─────────────────────────────────────────── */}
-      <CollectionShowcase
-        className="order-5"
-        eyebrow="Icon status"
-        title="Hello Kitty Spotlight"
-        href="/collections/hello-kitty"
-        accent="#ff4d6d"
-        products={helloKittyPicks}
-      />
-
-      {/* ── Trust strip — one section above devices so the offer is seen ─ */}
-      <section className="defer-render order-6 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
+      {/* ── Trust strip — policies after the shelves, before device browse ─ */}
+      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
         <PurchaseAssurance variant="strip" />
       </section>
 
-      {/* ── Shop by device ────────────────────────────────────────────────── */}
-      <section className="defer-render order-7 mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
+      {/* ── Shop by device — live lines as tiles, Soon as one chip row ──── */}
+      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 pt-10 sm:px-6 sm:pt-16">
         <SectionHeading eyebrow="Find your fit" title="Shop by device" href="/products" />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {devices.map((d) => {
-            const hasCover = DEVICE_COVER_IDS.has(d.id);
-            return (
-              <Link
-                key={d.id}
-                // Live devices have a dedicated, indexable landing page; others
-                // fall back to the filtered catalog until they're stocked.
-                href={deviceBrowseHref(d, deviceCounts)}
-                className="group relative block overflow-hidden rounded-3xl border border-[var(--border)] shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 hover:-translate-y-1 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-24px_rgba(255,62,165,0.55)]"
-              >
-                {/* Themed device banner — the name is baked into the art
-                    (matches the collection covers). */}
-                <div className="relative aspect-video">
-                  {hasCover ? (
-                    <Image
-                      src={deviceCoverSrc(d.id)}
-                      alt={d.label}
-                      fill
-                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 16vw"
-                      className="object-cover transition duration-500 group-hover:scale-105"
-                    />
-                  ) : (
-                    <span className="absolute inset-0 grid place-items-center bg-holo p-3 text-center">
-                      <span className="font-display text-base font-extrabold text-[var(--foreground)] sm:text-lg">
-                        {d.label}
+        {liveDevices.length > 0 && (
+          <div className="grid max-w-5xl grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {liveDevices.map((d) => {
+              const hasCover = DEVICE_COVER_IDS.has(d.id);
+              return (
+                <Link
+                  key={d.id}
+                  href={deviceBrowseHref(d, deviceCounts)}
+                  className="group relative block overflow-hidden rounded-3xl border border-[var(--border)] shadow-[0_10px_30px_-22px_rgba(120,60,120,0.6)] transition duration-300 hover:-translate-y-1 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-24px_rgba(255,62,165,0.55)]"
+                >
+                  <div className="relative aspect-video">
+                    {hasCover ? (
+                      <Image
+                        src={deviceCoverSrc(d.id)}
+                        alt={d.label}
+                        fill
+                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 280px"
+                        className="object-cover transition duration-500 group-hover:scale-105"
+                      />
+                    ) : (
+                      <span className="absolute inset-0 grid place-items-center bg-holo p-3 text-center">
+                        <span className="font-display text-base font-extrabold text-[var(--foreground)] sm:text-lg">
+                          {d.label}
+                        </span>
                       </span>
-                    </span>
-                  )}
-                  {!deviceIsLive(d, deviceCounts) && (
-                    <span className="absolute right-2 top-2 rounded-full bg-white/85 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--foreground)]/60 backdrop-blur-sm">
-                      Soon
-                    </span>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+        {soonDevices.length > 0 && (
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {soonDevices.map((d) => (
+              <li key={d.id}>
+                <Link
+                  href={deviceBrowseHref(d, deviceCounts)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--foreground)]/70 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                >
+                  {d.label}
+                  <span className="text-[9px] font-extrabold uppercase tracking-wide text-[var(--foreground)]/40">
+                    Soon
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* ── Y2KASE Club band ──────────────────────────────────────────────── */}
-      <section className="defer-render order-9 mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 sm:py-16">
+      <section className="defer-render mx-auto w-full max-w-[1800px] px-4 py-8 sm:px-6 sm:py-16">
         <div className="relative overflow-hidden rounded-[2rem] border-2 border-white bg-holo-shimmer p-6 shadow-xl sm:rounded-[2.5rem] sm:p-10 lg:p-12">
           <div className="bg-grid absolute inset-0 opacity-40" />
           <SparkleField />

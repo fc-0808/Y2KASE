@@ -9,6 +9,7 @@
  * collection nobody has stocked does nothing at all when pressed.
  */
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { CATALOG_PATH } from "@/lib/catalog/params";
 
@@ -25,7 +26,7 @@ export function CatalogEmpty({
   filtered: boolean;
   /** This surface, unfiltered. */
   resetHref: string;
-  icon?: string;
+  icon?: ReactNode;
   title?: string;
   detail?: string;
   actionHref?: string;

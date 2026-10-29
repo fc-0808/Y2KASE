@@ -7,6 +7,7 @@ import { resolveAdminOrder } from "@/lib/admin/orders";
 import { formatCents, formatOptionValues, countryFlag, countryName } from "@/lib/utils";
 import { trackingLink } from "@/lib/carriers";
 import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
+import { bundleFreeLineLabel } from "@/lib/orders/bundle-lines";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ShipForm } from "./ShipForm";
 
@@ -132,6 +133,11 @@ export default async function AdminOrderDetailPage({
                       Qty {item.quantity} ×{" "}
                       {formatCents(item.unitCents, order.currency)}
                     </p>
+                    {item.bundleFree ? (
+                      <p className="text-xs font-semibold text-[var(--primary)]">
+                        {bundleFreeLineLabel()}
+                      </p>
+                    ) : null}
                   </div>
                   <p className="font-bold">
                     {formatCents(item.unitCents * item.quantity, order.currency)}

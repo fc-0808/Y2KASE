@@ -80,6 +80,7 @@ export type OrderLineSummary = Pick<
   | "optionValues"
   | "quantity"
   | "unitCents"
+  | "bundleFree"
 >;
 
 export type OrderRow = Order & { items: OrderLineSummary[] };
@@ -96,12 +97,16 @@ export type OrderStats = {
 };
 
 /** Orders for a given admin view, newest first, including each cart line. */
-export async function getOrders(view?: string): Promise<OrderRow[]> {
+export async function getOrders(
+  view?: string,
+  limit?: number,
+): Promise<OrderRow[]> {
   if (!isDbConfigured()) return [];
 
   const rows = await db.query.orders.findMany({
     where: viewWhere(view),
     orderBy: desc(orders.createdAt),
+    ...(limit ? { limit } : {}),
     with: {
       items: {
         columns: {
@@ -113,6 +118,7 @@ export async function getOrders(view?: string): Promise<OrderRow[]> {
           optionValues: true,
           quantity: true,
           unitCents: true,
+          bundleFree: true,
         },
         orderBy: (item, { asc }) => asc(item.id),
       },

@@ -35,6 +35,8 @@ const MANIFEST = path.join(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const FORCE = process.argv.includes("--force");
+const onlyFlag = process.argv.indexOf("--only");
+const ONLY = onlyFlag >= 0 ? process.argv[onlyFlag + 1] : undefined;
 
 /** The 6 devices shown in the homepage "Shop by device" grid (Apple family). */
 const DEVICE_IDS = DEVICE_FAMILIES.flatMap((f) => f.devices)
@@ -47,6 +49,11 @@ const DEVICE_META: Record<string, { theme: string; accent: string }> = {
     theme:
       "a cute pastel smartphone wearing a kawaii phone case, floating hearts and sparkles",
     accent: "#ff8fb1",
+  },
+  "iphone-duo": {
+    theme:
+      "the same airy cloudy pastel illustration as the iPhone banner: soft sky, glossy bubbly script, sparkles, no inflatable plaque, no clay button, no thick frame. The device beside the wordmark is a closed foldable phone seen from the front: a rounded rectangle only about 1.4 times as tall as it is wide, with a hinge along its left edge and two tiny camera dots. It is a squat phone, not a book, not a notebook, and not a tall slim iPhone. No bunny ears. A few lilac bubbles sit around it so this tile is easy to tell from the pinker iPhone tile",
+    accent: "#c4b5fd",
   },
   airpods: {
     theme:
@@ -94,6 +101,9 @@ function buildPrompt(label: string, id: string): string {
     `Theme and background: ${meta.theme}, in a soft, glossy palette built around the accent colour ${meta.accent}.`,
     `Place a few themed decorative elements around the wordmark WITHOUT covering any letters, and keep generous negative space so the text stays perfectly legible.`,
     `Do NOT render any other text, letters, words, captions, labels, numbers or watermarks anywhere else in the image — only the "${label}" wordmark.`,
+    id === "iphone-duo"
+      ? `Keep the background light and cloudy like a sibling banner. Do not fill the canvas with a solid color or a 3D button. The only device is that short wide hinged phone.`
+      : "",
     `Style: clean, high-end, cohesive with a matching set of sibling banners. ${ASPECT} landscape, no outer border.`,
   ].join(" ");
 }
@@ -205,10 +215,13 @@ async function main() {
   const byId = new Map(
     DEVICE_FAMILIES.flatMap((f) => f.devices).map((d) => [d.id, d]),
   );
-  const targets = DEVICE_IDS.map((id) => ({
+  const targets = DEVICE_IDS.filter((id) => !ONLY || id === ONLY).map((id) => ({
     id,
     label: byId.get(id)?.label ?? id,
   }));
+  if (targets.length === 0) {
+    throw new Error(`No device banner matches --only ${ONLY ?? ""}.`);
+  }
 
   console.log(
     `\nGenerating banners for ${targets.length} device(s) via Nano Banana Pro…\n`,
@@ -246,10 +259,14 @@ async function main() {
     }
   }
 
+  const known = new Set(
+    DEVICE_FAMILIES.flatMap((family) => family.devices.map((device) => device.id)),
+  );
   const onDisk = fs
     .readdirSync(OUT_DIR)
     .filter((f) => f.endsWith(".webp"))
-    .map((f) => f.replace(/\.webp$/, ""));
+    .map((f) => f.replace(/\.webp$/, ""))
+    .filter((id) => known.has(id));
   writeManifest(onDisk, Date.now().toString(36));
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

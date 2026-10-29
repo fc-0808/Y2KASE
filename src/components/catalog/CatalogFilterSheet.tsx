@@ -27,6 +27,7 @@ import { CatalogBottomSheet } from "./CatalogBottomSheet";
 import { BrandTree, OptionRow } from "./facet-ui";
 import { ColorSwatch } from "./ColorSwatch";
 import { MotifMark } from "./MotifMark";
+import { DeviceGlyph } from "@/components/brand/DeviceGlyph";
 import type { CatalogFilterModel } from "./use-catalog-filters";
 
 type SectionId = "device" | "compatibility" | "brands" | "motifs" | "colors";
@@ -155,9 +156,7 @@ export function CatalogFilterSheet({
                   disabled={count === 0 && !checked}
                   onSelect={() => model.selectDevice(device.id)}
                   swatch={
-                    <span aria-hidden className="text-sm leading-none">
-                      {device.icon}
-                    </span>
+                    <DeviceGlyph id={device.id} fallback={device.icon} />
                   }
                 />
               );

@@ -2,6 +2,7 @@ import type { ProductTypeConfig, ProductTypeId, OptionAxis } from "../types";
 import { axisByRole } from "../types";
 import { iphoneCaseType } from "./iphone-case";
 import { iphoneDuoCaseType } from "./iphone-duo-case";
+import { magneticGripType } from "./magnetic-grip";
 import { airpodCaseType } from "./airpod-case";
 import {
   samsungCaseType,
@@ -16,6 +17,7 @@ import {
 const REGISTRY: Record<ProductTypeId, ProductTypeConfig> = {
   iphone_case: iphoneCaseType,
   iphone_duo_case: iphoneDuoCaseType,
+  magnetic_grip: magneticGripType,
   samsung_case: samsungCaseType,
   pixel_case: pixelCaseType,
   airpod_case: airpodCaseType,
@@ -42,6 +44,8 @@ const CATEGORY_TO_TYPE: Record<string, ProductTypeId> = {
   phone_case: "iphone_case",
   iphone_duo_case: "iphone_duo_case",
   iphone_duo: "iphone_duo_case",
+  magnetic_grip: "magnetic_grip",
+  magnetic_grips: "magnetic_grip",
   samsung_case: "samsung_case",
   galaxy_case: "samsung_case",
   pixel_case: "pixel_case",

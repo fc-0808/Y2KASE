@@ -13,33 +13,27 @@ import { AnnouncementBar } from "@/components/AnnouncementBar";
  * stock snapshot, not a static flag.
  */
 export async function SiteHeader() {
-  let collections: MenuCollection[] = [];
-  let deviceCounts: Record<string, number> | undefined;
-  try {
-    const tree = await getCollectionTree();
+  const toMenu = (node: CollectionNode): MenuCollection => ({
+    slug: node.slug,
+    name: node.name,
+    kind: node.kind,
+    icon: node.icon,
+    accentColor: node.accentColor,
+    count: node.totalCount,
+    children: node.children.map(toMenu),
+  });
 
-    const toMenu = (node: CollectionNode): MenuCollection => ({
-      slug: node.slug,
-      name: node.name,
-      kind: node.kind,
-      icon: node.icon,
-      accentColor: node.accentColor,
-      count: node.totalCount,
-      children: node.children.map(toMenu),
-    });
-
-    collections = tree
-      .filter((n) => n.totalCount > 0 || n.featured)
-      .map(toMenu);
-  } catch {
-    // Storefront should still render if the DB/collections aren't ready yet.
-    collections = [];
-  }
-  try {
-    deviceCounts = await getDeviceFacetCounts();
-  } catch {
-    deviceCounts = undefined;
-  }
+  // These used to run one after the other, so every navigation paid both
+  // round trips before the next page could paint. They don't depend on each
+  // other.
+  const [collections, deviceCounts] = await Promise.all([
+    getCollectionTree()
+      .then((tree) =>
+        tree.filter((n) => n.totalCount > 0 || n.featured).map(toMenu),
+      )
+      .catch(() => [] as MenuCollection[]),
+    getDeviceFacetCounts().catch(() => undefined),
+  ]);
   return (
     <div className="sticky top-0 z-40">
       <AnnouncementBar />

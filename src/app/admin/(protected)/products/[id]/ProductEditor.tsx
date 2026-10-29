@@ -22,6 +22,7 @@ import {
   orderStyles,
   normalizeImageStyleTags,
   displayedStylePrices,
+  getBasePrice,
   getStylePrice,
   usesIphoneStyleTable,
 } from "@/lib/pricing";
@@ -674,6 +675,17 @@ export function ProductEditor({
             <ExternalLink className="h-3.5 w-3.5" />
           </Link>
         </div>
+
+        {productType === "magnetic_grip" && (
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+            <h2 className="text-sm font-bold">Price</h2>
+            <p className="mt-1 text-xs text-[var(--foreground)]/60">
+              {formatPrice(getBasePrice(currency), currency)}, the same as an
+              iPhone case. The amount follows the iPhone case price in every
+              currency.
+            </p>
+          </div>
+        )}
 
         {productTypeOffersMagSafe(productType) && (
           <MagneticRingCard

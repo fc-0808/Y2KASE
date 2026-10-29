@@ -11,7 +11,11 @@ import {
   getCollectionBreadcrumb,
   type CollectionNode,
 } from "@/lib/collections";
-import { getCatalogPage, type ProductQuery } from "@/lib/products";
+import {
+  getCatalogPage,
+  getCollectionDeviceCounts,
+  type ProductQuery,
+} from "@/lib/products";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
@@ -76,12 +80,7 @@ export async function generateMetadata({
   );
   let stocked: string[] = [];
   try {
-    const { facetCounts } = await getCatalogPage({
-      collection: slug,
-      page: 1,
-      sort: "newest",
-    });
-    stocked = stockedDeviceIds(facetCounts.devices);
+    stocked = stockedDeviceIds(await getCollectionDeviceCounts(slug));
   } catch {
     stocked = [];
   }

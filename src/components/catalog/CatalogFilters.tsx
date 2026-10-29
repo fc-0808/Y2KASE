@@ -33,6 +33,7 @@ import type { CatalogFilterModel } from "./use-catalog-filters";
 import { BrandTree, FacetPanel, FacetTrigger, OptionRow } from "./facet-ui";
 import { ColorSwatch } from "./ColorSwatch";
 import { MotifMark } from "./MotifMark";
+import { DeviceGlyph } from "@/components/brand/DeviceGlyph";
 
 export type { BrandOption } from "./brand-options";
 export type { FacetCounts } from "./use-catalog-filters";
@@ -151,9 +152,7 @@ export function CatalogFilters({ model }: { model: CatalogFilterModel }) {
                         selectDevice(device.id);
                       }}
                       swatch={
-                        <span aria-hidden className="text-sm leading-none">
-                          {device.icon}
-                        </span>
+                        <DeviceGlyph id={device.id} fallback={device.icon} />
                       }
                     />
                   );

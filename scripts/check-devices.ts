@@ -38,6 +38,12 @@ import {
 } from "../src/lib/catalog/params";
 import { isIndexableCatalogPage } from "../src/lib/seo";
 import { bundleStorefrontOffer, BUNDLE } from "../src/lib/promotions";
+import {
+  getBasePrice,
+  getProductEntryPrice,
+  pricedAsIphoneCase,
+} from "../src/lib/pricing";
+import { listingUnitPrice } from "../src/lib/catalog/custom-styles";
 
 let passed = 0;
 let failed = 0;
@@ -215,6 +221,66 @@ test("iPhone Duo is its own device and is not the iPhone case grid", () => {
   assert.match(seo.intro, /does not fit/i);
   assert.match(seo.faqs[1]!.answer, /same as an iPhone case/i);
   assert.equal(productTypeOffersMagSafe("iphone_duo_case"), true);
+});
+
+test("magnetic grips are their own section at the iPhone case price", () => {
+  const grips = findDevice("magnetic-grips");
+  assert.ok(grips);
+  assert.deepEqual(grips.productTypes, ["magnetic_grip"]);
+  assert.equal(
+    findDevice("iphone")!.productTypes.includes("magnetic_grip"),
+    false,
+  );
+  assert.equal(deviceFilterLabel("magnetic-grips"), "Magnetic Grips");
+  assert.equal(deviceIsLive(grips, {}), false);
+  assert.equal(deviceBrowseHref(grips, {}), "/devices/magnetic-grips");
+  assert.equal(deviceOffersMagSafe("magnetic-grips"), false);
+  assert.equal(pricedAsIphoneCase("magnetic_grip"), true);
+  assert.equal(productTypeOffersMagSafe("magnetic_grip"), false);
+  for (const currency of ["USD", "CAD", "HKD", "CNY"]) {
+    const casePrice = getBasePrice(currency);
+    assert.equal(
+      getProductEntryPrice("magnetic_grip", "1.00", currency),
+      casePrice,
+    );
+    assert.equal(
+      getProductEntryPrice("iphone_case", "9.00", currency),
+      casePrice,
+    );
+    assert.equal(
+      listingUnitPrice({
+        productType: "magnetic_grip",
+        currency,
+        selected: {},
+        basePrice: "1.00",
+      }),
+      casePrice,
+    );
+  }
+  const seo = deviceSeo("magnetic-grips", "Magnetic Grips");
+  assert.equal(seo.heading, "Magnetic Grips");
+  assert.match(seo.tagline, /same price as an iPhone case/i);
+  assert.match(seo.intro, /same price as an iPhone case/i);
+  assert.equal(seo.empty?.title, "No magnetic grips yet");
+  const copy = JSON.stringify(seo).toLowerCase();
+  assert.equal(copy.includes("pop socket"), false);
+  assert.equal(copy.includes("popsocket"), false);
+  assert.equal(
+    collectionProductNoun(["magnetic-grips"]),
+    "Magnetic Grips",
+  );
+  assert.equal(
+    collectionFilteredTitle(
+      { name: "Hello Kitty", slug: "hello-kitty", kind: "character" },
+      "magnetic-grips",
+    ),
+    "Hello Kitty Magnetic Grips",
+  );
+  const params = parseCatalogParams(
+    { device: "magnetic-grips", magsafe: "true" },
+    "/products",
+  );
+  assert.equal(dropIncompatibleFacets(params).magsafe, undefined);
 });
 
 test("AirPods landing copy is ready the day the line is live", () => {

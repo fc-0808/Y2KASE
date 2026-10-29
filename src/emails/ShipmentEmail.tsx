@@ -17,7 +17,7 @@ interface ShipmentEmailProps {
   carrier?: string | null;
   trackingNumber?: string | null;
   trackingUrl?: string | null;
-  items: { title: string; quantity: number }[];
+  items: { title: string; quantity: number; bundleFree?: boolean }[];
   siteUrl: string;
 }
 
@@ -72,6 +72,7 @@ export function ShipmentEmail({
             {items.map((it, i) => (
               <Text key={i} style={itemStyle}>
                 {it.quantity} × {it.title}
+                {it.bundleFree ? " (included free)" : ""}
               </Text>
             ))}
 

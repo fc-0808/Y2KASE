@@ -22,6 +22,7 @@ import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { priceCart, CheckoutError, type CheckoutLineInput } from "@/lib/checkout";
 import { computePromotions } from "@/lib/promotions";
+import { bundleOrderLines, stripeProductName } from "@/lib/orders/bundle-lines";
 import { getSession } from "@/lib/auth";
 import { isSignedInUser } from "@/lib/auth-redirect";
 import { normalizeEmail } from "@/lib/email-address";
@@ -155,16 +156,24 @@ export async function POST(request: NextRequest) {
 
     try {
       await db.insert(orderItems).values(
-        cart.lines.map((l) => ({
-          orderId: placed.id,
-          productId: l.productId,
-          productSlug: l.slug,
-          productTitle: l.title,
-          imageUrl: l.imageUrl,
-          optionValues: l.options,
-          quantity: l.quantity,
-          unitCents: l.unitCents,
-        })),
+        cart.lines.flatMap((l, i) =>
+          bundleOrderLines({
+            grossUnitCents: l.unitCents,
+            quantity: l.quantity,
+            plan: promo.plans[i],
+            bundleActive: promo.bundleActive,
+          }).map((row) => ({
+            orderId: placed.id,
+            productId: l.productId,
+            productSlug: l.slug,
+            productTitle: l.title,
+            imageUrl: l.imageUrl,
+            optionValues: l.options,
+            quantity: row.quantity,
+            unitCents: row.unitCents,
+            bundleFree: row.bundleFree,
+          })),
+        ),
       );
     } catch (err) {
       // neon-http has no interactive transactions. Compensate before any
@@ -191,13 +200,20 @@ export async function POST(request: NextRequest) {
       const optionLabel = Object.entries(l.options)
         .map(([k, v]) => `${k}: ${v}`)
         .join(" · ");
-      const productData = (extra?: string) => ({
-        name: l.title,
-        ...(optionLabel || extra
-          ? { description: [optionLabel, extra].filter(Boolean).join(" · ") }
+      // Stripe matches inline products by name. A free unit that reuses the
+      // paid line's name can collapse into that product and show up as one
+      // quantity. The free line keeps its own name so both units stay visible.
+      const productData = (free: boolean) => ({
+        name: stripeProductName(l.title, free),
+        ...(optionLabel
+          ? { description: optionLabel }
           : {}),
         ...(l.imageUrl ? { images: [l.imageUrl] } : {}),
-        metadata: { productId: String(l.productId), slug: l.slug },
+        metadata: {
+          productId: String(l.productId),
+          slug: l.slug,
+          ...(free ? { bundleFree: "true" } : {}),
+        },
       });
 
       if (plan.paidQty > 0) {
@@ -206,7 +222,7 @@ export async function POST(request: NextRequest) {
           price_data: {
             currency: l.currency.toLowerCase(),
             unit_amount: plan.unitCents,
-            product_data: productData(),
+            product_data: productData(false),
           },
         });
       }
@@ -216,7 +232,7 @@ export async function POST(request: NextRequest) {
           price_data: {
             currency: l.currency.toLowerCase(),
             unit_amount: 0,
-            product_data: productData("Bundle: Free ✨"),
+            product_data: productData(true),
           },
         });
       }

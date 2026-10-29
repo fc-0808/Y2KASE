@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CatalogBottomSheet } from "@/components/catalog/CatalogBottomSheet";
+import { DeviceGlyph } from "@/components/brand/DeviceGlyph";
 import {
   collectionsIndexHref,
   DEFAULT_DIRECTORY_SORT,
@@ -177,9 +178,7 @@ function DevicePill({ device }: { device: BrowseDeviceLink }) {
       }
       className={PILL_CLASS}
     >
-      <span aria-hidden className="text-sm leading-none">
-        {device.icon}
-      </span>
+      <DeviceGlyph id={device.id} fallback={device.icon} />
       {device.label}
       {device.count > 0 && (
         <span className="text-xs font-bold tabular-nums text-[var(--foreground)]/45">
@@ -367,11 +366,7 @@ function ShopBySheet({
               href={device.href}
               label={device.label}
               count={device.count}
-              swatch={
-                <span aria-hidden className="text-sm leading-none">
-                  {device.icon}
-                </span>
-              }
+              swatch={<DeviceGlyph id={device.id} fallback={device.icon} />}
             />
           ))}
         </SheetSection>

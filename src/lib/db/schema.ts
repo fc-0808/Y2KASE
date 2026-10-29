@@ -234,6 +234,13 @@ export const orderItems = pgTable(
     optionValues: jsonb("option_values").$type<Record<string, string>>(),
     quantity: integer("quantity").notNull(),
     unitCents: integer("unit_cents").notNull(),
+    /**
+     * This row is one of the units Buy 2, Get 2 Free made free. The catalog
+     * price stays in `unitCents` so line totals still add up to the gross
+     * subtotal; `orders.discount_cents` is what removes it from the charge.
+     * Older orders leave this false and keep the quantity they were saved with.
+     */
+    bundleFree: boolean("bundle_free").notNull().default(false),
   },
   (t) => [index("order_items_order_idx").on(t.orderId)],
 );
@@ -281,8 +288,8 @@ export const products = pgTable(
     /** Evidence snippets that justified the brand classifier verdict. */
     brandEvidence: jsonb("brand_evidence").$type<string[]>().notNull().default([]),
     /**
-     * Product line for options/pricing. e.g. iphone_case | samsung_case |
-     * airpod_case | kindle_case | watch_band
+     * Product line for options/pricing. e.g. iphone_case | magnetic_grip |
+     * samsung_case | airpod_case | kindle_case | watch_band
      */
     productType: text("product_type").notNull().default("iphone_case"),
     /** Primary product video URL (R2). Shown on the PDP when set. */

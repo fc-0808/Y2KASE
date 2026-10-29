@@ -41,7 +41,11 @@ const KICKER_SLOT =
  * CASETiFY and Baymard all keep the full SKU visible in the listing tile;
  * we contain those photos instead of covering them.
  */
-const SHOW_FULL_PRODUCT = new Set(["airpod_case", "apple_accessory"]);
+const SHOW_FULL_PRODUCT = new Set([
+  "airpod_case",
+  "apple_accessory",
+  "magnetic_grip",
+]);
 
 function catalogCardMedia(productType?: string): {
   fit: "cover" | "contain";

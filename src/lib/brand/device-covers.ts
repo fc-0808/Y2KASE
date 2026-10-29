@@ -14,6 +14,7 @@ export const DEVICE_COVER_IDS: ReadonlySet<string> = new Set<string>([
   "apple-watch",
   "ipad",
   "iphone",
+  "iphone-duo",
   "macbook",
 ]);
 
@@ -21,7 +22,7 @@ export const DEVICE_COVER_IDS: ReadonlySet<string> = new Set<string>([
  * Cache-busting stamp, refreshed on every generation run so browsers re-fetch
  * covers when the art changes (the filenames stay stable).
  */
-export const DEVICE_COVERS_VERSION = "mrydh35f";
+export const DEVICE_COVERS_VERSION = "mvszbigu";
 
 /** Public path to a device's generated cover banner (cache-busted). */
 export function deviceCoverSrc(id: string): string {

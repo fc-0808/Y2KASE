@@ -17,8 +17,10 @@
 import {
   STYLE_OPTION_NAME,
   STYLES,
+  getBasePrice,
   getProductEntryPrice,
   getStylePrice,
+  pricedAsIphoneCase,
   effectiveStylePrice,
   normalizeStylePrices,
   normalizeImageStyleTags,
@@ -277,8 +279,9 @@ export function customStyleByLabel(
  *
  * Custom labels always win over the type's price table — otherwise a name
  * like "Kitty + Charm" would silently ring up as Case Only. Canonical labels
- * still read the shared table. Types without a price axis fall back to the
- * stored listing price unless a custom row matched.
+ * still read the shared table. Magnetic grips charge the iPhone case price.
+ * Other types without a price axis fall back to the stored listing price
+ * unless a custom row matched.
  */
 export function listingUnitPrice(args: {
   productType: string;
@@ -311,6 +314,9 @@ export function listingUnitPrice(args: {
       args.selected,
       args.currency,
     );
+  }
+  if (pricedAsIphoneCase(args.productType)) {
+    return getBasePrice(args.currency);
   }
   const parsed = Number(args.basePrice);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
@@ -380,6 +386,9 @@ export function minOfferedPrice(args: {
   }
   for (const style of args.customStyles) prices.push(style.price);
   if (prices.length > 0) return Math.min(...prices);
+  if (pricedAsIphoneCase(args.productType)) {
+    return getBasePrice(args.currency);
+  }
   const parsed = Number(args.basePrice);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }

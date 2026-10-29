@@ -35,10 +35,19 @@ export async function Footer() {
   }
   const iphone = findDevice("iphone");
   const airpods = findDevice("airpods");
+  const magneticGrips = findDevice("magnetic-grips");
   const shopLinks = [
     { href: "/products", label: "All Products" },
     ...(iphone
       ? [{ href: deviceBrowseHref(iphone, deviceCounts), label: "iPhone Cases" }]
+      : []),
+    ...(magneticGrips
+      ? [
+          {
+            href: deviceBrowseHref(magneticGrips, deviceCounts),
+            label: "Magnetic Grips",
+          },
+        ]
       : []),
     ...(airpods && deviceIsLive(airpods, deviceCounts ?? {})
       ? [

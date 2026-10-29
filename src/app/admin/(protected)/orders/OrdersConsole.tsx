@@ -152,6 +152,12 @@ function OrderCartLines({ items }: { items: OrderLineSummary[] }) {
                   {item.quantity}×{" "}
                 </span>
                 {item.productTitle}
+                {item.bundleFree ? (
+                  <span className="font-semibold text-[var(--primary)]">
+                    {" "}
+                    · free
+                  </span>
+                ) : null}
               </p>
               {options && (
                 <p className="text-xs text-[var(--foreground)]/50">{options}</p>

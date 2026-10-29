@@ -4,6 +4,7 @@
  * Size is controlled via `className` (e.g. "h-7 w-7"); colour is baked into the art.
  */
 import Image from "next/image";
+import { DeviceGlyph } from "@/components/brand/DeviceGlyph";
 
 const DEVICE_FILE: Record<string, string> = {
   iphone: "phone",
@@ -24,6 +25,9 @@ export function DeviceIcon({
   id: string;
   className?: string;
 }) {
+  if (id === "iphone-duo") {
+    return <DeviceGlyph id={id} className={className ?? "h-9 w-9"} />;
+  }
   const file = DEVICE_FILE[id] ?? "phone";
   return (
     <Image

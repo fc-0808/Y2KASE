@@ -106,14 +106,61 @@ const DEV_CATALOG_TTL_MS = 8 * 60 * 1000;
 const DEV_CATALOG_CACHE_MAX = 200;
 
 type DevCatalogEntry = { expires: number; value: unknown };
-const devCatalogCache = new Map<string, DevCatalogEntry>();
+type DevCatalogState = {
+  entries: Map<string, DevCatalogEntry>;
+  inflight: Map<string, Promise<unknown>>;
+  generation: number;
+};
 
-function rememberDevCatalogRead(key: string, value: unknown): void {
-  if (devCatalogCache.size >= DEV_CATALOG_CACHE_MAX) {
-    const oldest = devCatalogCache.keys().next().value;
-    if (oldest !== undefined) devCatalogCache.delete(oldest);
+/**
+ * Module scope is wiped by dev recompiles. Keeping the map on `globalThis`
+ * means a navigation after a hot reload still hits the catalog that was just
+ * loaded, instead of waking Neon again.
+ */
+function devCatalogState(): DevCatalogState {
+  const g = globalThis as typeof globalThis & {
+    __y2kaseDevCatalog?: DevCatalogState;
+  };
+  g.__y2kaseDevCatalog ??= {
+    entries: new Map(),
+    inflight: new Map(),
+    generation: 0,
+  };
+  return g.__y2kaseDevCatalog;
+}
+
+function rememberDevCatalogRead(
+  state: DevCatalogState,
+  key: string,
+  value: unknown,
+): void {
+  if (state.entries.size >= DEV_CATALOG_CACHE_MAX) {
+    const oldest = state.entries.keys().next().value;
+    if (oldest !== undefined) state.entries.delete(oldest);
   }
-  devCatalogCache.set(key, { expires: Date.now() + DEV_CATALOG_TTL_MS, value });
+  state.entries.set(key, {
+    expires: Date.now() + DEV_CATALOG_TTL_MS,
+    value,
+  });
+}
+
+/**
+ * `generateMetadata` and the page both ask for the same catalog read, and
+ * they start together. Without this, each one opens its own Neon fan-out and
+ * the click waits on both.
+ */
+function coalesce<Result>(
+  inflight: Map<string, Promise<unknown>>,
+  key: string,
+  load: () => Promise<Result>,
+): Promise<Result> {
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<Result>;
+  const promise = load().finally(() => {
+    if (inflight.get(key) === promise) inflight.delete(key);
+  });
+  inflight.set(key, promise);
+  return promise;
 }
 
 export function cachedCatalogRead<Args extends unknown[], Result>(
@@ -126,32 +173,41 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
     revalidate: options.revalidate ?? DATA_CACHE_REVALIDATE,
   });
   return async (...args: Args): Promise<Result> => {
+    const key = `${keyParts.join("\0")}\0${JSON.stringify(args)}`;
     if (process.env.NODE_ENV === "development") {
-      const key = `${keyParts.join("\0")}\0${JSON.stringify(args)}`;
-      const cached = devCatalogCache.get(key);
+      const state = devCatalogState();
+      const cached = state.entries.get(key);
       if (cached && cached.expires > Date.now()) return cached.value as Result;
-      const value = await fn(...args);
-      rememberDevCatalogRead(key, value);
-      return value;
-    }
-    try {
-      return await memoized(...args);
-    } catch (err) {
-      // Scripts have no incremental cache. Production can also fail to persist
-      // Data Cache entries once Hobby ISR writes are exhausted. Shoppers still
-      // get a live Neon read instead of a 500.
-      if (isDurableCacheUnavailable(err)) {
-        if (!warnedDurableCacheMiss) {
-          warnedDurableCacheMiss = true;
-          console.warn(
-            "[catalog-cache] durable cache unavailable; serving live catalog reads",
-            err,
-          );
+      const generation = state.generation;
+      return coalesce(state.inflight, key, async () => {
+        const value = await fn(...args);
+        if (state.generation === generation) {
+          rememberDevCatalogRead(state, key, value);
         }
-        return fn(...args);
-      }
-      throw err;
+        return value;
+      });
     }
+    const state = devCatalogState();
+    return coalesce(state.inflight, key, async () => {
+      try {
+        return await memoized(...args);
+      } catch (err) {
+        // Scripts have no incremental cache. Production can also fail to persist
+        // Data Cache entries once Hobby ISR writes are exhausted. Shoppers still
+        // get a live Neon read instead of a 500.
+        if (isDurableCacheUnavailable(err)) {
+          if (!warnedDurableCacheMiss) {
+            warnedDurableCacheMiss = true;
+            console.warn(
+              "[catalog-cache] durable cache unavailable; serving live catalog reads",
+              err,
+            );
+          }
+          return fn(...args);
+        }
+        throw err;
+      }
+    });
   };
 }
 
@@ -164,7 +220,9 @@ export function cachedCatalogRead<Args extends unknown[], Result>(
  */
 /** A review was published, rejected, or answered. Listing stars read this tag. */
 export function revalidateReviewSurfaces(): void {
-  devCatalogCache.clear();
+  const state = devCatalogState();
+  state.entries.clear();
+  state.generation += 1;
   try {
     revalidateTag(CACHE_TAGS.reviews, "max");
   } catch (err) {
@@ -173,7 +231,9 @@ export function revalidateReviewSurfaces(): void {
 }
 
 export function revalidateStorefrontCatalog(): void {
-  devCatalogCache.clear();
+  const state = devCatalogState();
+  state.entries.clear();
+  state.generation += 1;
   try {
     revalidateTag(CACHE_TAGS.products, "max");
     revalidateTag(CACHE_TAGS.collections, "max");

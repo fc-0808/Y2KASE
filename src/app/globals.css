@@ -237,6 +237,40 @@ body {
   content-visibility: visible;
 }
 
+/* Bestsellers: one row. Phone tiles match the other shelves. From a desktop
+   rail, the tile grows so the first screen still shows about 3 / 4 / 5 cases. */
+.bestseller-marquee__viewport {
+  container: bestseller-marquee / inline-size;
+}
+.bestseller-marquee__item {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 10rem;
+}
+@container bestseller-marquee (min-width: 36rem) {
+  .bestseller-marquee__item {
+    width: 13rem;
+  }
+}
+@container bestseller-marquee (min-width: 45rem) {
+  .bestseller-marquee__item {
+    width: calc((100cqi - 3rem) / 3.25);
+    min-width: 12rem;
+    max-width: 24rem;
+  }
+}
+@container bestseller-marquee (min-width: 56rem) {
+  .bestseller-marquee__item {
+    width: calc((100cqi - 4rem) / 4.25);
+  }
+}
+@container bestseller-marquee (min-width: 72rem) {
+  .bestseller-marquee__item {
+    width: calc((100cqi - 5rem) / 5.25);
+  }
+}
+
 /* Headings default to the rounded display face for kawaii character. */
 h1, h2, h3, .font-display {
   font-family: var(--font-display), var(--font-sans), sans-serif;

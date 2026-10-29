@@ -33,6 +33,11 @@ export type DeviceNode = {
    * The tile still reads as not live, and the sitemap still waits for stock.
    */
   landingWhileEmpty?: boolean;
+  /**
+   * Shopper phrase for search, facets and "shop by brand".
+   * Defaults to `${label} cases`. Set when the line is not cases.
+   */
+  catalogLabel?: string;
 };
 
 /** A brand grouping of devices, e.g. "Apple", "Samsung". */
@@ -65,6 +70,19 @@ export const DEVICE_FAMILIES: DeviceFamily[] = [
          * The foldable has no designs yet, but the section is the destination
          * anyway. Numbered iPhone cases do not fit it, so shoppers must not
          * land in that grid.
+         */
+        landingWhileEmpty: true,
+      },
+      {
+        id: "magnetic-grips",
+        label: "Magnetic Grips",
+        catalogLabel: "Magnetic Grips",
+        productTypes: ["magnetic_grip"],
+        icon: "🧲",
+        /**
+         * The section is the destination before the first grip is published.
+         * A grip is not an iPhone case, so an empty grid must not 404 into
+         * the case shop.
          */
         landingWhileEmpty: true,
       },
@@ -222,6 +240,18 @@ export function deviceLabel(id: string): string {
 }
 
 /**
+ * Shopper-facing phrase for one device, e.g. "iPhone cases", "Magnetic Grips".
+ *
+ * Accessories and magnetic grips are already the product name and must not
+ * grow a second "cases".
+ */
+export function deviceCatalogLabel(device: DeviceNode): string {
+  if (device.catalogLabel) return device.catalogLabel;
+  if (device.id === "apple-accessories") return device.label;
+  return `${device.label} cases`;
+}
+
+/**
  * Shopper-facing facet / chip label, e.g. "iPhone cases", "AirPods cases".
  *
  * Accessories are already a plural group name and must not grow a second noun.
@@ -229,8 +259,7 @@ export function deviceLabel(id: string): string {
 export function deviceFilterLabel(id: string): string {
   const device = DEVICE_BY_ID.get(id);
   if (!device) return id;
-  if (device.id === "apple-accessories") return device.label;
-  return `${device.label} cases`;
+  return deviceCatalogLabel(device);
 }
 
 /**

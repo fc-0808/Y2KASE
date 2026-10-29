@@ -63,6 +63,7 @@ export const TYPE_DESTINATION: Record<string, string> = {
   kindle_case: "Kindle",
   watch_band: "WatchBands",
   apple_accessory: "Accessories",
+  magnetic_grip: "MagneticGrips",
 };
 
 const CONFIDENCE_RANK: Record<BrandConfidence, number> = {

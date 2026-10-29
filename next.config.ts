@@ -148,6 +148,15 @@ const nextConfig: NextConfig = {
     root: projectRoot,
   },
 
+  // Dynamic pages otherwise refetch on every click, so moving between pages
+  // waits on a fresh server render even when nothing changed. A short client
+  // cache makes that hop instant; the next visit after it expires is live.
+  experimental: {
+    staleTimes: {
+      dynamic: 30,
+    },
+  },
+
   // Better Auth bundles all its adapters (including kysely SQLite dialects)
   // in a single package. We use the Drizzle adapter, so opt Better Auth out of
   // server bundling and load it at runtime through native Node resolution.

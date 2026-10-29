@@ -60,12 +60,13 @@ function isTransientFetch(error: unknown): boolean {
 }
 
 /**
- * The Neon HTTP API drops extra simultaneous connections. A homepage fires
- * several catalog queries at once; the extras sit until the connect timeout
- * and then throw `fetch failed`. Two at a time overlaps work without opening
- * a pile of sockets that never connect.
+ * A page render fans out into the header, the grid, and each facet. Each of
+ * those HTTP calls is a round trip to us-east-1, so allowing only two at a
+ * time turned one click into a queue of 10–30 seconds. The undici agent
+ * already caps open sockets; this matches that cap. A transient failure still
+ * retries once on a fresh agent.
  */
-const MAX_NEON_FETCHES = 2;
+const MAX_NEON_FETCHES = 8;
 let neonFetchesInFlight = 0;
 const neonFetchQueue: Array<() => void> = [];
 

@@ -20,6 +20,7 @@ import {
   Section,
   Text,
 } from "@react-email/components";
+import { bundleFreeLineLabel } from "../lib/orders/bundle-lines";
 
 export type OrderConfirmationItem = {
   title: string;
@@ -27,6 +28,7 @@ export type OrderConfirmationItem = {
   options: Record<string, string> | null;
   quantity: number;
   unitCents: number;
+  bundleFree?: boolean;
 };
 
 export type OrderConfirmationProps = {
@@ -212,6 +214,18 @@ export function OrderConfirmation({
                     >
                       Qty {item.quantity}
                     </Text>
+                    {item.bundleFree ? (
+                      <Text
+                        style={{
+                          margin: "2px 0 0",
+                          fontSize: "12px",
+                          fontWeight: 700,
+                          color: BRAND.primary,
+                        }}
+                      >
+                        {bundleFreeLineLabel()}
+                      </Text>
+                    ) : null}
                   </Column>
                   <Column
                     style={{

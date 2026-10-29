@@ -25,6 +25,10 @@ const IPHONE: EditorialLink = {
   href: "/devices/iphone",
   label: "iPhone cases",
 };
+const MAGNETIC_GRIPS: EditorialLink = {
+  href: "/devices/magnetic-grips",
+  label: "Magnetic grips",
+};
 const AIRPODS: EditorialLink = {
   href: "/devices/airpods",
   label: "AirPods cases",
@@ -177,6 +181,7 @@ const BODIES: Record<string, CollectionEditorial> = {
     ],
     related: [
       { href: "/collections/magnetic-ring", label: "Magnetic ring holders" },
+      MAGNETIC_GRIPS,
       { href: "/blog/how-we-verify-magsafe", label: "How we verify MagSafe" },
       IPHONE,
       KAWAII,

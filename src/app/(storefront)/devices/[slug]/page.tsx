@@ -1,8 +1,14 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
-import { DEVICE_FAMILIES, deviceOffersMagSafe, findDevice } from "@/lib/catalog/devices";
+import {
+  DEVICE_FAMILIES,
+  deviceCatalogLabel,
+  deviceOffersMagSafe,
+  findDevice,
+} from "@/lib/catalog/devices";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
 import { deviceSeo } from "@/lib/seo/device-content";
@@ -18,6 +24,7 @@ import {
 } from "@/lib/products";
 import { getBrandFacets } from "@/lib/collections";
 import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
+import { CatalogIdentityLandingSkeleton } from "@/components/catalog/CatalogChromeSkeleton";
 import { JsonLd } from "@/components/JsonLd";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
 import {
@@ -26,6 +33,7 @@ import {
 } from "@/components/catalog/CatalogSummary";
 import { CatalogPagination } from "@/components/catalog/CatalogPagination";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
+import { DeviceGlyph } from "@/components/brand/DeviceGlyph";
 import {
   FACET_PAGE_ROBOTS,
   breadcrumbJsonLd,
@@ -101,8 +109,29 @@ export default async function DeviceLandingPage({
   const device = findDevice(slug);
   if (!device || device.comingSoon) notFound();
 
+  return (
+    <Suspense fallback={<CatalogIdentityLandingSkeleton />}>
+      <DeviceLandingContent
+        slug={slug}
+        device={device}
+        searchParams={searchParams}
+      />
+    </Suspense>
+  );
+}
+
+async function DeviceLandingContent({
+  slug,
+  device,
+  searchParams,
+}: {
+  slug: string;
+  device: NonNullable<ReturnType<typeof findDevice>>;
+  searchParams: Promise<CatalogSearchParams>;
+}) {
   const basePath = `/devices/${slug}`;
   const seo = deviceSeo(slug, device.label);
+  const catalogLabel = deviceCatalogLabel(device);
 
   // The brand vocabulary is resolved from the same cached collection tree the
   // site header already awaited this render, so offering the full faceted
@@ -177,9 +206,9 @@ export default async function DeviceLandingPage({
 
   const filtered = hasActiveFilters(catalogParams);
   const bareEmpty = total === 0 && !filtered;
-  // An unstocked line must not occupy an indexable URL. iPhone Duo is the
-  // exception: the section exists so shoppers are not sent to iPhone cases
-  // that do not fit. Filtered emptiness still shows CatalogEmpty.
+  // An unstocked line must not occupy an indexable URL. A line marked
+  // landingWhileEmpty is the exception: the section exists so shoppers are
+  // not sent to a different product. Filtered emptiness still shows CatalogEmpty.
   if (bareEmpty && !device.landingWhileEmpty) notFound();
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -281,6 +310,17 @@ export default async function DeviceLandingPage({
           </p>
         )}
         {slug === "iphone" && (
+          <p className="mt-1.5 text-sm font-semibold text-[var(--foreground)]/75">
+            <Link
+              href="/devices/magnetic-grips"
+              className="text-[var(--primary)] underline-offset-2 hover:underline"
+            >
+              Magnetic grips
+            </Link>{" "}
+            are their own section, at the same price as an iPhone case.
+          </p>
+        )}
+        {slug === "iphone" && (
           <nav
             aria-label="iPhone 18 cases by character"
             className="mt-2.5 flex gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible"
@@ -306,8 +346,8 @@ export default async function DeviceLandingPage({
         brands={brands}
         counts={facetCounts}
         lockedDevice={slug}
-        searchPlaceholder={`Search ${device.label} cases…`}
-        searchLabel={`Search ${device.label} cases`}
+        searchPlaceholder={`Search ${catalogLabel}…`}
+        searchLabel={`Search ${catalogLabel}`}
         resultCount={total}
         resetHref={filtered ? basePath : undefined}
       />
@@ -339,15 +379,9 @@ export default async function DeviceLandingPage({
         <CatalogEmpty
           filtered={filtered}
           resetHref={basePath}
-          icon={device.icon}
-          {...(bareEmpty && device.landingWhileEmpty
-            ? {
-                title: "No iPhone Duo designs yet",
-                detail:
-                  "Cases for the other iPhones do not fit iPhone Duo. This section is only for that mould, Case Only at the iPhone case price, and nothing is listed here yet.",
-                actionHref: "/devices/iphone",
-                actionLabel: "Shop iPhone cases",
-              }
+          icon={<DeviceGlyph id={device.id} fallback={device.icon} size="lg" />}
+          {...(bareEmpty && device.landingWhileEmpty && seo.empty
+            ? seo.empty
             : {})}
         />
       )}
@@ -365,7 +399,7 @@ export default async function DeviceLandingPage({
       {brandLinks.length > 0 && (
         <section className="mt-12 border-t border-[var(--border)] pt-6">
           <h2 className="mb-3 text-lg font-black">
-            Shop {device.label} cases by brand
+            Shop {catalogLabel} by brand
           </h2>
           <div className="flex flex-wrap gap-2">
             {brandLinks.map((brand) => (

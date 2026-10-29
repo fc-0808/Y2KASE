@@ -9,6 +9,7 @@ import { orders, orderItems } from "@/lib/db/schema";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { formatPrice } from "@/lib/utils";
 import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
+import { bundleFreeLineLabel } from "@/lib/orders/bundle-lines";
 import { ClearCartOnMount } from "@/components/checkout/ClearCartOnMount";
 import { PurchaseTracking } from "@/components/checkout/PurchaseTracking";
 import { ClaimAccountCard } from "@/components/checkout/ClaimAccountCard";
@@ -162,6 +163,11 @@ export default async function CheckoutSuccessPage({
                     <p className="text-xs text-[var(--foreground)]/60">
                       Qty {item.quantity}
                     </p>
+                    {item.bundleFree ? (
+                      <p className="text-xs font-semibold text-[var(--primary)]">
+                        {bundleFreeLineLabel()}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="text-sm font-bold">
                     {formatPrice(

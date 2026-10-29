@@ -37,6 +37,7 @@ import {
 import { shippingQuote } from "@/lib/pricing";
 import { usePromoActions, useSavedPromoCode } from "@/lib/store/promo";
 import { computePromotions, BUNDLE } from "@/lib/promotions";
+import { bundleFreeLineLabel } from "@/lib/orders/bundle-lines";
 import { formatPrice } from "@/lib/utils";
 import { trackCheckoutStart } from "@/lib/analytics/commerce";
 import { readUtmParams } from "@/lib/analytics/utm";
@@ -220,10 +221,11 @@ export function CartClient() {
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem] lg:gap-10">
         {/* ── Line items ─────────────────────────────────────────────────── */}
         <div className="space-y-3">
-          {items.map((item) => (
+          {items.map((item, index) => (
             <CartRow
               key={lineKey(item.productId, item.options)}
               item={item}
+              freeQty={promo.plans[index]?.freeQty ?? 0}
               onRemove={() => removeItem(lineKey(item.productId, item.options))}
               onQty={(q) =>
                 updateQuantity(lineKey(item.productId, item.options), q)
@@ -317,9 +319,12 @@ export function CartClient() {
                     className="mt-2 px-1 text-[11px] leading-relaxed text-[var(--foreground)]/50"
                   >
                     Add {BUNDLE.groupSize} items in total — the free ones must be
-                    in your bag too. The discount applies automatically at
-                    checkout, where the {BUNDLE.freePerGroup} lowest-priced items
-                    are waived.
+                    in your bag too. Every {BUNDLE.groupSize} items, the{" "}
+                    {BUNDLE.freePerGroup} lowest-priced are free
+                    {bundleActive
+                      ? `, so ${promo.freeUnits} ${promo.freeUnits === 1 ? "item is" : "items are"} free in this bag`
+                      : ""}
+                    .
                   </p>
                 )}
               </div>
@@ -625,10 +630,12 @@ function PayBadge({ children }: { children: React.ReactNode }) {
 
 function CartRow({
   item,
+  freeQty,
   onRemove,
   onQty,
 }: {
   item: CartItem;
+  freeQty: number;
   onRemove: () => void;
   onQty: (q: number) => void;
 }) {
@@ -702,6 +709,13 @@ function CartRow({
             {item.quantity > 1 && (
               <span className="block text-[10px] text-[var(--foreground)]/45">
                 {formatPrice(item.price, item.currency)} each
+              </span>
+            )}
+            {freeQty > 0 && (
+              <span className="block text-[10px] font-bold text-[var(--primary)]">
+                {freeQty === item.quantity
+                  ? bundleFreeLineLabel()
+                  : `${freeQty} of ${item.quantity} free`}
               </span>
             )}
           </div>

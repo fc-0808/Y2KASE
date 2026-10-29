@@ -157,6 +157,7 @@ const PRODUCT_NOUN_RE = /\b(phone cases?|iphone cases?|airpods cases?|cases)\b/i
 
 const PHONE_CASES_NOUN = "Phone Cases";
 const AIRPODS_CASES_NOUN = "AirPods Cases";
+const MAGNETIC_GRIPS_NOUN = "Magnetic Grips";
 const CASES_NOUN = "Cases";
 
 /** Device ids whose products are phone cases. Anything else widens the noun. */
@@ -179,10 +180,15 @@ const PHONE_DEVICE_IDS = new Set(["iphone", "iphone-duo", "galaxy", "pixel"]);
 export function collectionProductNoun(
   stockedDeviceIds?: string[],
   slug?: string,
-): typeof PHONE_CASES_NOUN | typeof AIRPODS_CASES_NOUN | typeof CASES_NOUN {
+):
+  | typeof PHONE_CASES_NOUN
+  | typeof AIRPODS_CASES_NOUN
+  | typeof MAGNETIC_GRIPS_NOUN
+  | typeof CASES_NOUN {
   if (slug === "magsafe") return PHONE_CASES_NOUN;
   const ids = [...new Set(stockedDeviceIds ?? [])];
   if (ids.length === 1 && ids[0] === "airpods") return AIRPODS_CASES_NOUN;
+  if (ids.length === 1 && ids[0] === "magnetic-grips") return MAGNETIC_GRIPS_NOUN;
   if (ids.length > 0 && ids.every((id) => PHONE_DEVICE_IDS.has(id))) {
     return PHONE_CASES_NOUN;
   }
@@ -315,7 +321,9 @@ export function collectionFilteredTitle(
   );
   if (!deviceId) return heading;
   const device = deviceLabel(deviceId);
-  if (deviceId === "apple-accessories") return `${input.name} ${device}`;
+  if (deviceId === "apple-accessories" || deviceId === "magnetic-grips") {
+    return `${input.name} ${device}`;
+  }
   if (deviceId === "airpods" && heading.endsWith("AirPods Cases")) {
     return heading;
   }

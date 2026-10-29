@@ -206,6 +206,7 @@ test("every non-iPhone type has a destination folder", () => {
     "kindle_case",
     "watch_band",
     "apple_accessory",
+    "magnetic_grip",
   ]) {
     assert.ok(TYPE_DESTINATION[id], `${id} missing from TYPE_DESTINATION`);
   }

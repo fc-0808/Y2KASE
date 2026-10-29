@@ -13,6 +13,7 @@ import {
 import { useSavedPromoCode } from "@/lib/store/promo";
 import { shippingQuote } from "@/lib/pricing";
 import { BUNDLE, computePromotions } from "@/lib/promotions";
+import { bundleFreeLineLabel } from "@/lib/orders/bundle-lines";
 import { formatPrice } from "@/lib/utils";
 
 export function CartDrawer() {
@@ -98,10 +99,11 @@ export function CartDrawer() {
           </div>
         ) : (
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-            {items.map((item) => (
+            {items.map((item, index) => (
               <CartLine
                 key={lineKey(item.productId, item.options)}
                 item={item}
+                freeQty={promo.plans[index]?.freeQty ?? 0}
                 onRemove={() =>
                   removeItem(lineKey(item.productId, item.options))
                 }
@@ -182,10 +184,12 @@ export function CartDrawer() {
 
 function CartLine({
   item,
+  freeQty,
   onRemove,
   onQty,
 }: {
   item: CartItem;
+  freeQty: number;
   onRemove: () => void;
   onQty: (q: number) => void;
 }) {
@@ -241,8 +245,15 @@ function CartLine({
               <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
-          <span className="text-sm font-bold">
+          <span className="text-right text-sm font-bold">
             {formatPrice(item.price * item.quantity, item.currency)}
+            {freeQty > 0 && (
+              <span className="mt-0.5 block text-[10px] font-bold text-[var(--primary)]">
+                {freeQty === item.quantity
+                  ? bundleFreeLineLabel()
+                  : `${freeQty} of ${item.quantity} free`}
+              </span>
+            )}
           </span>
         </div>
       </div>
