@@ -727,7 +727,9 @@ export function getDeviceFacetCounts(): Promise<Record<string, number>> {
 
 const getDeviceFacetCountsCached = cachedCatalogRead(
   computeDeviceFacetCounts,
-  ["device-facet-counts-v1"],
+  // v2 drops the production entry that still said iPhone Duo had no stock,
+  // which kept its cover in the Soon row after the cases were published.
+  ["device-facet-counts-v2"],
   { tags: [CACHE_TAGS.products] },
 );
 

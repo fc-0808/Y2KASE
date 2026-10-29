@@ -209,6 +209,10 @@ body {
  * and the browser promotes the layer to the compositor so scrolling never
  * repaints it.
  *
+ * The wash stays in the pink family. A blue blob at the bottom of the viewport
+ * stayed on screen while the page moved, and it showed through the knocked-out
+ * studio white on the product photos.
+ *
  * Each stop fades to a zero-alpha copy of its own colour instead of the
  * `transparent` keyword, so the falloff interpolates within a single hue and
  * cannot produce a visible edge.
@@ -226,8 +230,7 @@ body {
   height: 100lvh;
   background-image:
     radial-gradient(circle at 0% 0%, #ffe3f6 0%, rgba(255, 227, 246, 0) 42%),
-    radial-gradient(circle at 100% 0%, #e7ddff 0%, rgba(231, 221, 255, 0) 38%),
-    radial-gradient(circle at 50% 100%, #ddf3ff 0%, rgba(221, 243, 255, 0) 45%);
+    radial-gradient(circle at 100% 0%, #ffe4f4 0%, rgba(255, 228, 244, 0) 38%);
 }
 
 /* Homepage shelves used to skip paint with content-visibility: auto.
