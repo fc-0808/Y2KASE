@@ -8,78 +8,111 @@ import {
 /**
  * Search and social crawlers whose JavaScript renderers can present a normal
  * Chrome User-Agent. These are intentionally excluded from shopper analytics.
- *
- * Every prefix ends on an octet boundary, which lets the same list drive the
- * request-time check and the Postgres regex used to hide historical rows.
+ * The same CIDRs are applied at capture time and in reporting queries.
  */
-const VERIFIED_CRAWLER_IPV4_PREFIXES = [
+const VERIFIED_CRAWLER_IPV4_CIDRS = [
   // Google (Googlebot, Ads, APIs and JavaScript Rendering Service)
-  "66.249.",
-  "64.233.",
-  "66.102.",
-  "72.14.",
-  "74.125.",
-  "209.85.",
-  "216.58.",
-  "216.239.",
-  "35.191.",
-  "130.211.",
+  "66.249.0.0/16",
+  "64.233.0.0/16",
+  "66.102.0.0/16",
+  "72.14.0.0/16",
+  "74.125.0.0/16",
+  "209.85.0.0/16",
+  "216.58.0.0/16",
+  "216.239.0.0/16",
+  "35.191.0.0/16",
+  "130.211.0.0/16",
   // Bing / Microsoft
-  "40.77.",
-  "157.55.",
-  "207.46.",
-  "65.52.",
-  "199.30.",
+  "40.77.0.0/16",
+  "157.55.0.0/16",
+  "207.46.0.0/16",
+  "65.52.0.0/16",
+  "199.30.0.0/16",
   // Meta
-  "66.220.",
-  "69.63.",
-  "69.171.",
-  "173.252.",
+  "66.220.0.0/16",
+  "69.63.0.0/16",
+  "69.171.0.0/16",
+  "173.252.0.0/16",
   // Applebot
-  "17.0.",
-  "17.172.",
-  "17.253.",
+  "17.0.0.0/16",
+  "17.172.0.0/16",
+  "17.253.0.0/16",
 ] as const;
 
 /**
- * Confirmed rotating-proxy ranges used in the 2026-09-03 analytics-poisoning
- * incident. All four are Alibaba Cloud Singapore (AS45102). Keep the exact
- * /24s rather than blocking the provider's whole ASN, which would create an
- * unnecessarily broad false-positive surface.
+ * Hosting ranges confirmed against raw visitor rows and registry data.
+ * These are denied at the Vercel Firewall. The application check is defense
+ * in depth for preview domains, configuration drift and local replays.
  *
- * These CIDRs are also denied at the Vercel Firewall. The application check is
- * defense in depth for preview domains, configuration drift and local replays.
+ * Do not widen a provider to its whole ASN. AS132203 also announces Tencent
+ * ranges outside Singapore, and AS45102 is broader than the four Alibaba /24s
+ * from the first incident. Consumer ISPs in Singapore (StarHub AS4657 and
+ * AS55430, Singtel AS3758 and AS45143, M1 AS4773, Simba AS4817) had real
+ * browsing sessions and are intentionally absent.
  */
 export const ABUSIVE_ANALYTICS_IPV4_CIDRS = [
+  // 2026-09-03 rotating-proxy incident. Alibaba Cloud Singapore (AS45102).
   "43.119.100.0/24",
   "43.119.104.0/24",
   "47.82.201.0/24",
   "47.82.202.0/24",
+  // 2026-10-31 one-page proxy farm. Tencent Cloud Singapore, Aceville PTE LTD
+  // (AS132203). Regional allocations only, not AS45090 (Tencent China).
+  "43.128.0.0/13",
+  "43.152.0.0/13",
+  "43.160.0.0/12",
+  "101.32.0.0/16",
+  "129.226.0.0/16",
+  "150.109.0.0/19",
+  // Same farm on Huawei Cloud Singapore (AS136907).
+  "49.0.200.0/21",
+  "101.44.160.0/20",
+  "111.119.192.0/18",
+  "119.8.160.0/19",
+  "119.13.96.0/20",
+  "124.243.128.0/20",
+  "124.243.160.0/19",
+  "159.138.120.0/22",
+  "188.239.0.0/20",
+  "188.239.32.0/20",
 ] as const;
 
-function slash24Prefix(cidr: string): string {
-  const match = /^((?:\d{1,3}\.){3})0\/24$/.exec(cidr);
-  if (!match) {
-    throw new Error(`Analytics abuse range must be an IPv4 /24: ${cidr}`);
-  }
-  return match[1]!;
-}
-
-const ABUSIVE_ANALYTICS_IPV4_PREFIXES =
-  ABUSIVE_ANALYTICS_IPV4_CIDRS.map(slash24Prefix);
-
-export const ANALYTICS_EXCLUDED_IPV4_PREFIXES: readonly string[] = [
-  ...VERIFIED_CRAWLER_IPV4_PREFIXES,
-  ...ABUSIVE_ANALYTICS_IPV4_PREFIXES,
+export const ANALYTICS_EXCLUDED_IPV4_CIDRS: readonly string[] = [
+  ...VERIFIED_CRAWLER_IPV4_CIDRS,
+  ...ABUSIVE_ANALYTICS_IPV4_CIDRS,
 ];
 
-const escapeRegex = (value: string) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+type Ipv4Cidr = { network: number; mask: number };
 
-/** Postgres-compatible regex used to exclude both old and future bad rows. */
-export const ANALYTICS_EXCLUDED_IP_REGEX = `^(?:${ANALYTICS_EXCLUDED_IPV4_PREFIXES.map(
-  escapeRegex,
-).join("|")})`;
+function ipv4ToInt(octets: readonly [number, number, number, number]): number {
+  return (
+    ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0
+  );
+}
+
+/** Rejects host bits so a typo like 43.128.1.0/13 cannot silently over-match. */
+function parseIpv4Cidr(cidr: string): Ipv4Cidr {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(
+    cidr,
+  );
+  if (!match) throw new Error(`Analytics CIDR must be IPv4: ${cidr}`);
+  const bits = Number(match[5]);
+  if (!Number.isInteger(bits) || bits < 1 || bits > 32) {
+    throw new Error(`Analytics CIDR prefix length is out of range: ${cidr}`);
+  }
+  const octets = match.slice(1, 5).map(Number);
+  if (octets.some((octet) => octet < 0 || octet > 255)) {
+    throw new Error(`Analytics CIDR has an invalid octet: ${cidr}`);
+  }
+  const mask = (0xffffffff << (32 - bits)) >>> 0;
+  const network = ipv4ToInt(octets as [number, number, number, number]);
+  if (((network & mask) >>> 0) !== network) {
+    throw new Error(`Analytics CIDR is not network-aligned: ${cidr}`);
+  }
+  return { network, mask };
+}
+
+const EXCLUDED_IPV4_CIDRS = ANALYTICS_EXCLUDED_IPV4_CIDRS.map(parseIpv4Cidr);
 
 const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 const VISITOR_ID_RE =
@@ -142,9 +175,11 @@ function expandIpv6(value: string): string[] | null {
 /** True for crawler infrastructure and the confirmed abusive proxy ranges. */
 export function isExcludedAnalyticsIp(ip: string | null | undefined): boolean {
   const normalized = normalizeClientIp(ip);
-  if (!normalized || !parseIpv4(normalized)) return false;
-  return ANALYTICS_EXCLUDED_IPV4_PREFIXES.some((prefix) =>
-    normalized.startsWith(prefix),
+  const octets = normalized ? parseIpv4(normalized) : null;
+  if (!octets) return false;
+  const value = ipv4ToInt(octets);
+  return EXCLUDED_IPV4_CIDRS.some(
+    (cidr) => ((value & cidr.mask) >>> 0) === cidr.network,
   );
 }
 

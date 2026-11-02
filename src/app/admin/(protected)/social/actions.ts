@@ -22,6 +22,10 @@ import { eq } from "drizzle-orm";
 import { enqueueJobs, clearFinishedJobs } from "@/lib/social/jobs";
 import { drainQueue } from "@/lib/social/worker";
 import { publishCreative } from "@/lib/social/publish";
+import {
+  PINTEREST_POSTING_DISABLED_MESSAGE,
+  PINTEREST_POSTING_ENABLED,
+} from "@/lib/social/pinterest-posting";
 import { refreshAllPinMetrics } from "@/lib/social/analytics";
 import { getToken } from "@/lib/social/token-store";
 import { runAutoPin, AUTO_PIN_PER_RUN, AUTO_PIN_PER_DAY } from "@/lib/social/auto-pin";
@@ -488,6 +492,9 @@ export async function publishNow(
   id: number,
   boardId: string,
 ): Promise<SocialActionResult> {
+  if (!PINTEREST_POSTING_ENABLED) {
+    return { ok: false, message: PINTEREST_POSTING_DISABLED_MESSAGE };
+  }
   if (!(await guard())) return { ok: false, message: "Not authorized." };
   if (!boardId) return { ok: false, message: "Pick a board first." };
 
@@ -510,6 +517,9 @@ export async function schedulePublish(
   whenIso: string,
   boardId: string,
 ): Promise<SocialActionResult> {
+  if (!PINTEREST_POSTING_ENABLED) {
+    return { ok: false, message: PINTEREST_POSTING_DISABLED_MESSAGE };
+  }
   if (!(await guard())) return { ok: false, message: "Not authorized." };
   if (!boardId) return { ok: false, message: "Pick a board first." };
 
@@ -541,6 +551,9 @@ export async function runAutoPinNow(input?: {
   boardId?: string;
   max?: number;
 }): Promise<SocialActionResult> {
+  if (!PINTEREST_POSTING_ENABLED) {
+    return { ok: false, message: PINTEREST_POSTING_DISABLED_MESSAGE };
+  }
   if (!(await guard())) return { ok: false, message: "Not authorized." };
 
   const max = Math.min(5, Math.max(1, input?.max ?? AUTO_PIN_PER_RUN));
@@ -551,6 +564,9 @@ export async function runAutoPinNow(input?: {
   });
   revalidateSocialStudio();
 
+  if (res.reason === "disabled") {
+    return { ok: false, message: PINTEREST_POSTING_DISABLED_MESSAGE };
+  }
   if (res.reason === "no-pinterest-token") {
     return { ok: false, message: "Connect Pinterest first." };
   }
@@ -871,6 +887,15 @@ export async function bulkPublishNow(input: {
   ids: number[];
   boardId: string;
 }): Promise<BulkActionResult> {
+  if (!PINTEREST_POSTING_ENABLED) {
+    return {
+      ok: false,
+      message: PINTEREST_POSTING_DISABLED_MESSAGE,
+      succeeded: 0,
+      failed: 0,
+      errors: [],
+    };
+  }
   if (!(await guard()))
     return { ok: false, message: "Not authorized.", succeeded: 0, failed: 0, errors: [] };
   if (!input.boardId)
@@ -936,6 +961,15 @@ export async function bulkStaggeredSchedule(input: {
   /** Pins per day (1-5). Default 3. */
   pinsPerDay?: number;
 }): Promise<BulkActionResult> {
+  if (!PINTEREST_POSTING_ENABLED) {
+    return {
+      ok: false,
+      message: PINTEREST_POSTING_DISABLED_MESSAGE,
+      succeeded: 0,
+      failed: 0,
+      errors: [],
+    };
+  }
   if (!(await guard()))
     return { ok: false, message: "Not authorized.", succeeded: 0, failed: 0, errors: [] };
   if (!input.boardId)

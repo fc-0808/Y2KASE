@@ -127,7 +127,7 @@ test("review requests wait out the published delivery window", () => {
   const shipped = new Date("2026-01-01T00:00:00.000Z");
   assert.equal(
     reviewRequestDueAt(shipped, "HK").toISOString(),
-    "2026-01-07T00:00:00.000Z",
+    "2026-01-18T00:00:00.000Z",
   );
   assert.equal(
     reviewRequestDueAt(shipped, "US").toISOString(),
@@ -135,7 +135,7 @@ test("review requests wait out the published delivery window", () => {
   );
   assert.equal(
     reviewRequestDueAt(shipped, "United States").toISOString(),
-    "2026-01-25T00:00:00.000Z",
+    "2026-01-18T00:00:00.000Z",
   );
   assert.equal(
     isReviewRequestDue(shipped, "US", new Date("2026-01-17T00:00:00.000Z")),

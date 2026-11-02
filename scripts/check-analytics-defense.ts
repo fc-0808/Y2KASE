@@ -11,7 +11,6 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   ABUSIVE_ANALYTICS_IPV4_CIDRS,
-  ANALYTICS_EXCLUDED_IP_REGEX,
   analyticsFingerprintKey,
   analyticsNetworkKey,
   analyticsRequestRejection,
@@ -60,6 +59,22 @@ assert.deepEqual(ABUSIVE_ANALYTICS_IPV4_CIDRS, [
   "43.119.104.0/24",
   "47.82.201.0/24",
   "47.82.202.0/24",
+  "43.128.0.0/13",
+  "43.152.0.0/13",
+  "43.160.0.0/12",
+  "101.32.0.0/16",
+  "129.226.0.0/16",
+  "150.109.0.0/19",
+  "49.0.200.0/21",
+  "101.44.160.0/20",
+  "111.119.192.0/18",
+  "119.8.160.0/19",
+  "119.13.96.0/20",
+  "124.243.128.0/20",
+  "124.243.160.0/19",
+  "159.138.120.0/22",
+  "188.239.0.0/20",
+  "188.239.32.0/20",
 ]);
 for (const ip of [
   "43.119.100.1",
@@ -67,9 +82,25 @@ for (const ip of [
   "47.82.201.68",
   "47.82.202.200",
   "::ffff:43.119.100.141",
+  // Tencent Cloud Singapore allocation boundaries.
+  "43.128.0.1",
+  "43.135.255.254",
+  "43.152.0.1",
+  "43.159.255.1",
+  "43.160.0.1",
+  "43.175.255.1",
+  "101.32.115.9",
+  "129.226.198.4",
+  "150.109.12.8",
+  "150.109.31.255",
+  // Huawei Cloud Singapore allocation boundaries.
+  "111.119.192.1",
+  "111.119.255.254",
+  "188.239.15.9",
+  "188.239.41.9",
+  "49.0.203.4",
 ]) {
   assert.equal(isExcludedAnalyticsIp(ip), true, `${ip} must be excluded`);
-  assert.match(normalizeClientIp(ip) ?? "", new RegExp(ANALYTICS_EXCLUDED_IP_REGEX));
 }
 for (const adjacent of [
   "43.119.99.255",
@@ -77,11 +108,31 @@ for (const adjacent of [
   "43.119.105.1",
   "47.82.200.255",
   "47.82.203.1",
+  "43.127.255.255",
+  "43.136.0.1",
+  "43.151.255.255",
+  "43.176.0.1",
+  "101.31.255.255",
+  "101.33.0.1",
+  "150.109.32.1",
+  "111.119.191.255",
+  "112.0.0.1",
+  "188.239.16.1",
+  "188.239.31.255",
+  "188.239.48.1",
+  // Singapore consumer ISPs reviewed on 2026-10-31 and left open.
+  "202.156.24.168",
+  "118.200.187.155",
+  "58.96.230.191",
+  "119.234.56.118",
+  "119.56.68.182",
+  "39.109.243.236",
+  "210.10.76.93",
 ]) {
   assert.equal(
     isExcludedAnalyticsIp(adjacent),
     false,
-    `${adjacent} is outside the confirmed /24s`,
+    `${adjacent} is outside the confirmed hosting ranges`,
   );
 }
 assert.equal(isExcludedAnalyticsIp("66.249.66.1"), true, "Googlebot range");

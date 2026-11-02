@@ -250,11 +250,9 @@ export async function POST(request: NextRequest) {
               amount: cart.shippingCents,
               currency: cart.currency.toLowerCase(),
             },
-            // Delivery windows vary by destination (HK 1–3 days; supported
-            // international markets up to 21). Stripe applies one estimate to
-            // every allowed country, so omitting it is more accurate than
-            // publishing a globally false 5–12 day promise. The linked shipping
-            // policy and structured data carry the destination-specific ranges.
+            // Published delivery is 7–14 days. Stripe applies one estimate to
+            // every allowed country, so the shipping policy carries the window
+            // instead of a second number on the rate.
           },
         },
       ];

@@ -48,6 +48,7 @@ import {
   updateCreativeContent,
 } from "@/lib/social/creatives";
 import { publishCreative } from "@/lib/social/publish";
+import { PINTEREST_POSTING_ENABLED } from "@/lib/social/pinterest-posting";
 import {
   generateCaption,
   generateCaptionVariations,
@@ -113,16 +114,21 @@ const MEDIA_GAP_MS = Math.max(
 );
 
 /**
- * Hours (UTC) the cron fires — kept in sync with vercel.json
- * (`/api/cron/pinterest-autopin`). Three spread windows (≈ US evening, US
- * morning, and a late-US catch-up) so the day's pins don't post in one burst.
- * Used to show operators when the next pin will go out.
+ * Hours (UTC) the drip used to fire. The cron is unscheduled while
+ * {@link PINTEREST_POSTING_ENABLED} is false. Kept so a later restart can
+ * spread pins across the same windows instead of one burst.
  */
 export const AUTO_PIN_CRON_HOURS_UTC = [1, 15, 20];
 
-/** Opt-in flag — automation only runs when explicitly enabled. */
+/**
+ * The drip stays off while {@link PINTEREST_POSTING_ENABLED} is false, even
+ * if `PINTEREST_AUTOPIN_ENABLED` is still "true" in production.
+ */
 export function isAutoPinEnabled(): boolean {
-  return process.env.PINTEREST_AUTOPIN_ENABLED?.trim() === "true";
+  return (
+    PINTEREST_POSTING_ENABLED &&
+    process.env.PINTEREST_AUTOPIN_ENABLED?.trim() === "true"
+  );
 }
 
 /** ISO timestamp of the nearest upcoming cron run across the scheduled hours. */
@@ -1134,6 +1140,10 @@ export async function runAutoPin(
     errors: [],
     listings: [],
   };
+
+  if (!PINTEREST_POSTING_ENABLED) {
+    return { ...result, ok: true, reason: "disabled" };
+  }
 
   if (!isDbConfigured()) return { ...result, ok: false, reason: "no-db" };
   if (!isPinterestConfigured()) {

@@ -41,8 +41,8 @@ import {
   type FashionPillar,
 } from "@/lib/social/instagram-fashion";
 
-export const INSTAGRAM_HANDLE = "y2kase.co";
-export const INSTAGRAM_PROFILE_URL = "https://instagram.com/y2kase.co";
+export const INSTAGRAM_HANDLE = "y2kaseofficial";
+export const INSTAGRAM_PROFILE_URL = `https://instagram.com/${INSTAGRAM_HANDLE}`;
 
 /** First 3×4 grid. Below this, the profile still looks abandoned. */
 export const INSTAGRAM_BOOTSTRAP_POSTS = 12;

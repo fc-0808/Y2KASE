@@ -9,7 +9,9 @@
  * Auth: runAutoPin ensures a live OAuth token (refreshing when due) before any
  * claims, so an expired access token cannot burn the retry budget on 401s.
  *
- * Opt-in: only runs when PINTEREST_AUTOPIN_ENABLED="true".
+ * Posting is off while PINTEREST_POSTING_ENABLED is false in
+ * src/lib/social/pinterest-posting.ts. This route is not on the Vercel
+ * cron schedule. A call returns without creating a pin.
  * Auth header: Vercel attaches `Authorization: Bearer ${CRON_SECRET}`.
  */
 import { NextResponse, type NextRequest } from "next/server";
@@ -44,9 +46,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (heavyBackgroundPaused()) return heavyBackgroundPausedResponse();
-  if (!isAutoPinEnabled()) {
-    return NextResponse.json({ ok: true, pinned: 0, reason: "disabled" });
-  }
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: true, pinned: 0, reason: "no-db" });
   }
@@ -83,6 +82,15 @@ export async function GET(req: NextRequest) {
         );
       }
     }
+  }
+
+  if (!isAutoPinEnabled()) {
+    return NextResponse.json({
+      ok: true,
+      pinned: 0,
+      reason: "disabled",
+      deleted,
+    });
   }
 
   // Each run posts up to AUTO_PIN_PER_RUN pins, but never more than the

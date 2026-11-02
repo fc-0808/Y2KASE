@@ -1563,6 +1563,7 @@ export type BulkEditProduct = {
 /** A single product's curated state, sent back to {@link bulkSaveProducts}. */
 export type PerProductSave = {
   productId: number;
+  /** Owned ids omitted from this list are deleted. At least one photo must remain. */
   imageOrder: number[];
   videoSlot: number | null;
   styleTags: Record<number, string[]>;

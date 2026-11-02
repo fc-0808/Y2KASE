@@ -8,6 +8,10 @@ import {
   deviceIsLive,
   findDevice,
 } from "@/lib/catalog/devices";
+import {
+  INSTAGRAM_HANDLE,
+  INSTAGRAM_PROFILE_URL,
+} from "@/lib/social/instagram-strategy";
 
 /** lucide v1 dropped brand glyphs (trademark), so we inline them. */
 function InstagramIcon() {
@@ -74,10 +78,7 @@ export async function Footer() {
             to the Club, bestie. ✨
           </p>
           <div className="mt-4 flex gap-2">
-            <Social
-              href="https://instagram.com/y2kase.co"
-              label="Instagram"
-            >
+            <Social href={INSTAGRAM_PROFILE_URL} label="Instagram">
               <InstagramIcon />
             </Social>
             <Social href="https://facebook.com/y2kase" label="Facebook">
@@ -121,8 +122,8 @@ export async function Footer() {
               { href: "/policies/privacy-policy", label: "Privacy Policy" },
               { href: "/policies/terms-of-service", label: "Terms of Service" },
               {
-                href: "https://instagram.com/y2kase.co",
-                label: "@y2kase.co",
+                href: INSTAGRAM_PROFILE_URL,
+                label: `@${INSTAGRAM_HANDLE}`,
               },
             ]}
           />

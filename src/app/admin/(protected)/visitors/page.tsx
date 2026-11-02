@@ -12,6 +12,7 @@ import {
   TREND_RANGES,
   type TrendRangeKey,
 } from "@/lib/analytics";
+import { describeVisitSource } from "@/lib/analytics/referrer";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Admin · Visitors" };
@@ -279,12 +280,13 @@ export default async function AdminVisitorsPage({
                       {v.browser ? ` · ${v.browser}` : ""}
                     </span>
                   </div>
-                  <div className="mt-1 flex w-full items-center gap-x-2 text-[11px] text-[var(--foreground)]/40">
+                  <div className="mt-1 flex w-full items-start gap-x-2 text-[11px] text-[var(--foreground)]/40">
                     <span className="shrink-0 font-mono">{v.ip ?? "—"}</span>
                     <span aria-hidden>·</span>
-                    <span className="min-w-0 flex-1 truncate">
-                      {v.referrer ?? "Direct"}
-                    </span>
+                    <ReferrerLabel
+                      referrer={v.referrer}
+                      landingQuery={v.landingQuery}
+                    />
                   </div>
                 </li>
               ))}
@@ -292,7 +294,7 @@ export default async function AdminVisitorsPage({
 
             {/* Desktop: full table. */}
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[820px] text-sm">
+              <table className="w-full min-w-[980px] text-sm">
                 <thead className="bg-[var(--muted)]/50 text-left text-xs uppercase tracking-wide text-[var(--foreground)]/50">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Time</th>
@@ -338,8 +340,11 @@ export default async function AdminVisitorsPage({
                           </span>
                         )}
                       </td>
-                      <td className="max-w-[180px] truncate px-4 py-2.5 text-xs text-[var(--foreground)]/50">
-                        {v.referrer ?? "Direct"}
+                      <td className="max-w-[18rem] px-4 py-2.5 align-top text-xs text-[var(--foreground)]/50">
+                        <ReferrerLabel
+                          referrer={v.referrer}
+                          landingQuery={v.landingQuery}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -350,6 +355,28 @@ export default async function AdminVisitorsPage({
         )}
       </section>
     </div>
+  );
+}
+
+function ReferrerLabel({
+  referrer,
+  landingQuery,
+}: {
+  referrer: string | null;
+  landingQuery: string | null;
+}) {
+  const { source, detail, title } = describeVisitSource(referrer, landingQuery);
+  return (
+    <span className="block min-w-0" title={title}>
+      <span className="block font-semibold text-[var(--foreground)]/75">
+        {source}
+      </span>
+      {detail ? (
+        <span className="mt-0.5 block break-words font-mono text-[11px] leading-snug text-[var(--foreground)]/50">
+          {detail}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

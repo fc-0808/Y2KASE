@@ -124,6 +124,37 @@ function writeCatalogQuery(patch: {
   return qs ? `/admin/products?${qs}` : "/admin/products";
 }
 
+/** A collection plus every descendant, so a brand also matches its characters. */
+function expandCollectionIds(
+  rootId: number,
+  options: AdminCollectionOption[],
+): Set<number> {
+  const childrenOf = new Map<number, number[]>();
+  for (const option of options) {
+    if (option.parentId == null) continue;
+    const children = childrenOf.get(option.parentId) ?? [];
+    children.push(option.id);
+    childrenOf.set(option.parentId, children);
+  }
+  const ids = new Set<number>();
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (ids.has(id)) continue;
+    ids.add(id);
+    for (const child of childrenOf.get(id) ?? []) stack.push(child);
+  }
+  return ids;
+}
+
+function inCollection(
+  collectionIds: readonly number[],
+  match: Set<number> | null,
+): boolean {
+  if (!match) return true;
+  return collectionIds.some((id) => match.has(id));
+}
+
 export function ProductsConsole({
   products,
   collectionOptions,
@@ -159,11 +190,24 @@ export function ProductsConsole({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [deviceFilter, setDeviceFilter] = useState<DeviceSelection>("all");
+  const initialFeatureId =
+    initialCollectionId != null &&
+    collectionOptions.some(
+      (c) => c.id === initialCollectionId && c.kind === "feature",
+    )
+      ? initialCollectionId
+      : undefined;
   const [collectionFilter, setCollectionFilter] = useState<number | "all">(
     initialCollectionId &&
+      !initialFeatureId &&
       collectionOptions.some((c) => c.id === initialCollectionId)
       ? initialCollectionId
       : "all",
+  );
+  // Feature shops (MagSafe, ring holder) combine with brand. A deep link to a
+  // feature collection opens that filter instead of the brand axis.
+  const [featureFilter, setFeatureFilter] = useState<number | "all">(
+    initialFeatureId ?? "all",
   );
   const [titleIssuesOnly, setTitleIssuesOnly] = useState(false);
   const [brandIssuesOnly, setBrandIssuesOnly] = useState(false);
@@ -271,27 +315,22 @@ export function ProductsConsole({
   // Collection filter is hierarchy-aware: selecting a brand (e.g. Sanrio) also
   // matches products tagged only under its characters. We expand the selection
   // to itself + all descendant ids using the parent links in the options.
-  const collectionMatchIds = useMemo<Set<number> | null>(() => {
-    if (collectionFilter === "all") return null;
-    const childrenOf = new Map<number, number[]>();
-    for (const o of collectionOptions) {
-      if (o.parentId == null) continue;
-      const arr = childrenOf.get(o.parentId) ?? [];
-      arr.push(o.id);
-      childrenOf.set(o.parentId, arr);
-    }
-    const ids = new Set<number>();
-    const stack = [collectionFilter];
-    while (stack.length) {
-      const id = stack.pop()!;
-      if (ids.has(id)) continue;
-      ids.add(id);
-      for (const child of childrenOf.get(id) ?? []) stack.push(child);
-    }
-    return ids;
-  }, [collectionFilter, collectionOptions]);
+  const collectionMatchIds = useMemo<Set<number> | null>(
+    () =>
+      collectionFilter === "all"
+        ? null
+        : expandCollectionIds(collectionFilter, collectionOptions),
+    [collectionFilter, collectionOptions],
+  );
+  const featureMatchIds = useMemo<Set<number> | null>(
+    () =>
+      featureFilter === "all"
+        ? null
+        : expandCollectionIds(featureFilter, collectionOptions),
+    [featureFilter, collectionOptions],
+  );
 
-  // Shared scope for both taxonomy facets. Device and collection membership
+  // Shared scope for the taxonomy facets. Device, brand, and feature membership
   // are applied separately below, so each facet can show the result count a
   // user would get without its own current selection masking alternatives.
   const commonFiltered = useMemo(() => {
@@ -322,19 +361,36 @@ export function ProductsConsole({
     query,
   ]);
 
-  // Everything except the collection facet.
-  const baseForCollections = useMemo(() => {
+  const deviceScoped = useMemo(() => {
     if (activeDeviceTypes.size === 0) return commonFiltered;
     return commonFiltered.filter((p) => activeDeviceTypes.has(p.productType));
   }, [activeDeviceTypes, commonFiltered]);
 
-  // Everything except the device facet.
-  const baseForDevices = useMemo(() => {
-    if (!collectionMatchIds) return commonFiltered;
-    return commonFiltered.filter((p) =>
-      p.collectionIds.some((id) => collectionMatchIds.has(id)),
+  // Brand counts respect the feature, so Sanrio's number is Sanrio ring holders
+  // while that feature is on.
+  const baseForCollections = useMemo(() => {
+    if (!featureMatchIds) return deviceScoped;
+    return deviceScoped.filter((p) =>
+      inCollection(p.collectionIds, featureMatchIds),
     );
-  }, [collectionMatchIds, commonFiltered]);
+  }, [deviceScoped, featureMatchIds]);
+
+  // Device counts respect brand and feature.
+  const baseForDevices = useMemo(() => {
+    return commonFiltered.filter(
+      (p) =>
+        inCollection(p.collectionIds, collectionMatchIds) &&
+        inCollection(p.collectionIds, featureMatchIds),
+    );
+  }, [commonFiltered, collectionMatchIds, featureMatchIds]);
+
+  // Feature counts ignore the feature selection and respect brand and device.
+  const baseForFeatures = useMemo(() => {
+    if (!collectionMatchIds) return deviceScoped;
+    return deviceScoped.filter((p) =>
+      inCollection(p.collectionIds, collectionMatchIds),
+    );
+  }, [deviceScoped, collectionMatchIds]);
 
   const deviceCounts = useMemo<DeviceCounts>(() => {
     const scopedCounts: DeviceCounts = {};
@@ -376,44 +432,41 @@ export function ProductsConsole({
   // tallies products in it or any of its characters). Each count therefore
   // equals the table size you'd get by selecting that pill.
   const collectionCounts = useMemo<Map<number, number>>(() => {
-    const childrenOf = new Map<number, number[]>();
-    for (const o of collectionOptions) {
-      if (o.parentId == null) continue;
-      const arr = childrenOf.get(o.parentId) ?? [];
-      arr.push(o.id);
-      childrenOf.set(o.parentId, arr);
-    }
-    const closure = (rootId: number) => {
-      const set = new Set<number>();
-      const stack = [rootId];
-      while (stack.length) {
-        const id = stack.pop()!;
-        if (set.has(id)) continue;
-        set.add(id);
-        for (const child of childrenOf.get(id) ?? []) stack.push(child);
-      }
-      return set;
-    };
     const counts = new Map<number, number>();
-    for (const o of collectionOptions) {
-      const set = closure(o.id);
+    for (const option of collectionOptions) {
+      const set = expandCollectionIds(option.id, collectionOptions);
       let n = 0;
-      for (const p of baseForCollections) {
-        if (p.collectionIds.some((id) => set.has(id))) n += 1;
+      for (const product of baseForCollections) {
+        if (inCollection(product.collectionIds, set)) n += 1;
       }
-      counts.set(o.id, n);
+      counts.set(option.id, n);
     }
     return counts;
   }, [collectionOptions, baseForCollections]);
 
+  const featureCounts = useMemo<Map<number, number>>(() => {
+    const counts = new Map<number, number>();
+    for (const option of collectionOptions) {
+      if (option.kind !== "feature" || option.parentId != null) continue;
+      const set = expandCollectionIds(option.id, collectionOptions);
+      let n = 0;
+      for (const product of baseForFeatures) {
+        if (inCollection(product.collectionIds, set)) n += 1;
+      }
+      counts.set(option.id, n);
+    }
+    return counts;
+  }, [collectionOptions, baseForFeatures]);
+
   const scoped = useMemo(() => {
-    if (!collectionMatchIds) return baseForCollections;
-    return baseForCollections.filter(
-      (p) =>
-        p.collectionIds.some((id) => collectionMatchIds.has(id)) ||
-        keptVisible.has(p.id),
-    );
-  }, [baseForCollections, collectionMatchIds, keptVisible]);
+    return deviceScoped.filter((p) => {
+      if (keptVisible.has(p.id)) return true;
+      return (
+        inCollection(p.collectionIds, collectionMatchIds) &&
+        inCollection(p.collectionIds, featureMatchIds)
+      );
+    });
+  }, [deviceScoped, collectionMatchIds, featureMatchIds, keptVisible]);
 
   const uploadDayBatches = useMemo(
     () => uploadBatches(scoped),
@@ -475,6 +528,11 @@ export function ProductsConsole({
     setKeptVisible(new Set());
   }
 
+  function selectFeature(next: CollectionSelection) {
+    setFeatureFilter(next);
+    setKeptVisible(new Set());
+  }
+
   function onCollectionUpdated(
     productId: number,
     collectionId: number,
@@ -488,7 +546,11 @@ export function ProductsConsole({
       next.set(productId, edits);
       return next;
     });
-    if (!member && collectionMatchIds?.has(collectionId)) {
+    if (
+      !member &&
+      (collectionMatchIds?.has(collectionId) ||
+        featureMatchIds?.has(collectionId))
+    ) {
       setKeptVisible((prev) => new Set(prev).add(productId));
     }
     flash({ ok: true, message });
@@ -702,6 +764,7 @@ export function ProductsConsole({
     statusFilter !== "all" ||
     deviceFilter !== "all" ||
     collectionFilter !== "all" ||
+    featureFilter !== "all" ||
     titleIssuesOnly ||
     brandIssuesOnly ||
     multiProductOnly ||
@@ -712,6 +775,7 @@ export function ProductsConsole({
     setStatusFilter("all");
     setDeviceFilter("all");
     setCollectionFilter("all");
+    setFeatureFilter("all");
     setKeptVisible(new Set());
     setTitleIssuesOnly(false);
     setBrandIssuesOnly(false);
@@ -926,6 +990,10 @@ export function ProductsConsole({
             total={baseForCollections.length}
             active={collectionFilter}
             onSelect={selectCollection}
+            featureCounts={featureCounts}
+            featureTotal={baseForFeatures.length}
+            featureActive={featureFilter}
+            onSelectFeature={selectFeature}
           />
         )}
         <UploadDateBar

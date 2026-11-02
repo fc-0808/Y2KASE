@@ -7,8 +7,8 @@
  */
 import { SUPPORT_EMAIL } from "@/lib/support/constants";
 import {
+  SHIPPING_COVERAGE_SUMMARY,
   SHIPPING_ESTIMATE_SUMMARY,
-  SHIPPING_MARKETS_SUMMARY,
 } from "@/lib/shipping";
 import { ROUTES } from "@/lib/routes";
 import { IPHONE_FIT } from "@/lib/pricing";
@@ -33,7 +33,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
     items: [
       {
         question: "How long does shipping take?",
-        answer: `${SHIPPING_ESTIMATE_SUMMARY} See our Shipping Policy for full details.`,
+        answer: `${SHIPPING_ESTIMATE_SUMMARY} We ship worldwide; that window is for the markets most orders go to. See our Shipping Policy for full details.`,
       },
       {
         question: "Can I track my order?",
@@ -42,7 +42,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         question: "Where does Y2KASE ship?",
-        answer: `We currently ship to ${SHIPPING_MARKETS_SUMMARY}. Available rates and any free-shipping threshold appear at checkout.`,
+        answer: `${SHIPPING_COVERAGE_SUMMARY} Available rates and any free-shipping threshold appear at checkout.`,
       },
     ],
   },

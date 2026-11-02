@@ -22,6 +22,7 @@ import {
   normalizeClientIp,
 } from "@/lib/analytics/bot-defense";
 import { isTrackablePath } from "@/lib/analytics/paths";
+import { sanitizeLandingQuery } from "@/lib/analytics/referrer";
 import {
   ANALYTICS_VISITOR_COOKIE,
   ANALYTICS_VISITOR_PROOF_COOKIE,
@@ -236,6 +237,7 @@ export async function POST(req: NextRequest) {
   const path = trackedPath(body.path);
   if (!path) return noContent();
   const referrer = safeReferrer(body.referrer);
+  const landingQuery = sanitizeLandingQuery(body.search);
 
   const ua = req.headers.get("user-agent");
   const parsed = parseUserAgent(ua);
@@ -346,6 +348,7 @@ export async function POST(req: NextRequest) {
     userId,
     path,
     referrer,
+    landingQuery,
     ip,
     country: g.country,
     region: g.region,

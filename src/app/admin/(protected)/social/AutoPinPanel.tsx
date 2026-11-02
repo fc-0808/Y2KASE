@@ -116,7 +116,7 @@ export function AutoPinPanel({
             <p className="mt-0.5 text-xs text-[var(--foreground)]/55">
               {enabled
                 ? `Posts ${perRun} pin${perRun === 1 ? "" : "s"} per run, cap ${perDay}/day. One pin per product, then ${cooldownDays}-day rest.`
-                : 'Set PINTEREST_AUTOPIN_ENABLED="true" to run the daily drip automatically.'}
+                : "New pins are not going out. Pins already on the account stay up."}
             </p>
           </div>
         </div>
@@ -126,13 +126,16 @@ export function AutoPinPanel({
           onClick={handleRun}
           disabled={
             pending ||
+            !enabled ||
             !pinterestReady ||
             !nextListing ||
             nextListing.totalPins === 0
           }
           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#E60023] px-4 text-xs font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           title={
-            !pinterestReady
+            !enabled
+              ? "Pinterest posting is turned off"
+              : !pinterestReady
               ? "Connect Pinterest first"
               : !nextListing
                 ? remainingProducts === 0
@@ -204,10 +207,10 @@ export function AutoPinPanel({
 
           <div className="shrink-0 text-right">
             <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--foreground)]/45">
-              {enabled ? "Next run" : "Automation off"}
+              {enabled ? "Next run" : "Posting is off"}
             </div>
             <div className="text-xs font-semibold text-[var(--foreground)]/80">
-              {enabled ? formatNextRun(nextListing.nextRunAtIso) : "Manual only"}
+              {enabled ? formatNextRun(nextListing.nextRunAtIso) : "No new pins"}
             </div>
           </div>
         </div>

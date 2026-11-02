@@ -28,10 +28,13 @@ import {
 } from "../src/lib/seo/copy";
 import { collectionEditorial } from "../src/lib/seo/collection-editorial";
 import {
+  IPHONE_18_COLLECTIONS,
   iphone18FitCopy,
   iphone18FitHeading,
   iphone18FitPath,
+  isIphone18CollectionSlug,
 } from "../src/lib/seo/fit-landings";
+import { shoppingTitle } from "../src/lib/catalog/shopping-title";
 import { IPHONE_FIT } from "../src/lib/pricing";
 import {
   FAQ_ITEMS,
@@ -58,8 +61,24 @@ import {
 assert.equal(new Set(SHIPPING_COUNTRIES).size, SHIPPING_COUNTRIES.length);
 assert.deepEqual(
   SHIPPING_REGIONS.flatMap((region) => [...region.countries]),
-  SHIPPING_COUNTRIES,
+  ["US", "GB", "CA", "AU", "NZ", "DE", "FR", "NL"],
 );
+const checkoutCountries = [
+  "US",
+  "GB",
+  "CA",
+  "AU",
+  "NZ",
+  "DE",
+  "FR",
+  "NL",
+  "HK",
+  "SG",
+  "JP",
+] as const;
+for (const code of checkoutCountries) {
+  assert.ok(SHIPPING_COUNTRIES.includes(code), code);
+}
 assert.match(
   FREE_SHIPPING_OFFER,
   /^Free standard shipping for orders over \S+/,
@@ -328,6 +347,84 @@ assert.ok(
   Array.from(`${helloKittySerp}${BRAND_TITLE_SUFFIX}`).length <= SERP_TITLE_MAX,
 );
 
+const shoppingHelloKitty = shoppingTitle({
+  title:
+    "Sanrio Hello Kitty Clear Kawaii Case with Charm for iPhone 18 17 16 15 14 13 Pro Max — MagSafe",
+  productType: "iphone_case",
+  characterName: "Hello Kitty",
+  brandName: "Sanrio",
+  magsafe: true,
+});
+assert.equal(
+  shoppingHelloKitty,
+  "Hello Kitty iPhone 18 Pro and Pro Max Clear Charm Case — MagSafe",
+);
+assert.equal(shoppingHelloKitty.startsWith("Hello Kitty iPhone 18 Pro"), true);
+assert.equal(/\b(17|16|15|14|13)\b/.test(shoppingHelloKitty), false);
+assert.equal(shoppingHelloKitty.includes("Sanrio"), false);
+
+const shoppingKuromi = shoppingTitle({
+  title:
+    "Sanrio Kuromi Purple Glitter Charm Clear Case for iPhone 18 17 16 15 14 13 Pro Max — MagSafe",
+  productType: "iphone_case",
+  characterName: "Kuromi",
+  brandName: "Sanrio",
+});
+assert.equal(
+  shoppingKuromi,
+  "Kuromi iPhone 18 Pro and Pro Max Clear Glitter Charm Purple Case — MagSafe",
+);
+
+const shoppingStrawberry = shoppingTitle({
+  title:
+    "My Melody strawberry sparkle phone case with beaded charm strap for iPhone 18 17 16 15 Pro Max",
+  productType: "iphone_case",
+});
+assert.match(shoppingStrawberry, /^My Melody iPhone 18 Pro and Pro Max /);
+assert.match(shoppingStrawberry, /Strawberry/);
+assert.notEqual(shoppingStrawberry, shoppingHelloKitty);
+
+const shoppingAirPods = shoppingTitle({
+  title: "Pompompurin pudding AirPods case with charm",
+  productType: "airpod_case",
+  characterName: "Pompompurin",
+  magsafe: true,
+});
+assert.equal(shoppingAirPods.includes("iPhone"), false);
+assert.match(shoppingAirPods, /^Pompompurin AirPods /);
+assert.equal(shoppingAirPods.includes("MagSafe"), false);
+
+const shoppingDuo = shoppingTitle({
+  title: "Hello Kitty lavender sparkle duo case",
+  productType: "iphone_duo_case",
+  characterName: "Hello Kitty",
+});
+assert.equal(shoppingDuo.includes("iPhone 18"), false);
+assert.match(shoppingDuo, /iPhone Duo/);
+assert.equal(shoppingDuo.match(/Duo/g)?.length, 1);
+
+const shoppingPop = shoppingTitle({
+  title:
+    "Hello Kitty dessert print phone case with cute pop-out grip for iPhone 18 17 16 15 Pro Max — MagSafe",
+  productType: "iphone_case",
+  characterName: "Hello Kitty",
+  magsafe: true,
+});
+assert.equal(shoppingPop.includes(" Out "), false);
+assert.match(shoppingPop, /Grip/);
+
+const shoppingOlder = shoppingTitle({
+  title: "Kuromi Clear Case for iPhone 17 16 15 Pro Max",
+  productType: "iphone_case",
+  characterName: "Kuromi",
+  models: ["iPhone 17 Pro Max", "iPhone 16 Pro Max"],
+});
+assert.equal(shoppingOlder.startsWith("Kuromi iPhone 17 Pro Max"), true);
+assert.equal(shoppingOlder.includes("iPhone 18"), false);
+
+assert.ok(shoppingHelloKitty.length <= 150);
+assert.ok(shoppingKuromi.length <= 150);
+
 const helloKittyCopy = collectionSeo({
   name: "Hello Kitty",
   slug: "hello-kitty",
@@ -350,12 +447,45 @@ assert.equal(BRAND_TITLE_TEMPLATE, "%s · Y2KASE");
 assert.equal(iphone18FitPath("hello-kitty"), "/collections/hello-kitty/iphone-18-pro");
 const helloKittyFit = iphone18FitCopy("Hello Kitty", "hello-kitty");
 assert.equal(helloKittyFit.heading, iphone18FitHeading("Hello Kitty"));
-assert.match(helloKittyFit.heading, /iPhone 18 Pro and Pro Max/);
+assert.equal(helloKittyFit.heading, "Hello Kitty iPhone 18 Pro and Pro Max Cases");
+assert.equal(helloKittyFit.primary, "hello kitty iphone 18 pro case");
+assert.equal(
+  iphone18FitHeading("Sanrio"),
+  "Sanrio iPhone 18 Pro Max and Pro Cases",
+);
+assert.equal(
+  iphone18FitCopy("Kuromi", "kuromi").primary,
+  "kuromi iphone 18 pro max case",
+);
 assert.ok(
   Array.from(`${helloKittyFit.title}${BRAND_TITLE_SUFFIX}`).length <=
     SERP_TITLE_MAX,
 );
 assert.match(helloKittyFit.description, /no base iPhone 18/);
+const fitNotes = new Set<string>();
+for (const entry of IPHONE_18_COLLECTIONS) {
+  assert.equal(isIphone18CollectionSlug(entry.slug), true);
+  const copy = iphone18FitCopy(entry.name, entry.slug);
+  assert.equal(copy.title, iphone18FitHeading(entry.name));
+  assert.match(copy.title, new RegExp(`^${entry.name} iPhone 18 Pro`));
+  assert.ok(
+    Array.from(`${copy.title}${BRAND_TITLE_SUFFIX}`).length <= SERP_TITLE_MAX,
+    copy.title,
+  );
+  const note = copy.paragraphs[1];
+  assert.ok(note);
+  assert.equal(fitNotes.has(note), false);
+  fitNotes.add(note);
+  const editorial = collectionEditorial({
+    slug: entry.slug,
+    name: entry.name,
+    kind: "character",
+  });
+  assert.ok(
+    editorial.related.some((link) => link.href === iphone18FitPath(entry.slug)),
+  );
+}
+assert.equal(isIphone18CollectionSlug("rilakkuma"), false);
 assert.equal(
   /iPhone 18 Pro/.test(
     collectionEditorial({

@@ -36,6 +36,11 @@ export function VisitorTracker() {
     const beacon: AnalyticsBeaconPayload = {
       path: pathname,
       referrer: document.referrer || null,
+      // Campaign and click ids live on the landing URL. The referrer itself
+      // is only an origin for Google, Instagram, and the other off-site apps.
+      search: window.location.search
+        ? window.location.search.slice(0, 512)
+        : null,
       // Positive-only anti-automation signal. A custom bot can lie, so the
       // server never treats `false` as proof of humanity.
       webdriver: navigator.webdriver === true,

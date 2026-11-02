@@ -10,9 +10,13 @@ import {
   webPageJsonLd,
 } from "@/lib/seo";
 import { PAGE_COPY } from "@/lib/seo/copy";
-import { SHIPPING_COUNTRIES, SHIPPING_MARKETS_SUMMARY } from "@/lib/shipping";
+import { SHIPPING_MARKETS_SUMMARY } from "@/lib/shipping";
 import { ROUTES } from "@/lib/routes";
 import { IPHONE_FIT } from "@/lib/pricing";
+import {
+  INSTAGRAM_HANDLE,
+  INSTAGRAM_PROFILE_URL,
+} from "@/lib/social/instagram-strategy";
 import {
   AIRPODS_4_5,
   AIRPODS_SHARED_FIT_NOTE,
@@ -62,8 +66,8 @@ export default function AboutPage() {
           Y2KASE is a kawaii and Y2K phone accessories brand. We sell character
           and original iPhone cases, MagSafe grips and charms. The company is
           organized under the laws of the Hong Kong SAR. Customer email is{" "}
-          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. We ship to{" "}
-          {SHIPPING_MARKETS_SUMMARY} ({SHIPPING_COUNTRIES.length} markets).
+          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. We ship
+          worldwide, mostly to {SHIPPING_MARKETS_SUMMARY}.
         </p>
 
         <h2 id="merchandising">Who writes and files the catalog</h2>
@@ -119,8 +123,7 @@ export default function AboutPage() {
         <h2>Returns and shipping</h2>
         <ul>
           <li>
-            Tracked shipping across {SHIPPING_COUNTRIES.length} supported
-            markets —{" "}
+            Tracked shipping worldwide —{" "}
             <Link href="/policies/shipping-policy">Shipping Policy</Link>
           </li>
           <li>
@@ -135,11 +138,11 @@ export default function AboutPage() {
           <br />
           Instagram:{" "}
           <a
-            href="https://instagram.com/y2kase.co"
+            href={INSTAGRAM_PROFILE_URL}
             target="_blank"
             rel="noopener noreferrer"
           >
-            @y2kase.co
+            @{INSTAGRAM_HANDLE}
           </a>
         </p>
       </article>

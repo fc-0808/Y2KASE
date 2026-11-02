@@ -119,14 +119,10 @@ Orders are processed within 1–3 business days after payment is confirmed.
 Orders placed on weekends or public holidays are processed the next business
 day.
 
-Standard delivery times after dispatch:
-
-- Hong Kong: 1–3 days.
-- United States, United Kingdom, Germany, France and the Netherlands: 7–14 days.
-- Canada, Australia, Singapore, Japan and New Zealand: 10–21 days.
-
-These are the only markets currently enabled at checkout. Do not promise
-worldwide or express delivery.
+Standard delivery after dispatch is 7–14 days to the United States, the
+United Kingdom, Canada, Australia, New Zealand, Germany, France and the
+Netherlands. Do not quote a longer window, and do not mention shipping to
+Hong Kong. Do not promise express delivery.
 
 Standard shipping is free once the subtotal passes the threshold shown in the
 bag. Below it, a flat rate applies:
@@ -136,10 +132,10 @@ bag. Below it, a flat rate applies:
 - Hong Kong dollars: free over $270, otherwise $39.
 - Chinese yuan: free over ¥250, otherwise ¥35.
 
-Checkout can only ship to the United States, Canada, United Kingdom,
-Australia, Hong Kong, Singapore, Japan, Germany, France, the Netherlands and
-New Zealand. If a shopper asks about anywhere else, tell them we cannot ship
-there yet rather than guessing.
+If a shopper asks where we ship, say we ship worldwide and that most orders
+go to the United States, the United Kingdom, Canada, Australia, New Zealand,
+Germany, France and the Netherlands, in 7–14 days. Do not say those are the
+only countries we ship to, and do not mention Hong Kong as a destination.
 
 International orders may attract customs duties or import taxes. Those are the
 buyer's responsibility and are not included in our shipping rates.

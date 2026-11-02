@@ -8,6 +8,7 @@
  * no I/O — same harness as the Instagram strategy guards.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   PINTEREST_BANNED_HASHTAGS,
@@ -36,6 +37,7 @@ import {
   seasonalSearchHint,
   stripUnmentionedDevices,
 } from "../src/lib/social/pinterest-strategy";
+import { PINTEREST_POSTING_ENABLED } from "../src/lib/social/pinterest-posting";
 
 // ── Cadence: pin-level caps, not listing dumps ───────────────────────────────
 
@@ -328,5 +330,13 @@ assert.match(
   /Christmas/,
 );
 assert.equal(seasonalSearchHint(new Date("2026-03-01T00:00:00Z")), "");
+
+assert.equal(PINTEREST_POSTING_ENABLED, false);
+const cronPaths = (
+  JSON.parse(readFileSync("vercel.json", "utf8")) as {
+    crons: { path: string }[];
+  }
+).crons.map((cron) => cron.path);
+assert.equal(cronPaths.includes("/api/cron/pinterest-autopin"), false);
 
 console.log("pinterest-strategy: all assertions passed");

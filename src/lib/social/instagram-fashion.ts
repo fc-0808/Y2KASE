@@ -5,7 +5,7 @@
  * Why this file exists
  * ────────────────────
  * Pinterest is search. Instagram is a magazine cover you judge in two seconds.
- * The first @y2kase.co post was a product close-up with the overlay "this is
+ * The first @y2kaseofficial post was a product close-up with the overlay "this is
  * the CUTEST jirai phone case ever". That is Bella Straps: a shop grid.
  * BURGA, plantica, mintapple and TORRAS do the opposite — the accessory is in
  * the frame, the frame is fashion.

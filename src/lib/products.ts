@@ -1131,6 +1131,12 @@ export type CatalogFeedItem = {
   colors: string[];
   /** Ordered gallery image URLs (first = primary). */
   images: string[];
+  characterName: string | null;
+  brandName: string | null;
+  /** Offered device-fit values. iPhone cases list "iPhone 18 Pro" and so on. */
+  models: string[];
+  /** Reviewed MagSafe tag. The shopping title uses this, not a guess from copy. */
+  magsafe: boolean;
 };
 
 export function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
@@ -1140,7 +1146,7 @@ export function getCatalogFeedItems(): Promise<CatalogFeedItem[]> {
 
 const getCatalogFeedItemsCached = cachedCatalogRead(
   computeCatalogFeedItems,
-  ["catalog-feed-items-v5"],
+  ["catalog-feed-items-v6"],
   {
     tags: [CACHE_TAGS.products],
   },
@@ -1155,6 +1161,9 @@ async function computeCatalogFeedItems(): Promise<CatalogFeedItem[]> {
         columns: { url: true, position: true },
         orderBy: (img, { asc }) => asc(img.position),
         limit: 10,
+      },
+      options: {
+        columns: { name: true, values: true },
       },
     },
   });
@@ -1171,6 +1180,10 @@ async function computeCatalogFeedItems(): Promise<CatalogFeedItem[]> {
     tags: p.tags ?? [],
     colors: p.colors ?? [],
     images: p.images.map((i) => i.url).filter((u): u is string => Boolean(u)),
+    characterName: p.characterName,
+    brandName: p.brandName,
+    models: offeredCompatibilityValues(p.productType, p.options),
+    magsafe: (p.tags ?? []).includes(MAGSAFE_TAG),
   }));
 }
 

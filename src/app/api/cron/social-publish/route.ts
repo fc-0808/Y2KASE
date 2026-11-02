@@ -1,11 +1,12 @@
 /**
  * GET /api/cron/social-publish — automated social publishing (Vercel Cron).
  *
- * Finds creatives whose scheduled time has arrived and posts them to their
- * target platform (Pinterest). Each row is claimed atomically before posting
- * (status scheduled → published) so overlapping cron invocations can never
- * double-post; a failed post reverts to "scheduled" with lastError for retry on
- * the next run.
+ * Finds creatives whose scheduled time has arrived and posts them.
+ * Pinterest rows are skipped while posting is turned off, and they are not
+ * claimed, so a later restart does not inherit a burned retry. Each other
+ * row is claimed atomically before posting (status scheduled → published)
+ * so overlapping cron invocations can never double-post. A failed post
+ * reverts to "scheduled" with lastError for retry on the next run.
  *
  * Auth: Vercel attaches `Authorization: Bearer ${CRON_SECRET}`.
  */
@@ -17,6 +18,7 @@ import {
   markPublishFailed,
 } from "@/lib/social/creatives";
 import { publishCreative } from "@/lib/social/publish";
+import { PINTEREST_POSTING_ENABLED } from "@/lib/social/pinterest-posting";
 import { isPinterestConfigured } from "@/lib/social/pinterest";
 import {
   heavyBackgroundPaused,
@@ -50,6 +52,11 @@ export async function GET(req: NextRequest) {
   let skipped = 0;
 
   for (const creative of due) {
+    if (creative.platform === "pinterest" && !PINTEREST_POSTING_ENABLED) {
+      skipped++;
+      continue;
+    }
+
     // Claim atomically: only one invocation can flip scheduled → published.
     const won = await claimForPublish(creative.id);
     if (!won) {

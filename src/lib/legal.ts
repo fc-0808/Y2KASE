@@ -54,12 +54,13 @@ export const LEGAL_DOCS: Record<string, LegalDoc> = {
     slug: "shipping-policy",
     title: "Shipping Policy",
     description:
-      "Processing times, supported-market delivery estimates, tracking, customs and rates.",
-    updated: "2026-08-13",
+      "Processing times, worldwide delivery, tracking, customs and rates. Most orders go to our main markets, which have published delivery windows.",
+    updated: "2026-10-30",
     body: `
 <h2>Processing Time</h2>
 <p>Orders are processed within <strong>1–3 business days</strong> after payment confirmation. Orders placed on weekends or public holidays are processed the next business day.</p>
 <h2>Shipping Times</h2>
+<p>We ship worldwide. Standard delivery to the United States, the United Kingdom, Canada, Australia, New Zealand, and Western Europe is 7–14 days.</p>
 <table>
 <thead><tr><th>Destination</th><th>Estimated delivery</th></tr></thead>
 <tbody>

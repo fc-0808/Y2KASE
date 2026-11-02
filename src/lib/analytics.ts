@@ -13,7 +13,7 @@ import {
 import { db, isDbConfigured } from "@/lib/db";
 import { pageViews, type NewPageView } from "@/lib/db/schema";
 import {
-  ANALYTICS_EXCLUDED_IP_REGEX,
+  ANALYTICS_EXCLUDED_IPV4_CIDRS,
   isBotUserAgent,
 } from "@/lib/analytics/bot-defense";
 
@@ -29,6 +29,7 @@ import {
 
 const EXCLUDED_COUNTRIES = ["CN", "TW", "HK"] as const;
 const EXCLUDED_IPS = ["::1", "127.0.0.1", "0.0.0.0"] as const;
+const EXCLUDED_CIDR_LIST = ANALYTICS_EXCLUDED_IPV4_CIDRS.join(",");
 
 /** SQL predicate: keep rows that are not internal owner/supplier traffic. */
 const humanTraffic = and(
@@ -43,9 +44,13 @@ const humanTraffic = and(
   // Exclude crawler infrastructure and confirmed abuse ranges. Applying the
   // same list at query time repairs historical reports without deleting the
   // raw incident evidence, while /api/track prevents new rows at capture time.
+  // The text guard keeps one malformed address from aborting the whole report.
   or(
     isNull(pageViews.ip),
-    sql`${pageViews.ip} !~ ${ANALYTICS_EXCLUDED_IP_REGEX}`,
+    sql`NOT (
+      ${pageViews.ip} ~ '^[0-9]{1,3}([.][0-9]{1,3}){3}$'
+      AND ${pageViews.ip}::inet <<= ANY (string_to_array(${EXCLUDED_CIDR_LIST}, ',')::inet[])
+    )`,
   ),
 );
 
@@ -137,6 +142,7 @@ export type RecentVisit = {
   id: number;
   path: string;
   referrer: string | null;
+  landingQuery: string | null;
   ip: string | null;
   country: string | null;
   region: string | null;
@@ -218,6 +224,7 @@ export async function getRecentVisits(limit = 100): Promise<RecentVisit[]> {
       id: pageViews.id,
       path: pageViews.path,
       referrer: pageViews.referrer,
+      landingQuery: pageViews.landingQuery,
       ip: pageViews.ip,
       country: pageViews.country,
       region: pageViews.region,

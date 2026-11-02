@@ -24,6 +24,7 @@ async function main() {
       "user_id" text,
       "path" text NOT NULL,
       "referrer" text,
+      "landing_query" text,
       "ip" text,
       "country" text,
       "region" text,
@@ -47,6 +48,8 @@ async function main() {
         FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE SET NULL;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$;
   `;
+
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "landing_query" text`;
 
   await sql`CREATE INDEX IF NOT EXISTS "page_views_created_idx" ON "page_views" ("created_at")`;
   await sql`CREATE INDEX IF NOT EXISTS "page_views_visitor_idx" ON "page_views" ("visitor_id")`;

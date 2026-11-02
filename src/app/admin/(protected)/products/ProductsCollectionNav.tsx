@@ -6,8 +6,12 @@
  *
  * Collections are the *marketing* taxonomy (Sanrio, Miffy, Hello Kitty, …),
  * modelled as a tree in the DB. Brand collections are the primary browse axis;
- * Originals is the one genre surfaced here so unlicensed products are as
- * filterable as Sanrio. Other genre tags (Kawaii, Anime) stay off this bar.
+ * Originals is the one genre surfaced here so products with no character are
+ * as filterable as Sanrio. Other genre tags (Kawaii, Anime) stay off this bar.
+ *
+ * Feature shops (MagSafe, Magnetic Ring Holder) are a separate axis. A ring
+ * holder is still a Sanrio or Miffy case, so the feature filter combines with
+ * the brand instead of replacing it.
  */
 import Link from "next/link";
 import type { AdminCollectionOption } from "@/lib/collections";
@@ -15,12 +19,23 @@ import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 
 export type CollectionSelection = number | "all";
 
+const FEATURE_TITLES: Record<string, string> = {
+  magsafe:
+    "Cases that snap to a MagSafe charger or wallet. Most of these have no ring holder.",
+  "magnetic-ring":
+    "Cases with a raised ring holder on the back. Every one of these is also MagSafe.",
+};
+
 export function CollectionNavBar({
   options,
   counts,
   total,
   active,
   onSelect,
+  featureCounts,
+  featureTotal,
+  featureActive,
+  onSelectFeature,
   manageHref = "/admin/collections",
 }: {
   options: AdminCollectionOption[];
@@ -30,6 +45,12 @@ export function CollectionNavBar({
   total: number;
   active: CollectionSelection;
   onSelect: (selection: CollectionSelection) => void;
+  /** Counts ignoring the feature selection, so each pill predicts its own result. */
+  featureCounts?: Map<number, number>;
+  /** Products in the current scope before a feature is applied. */
+  featureTotal: number;
+  featureActive: CollectionSelection;
+  onSelectFeature: (selection: CollectionSelection) => void;
   manageHref?: string;
 }) {
   const topLevel = options.filter((o) => o.parentId == null);
@@ -56,6 +77,13 @@ export function CollectionNavBar({
         (option) => option.parentId === activeTop.id && isVisible(option),
       )
     : [];
+  const featureCountOf = (option: AdminCollectionOption) =>
+    featureCounts?.get(option.id) ?? option.count;
+  const features = topLevel.filter(
+    (option) =>
+      option.kind === "feature" &&
+      (featureCountOf(option) > 0 || featureActive === option.id),
+  );
 
   return (
     <div className="space-y-3.5 px-4 py-3.5 sm:px-5">
@@ -98,7 +126,7 @@ export function CollectionNavBar({
         ))}
       </FilterRow>
 
-      {/* Drill-down: characters within the active brand. */}
+      {/* Drill-down stays attached to the brand it belongs to. */}
       {activeTop?.kind === "brand" && children.length > 0 && (
         <div className="border-t border-border pt-3.5">
           <FilterRow
@@ -120,6 +148,29 @@ export function CollectionNavBar({
                 active={active === option.id}
                 compact
                 onClick={() => onSelect(option.id)}
+              />
+            ))}
+          </FilterRow>
+        </div>
+      )}
+
+      {features.length > 0 && (
+        <div className="border-t border-border pt-3.5">
+          <FilterRow label="Features" ariaLabel="Filter products by feature">
+            <FilterButton
+              label="All"
+              count={featureTotal}
+              active={featureActive === "all"}
+              onClick={() => onSelectFeature("all")}
+            />
+            {features.map((option) => (
+              <FilterButton
+                key={option.id}
+                label={option.name}
+                count={featureCountOf(option)}
+                active={featureActive === option.id}
+                title={FEATURE_TITLES[option.slug]}
+                onClick={() => onSelectFeature(option.id)}
               />
             ))}
           </FilterRow>
@@ -160,6 +211,7 @@ function FilterButton({
   active,
   context = false,
   compact = false,
+  title,
   onClick,
 }: {
   label: string;
@@ -167,6 +219,7 @@ function FilterButton({
   active: boolean;
   context?: boolean;
   compact?: boolean;
+  title?: string;
   onClick: () => void;
 }) {
   return (
@@ -174,6 +227,7 @@ function FilterButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      title={title}
       className={`inline-flex items-center gap-2 rounded-lg border font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
         compact ? "min-h-8 px-2.5 text-xs" : "min-h-9 px-3 text-sm"
       } ${

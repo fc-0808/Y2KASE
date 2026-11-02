@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   GripVertical,
   Play,
@@ -13,6 +14,7 @@ import {
   ArrowDownAZ,
   Loader2,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import {
   STYLES,
@@ -42,7 +44,12 @@ import { ColorEditorCard } from "./ColorEditorCard";
 import { MotifEditorCard } from "./MotifEditorCard";
 import { ListingTitleEditor } from "./ListingTitleEditor";
 import { ProductThumbnailStudio } from "./ProductThumbnailStudio";
-import { saveProduct, detectProductImageStyles, type SaveProductPayload } from "./actions";
+import {
+  deleteProductImage,
+  saveProduct,
+  detectProductImageStyles,
+  type SaveProductPayload,
+} from "./actions";
 import type { ThumbnailProposalView } from "@/lib/admin/thumbnail-studio";
 import type { ColorFamilySlug } from "@/lib/catalog/colors";
 import type { MotifFamilySlug } from "@/lib/catalog/motifs";
@@ -181,6 +188,7 @@ export function ProductEditor({
   thumbnail: ThumbnailStudioInput;
   hasMagneticRing: boolean;
 }) {
+  const router = useRouter();
   const phoneStyles = usesIphoneStyleTable(productType);
   const isIphoneCase = productType === "iphone_case";
   const isDuoCase = productType === "iphone_duo_case";
@@ -226,9 +234,13 @@ export function ProductEditor({
     .map((image) => `${image.id}:${image.url}:${image.filename ?? ""}`)
     .join("|");
   const [seenGallery, setSeenGallery] = useState(gallerySignature);
+  // Photos deleted in this session. A thumbnail refresh must not put them back
+  // if the server payload is still the gallery from before the delete.
+  const removedImageIds = useRef(new Set<number>());
   const [advanced, setAdvanced] = useState(false);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(
     null,
@@ -360,6 +372,30 @@ export function ProductEditor({
     );
   }
 
+  async function removeImage(imageId: number) {
+    if (deletingId != null) return;
+    if (media.filter((item) => item.kind === "image").length <= 1) return;
+    setDeletingId(imageId);
+    setResult(null);
+    const res = await deleteProductImage(productId, imageId);
+    setDeletingId(null);
+    if (!res.ok) {
+      setResult(res);
+      return;
+    }
+    removedImageIds.current.add(imageId);
+    setMedia((prev) =>
+      prev.filter((item) => !(item.kind === "image" && item.id === imageId)),
+    );
+    setCustomStyles((prev) =>
+      prev.map((style) =>
+        style.imageId === imageId ? { ...style, imageId: null } : style,
+      ),
+    );
+    setResult({ ok: true, message: "Photo deleted." });
+    router.refresh();
+  }
+
   function handleMediaStyle(imageId: number, styleTags: string[]) {
     const images = media.filter(
       (m): m is Extract<MediaItem, { kind: "image" }> => m.kind === "image",
@@ -455,6 +491,9 @@ export function ProductEditor({
         styles,
         customStyles,
         media,
+      ).filter(
+        (item) =>
+          item.kind !== "image" || !removedImageIds.current.has(item.id),
       ),
     );
   }
@@ -480,7 +519,8 @@ export function ProductEditor({
             <h2 className="text-lg font-bold">Media order</h2>
             <p className="text-sm text-[var(--foreground)]/60">
               Drag to reorder. The first image is the listing thumbnail. Assign
-              each photo to the one style it shows.
+              each photo to the one style it shows. Delete removes that photo
+              from the listing immediately.
             </p>
           {tagStyles.length > 0 && (
             <StyleCoverageHint
@@ -536,7 +576,14 @@ export function ProductEditor({
               <li
                 key={key}
                 draggable
-                onDragStart={() => setDragIndex(index)}
+                onDragStart={(event) => {
+                  const target = event.target as HTMLElement | null;
+                  if (target?.closest("button, a, input, select, label")) {
+                    event.preventDefault();
+                    return;
+                  }
+                  setDragIndex(index);
+                }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleDrop(index)}
                 onDragEnd={() => setDragIndex(null)}
@@ -634,13 +681,45 @@ export function ProductEditor({
                             onChange={(styleTags) =>
                               handleMediaStyle(item.id, styleTags)
                             }
-                          />
-                        </div>
-                      )}
-                    </>
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              {item.kind === "image" && (
+                <button
+                  type="button"
+                  draggable={false}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onDragStart={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void removeImage(item.id);
+                  }}
+                  disabled={imageCount <= 1 || deletingId != null}
+                  className="flex shrink-0 items-center gap-1 self-start rounded-full border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                  aria-label={`Delete ${item.filename ?? "photo"}`}
+                  title={
+                    imageCount <= 1
+                      ? "Keep at least one photo"
+                      : "Delete this photo"
+                  }
+                >
+                  {deletingId === item.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
                   )}
-                </div>
-              </li>
+                  Delete
+                </button>
+              )}
+            </li>
             );
           })}
         </ul>

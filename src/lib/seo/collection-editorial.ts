@@ -10,7 +10,11 @@
  */
 
 import { IPHONE_FIT } from "@/lib/pricing";
-import { iphone18FitHeading, iphone18FitPath } from "@/lib/seo/fit-landings";
+import {
+  iphone18FitHeading,
+  iphone18FitPath,
+  isIphone18CollectionSlug,
+} from "@/lib/seo/fit-landings";
 
 export type EditorialLink = { href: string; label: string };
 
@@ -106,7 +110,7 @@ const BODIES: Record<string, CollectionEditorial> = {
   "my-melody": {
     paragraphs: [
       "My Melody phone cases are the soft-pink Sanrio lane — cottagecore, bows, and a gentler palette than Kuromi. This page is My Melody only; sister characters live on their own collections under Sanrio.",
-      `${IPHONE_FIT.dash}, Pro and Pro Max. Use the MagSafe badge on the product, not the character, to decide whether a charger or wallet will snap on.`,
+      `iPhone 18 Pro and iPhone 18 Pro Max have their own page. Earlier phones on this collection run ${IPHONE_FIT.dash}. Use the MagSafe badge on the product, not the character, to decide whether a charger or wallet will snap on.`,
     ],
     related: [
       { href: "/collections/sanrio", label: "All Sanrio phone cases" },
@@ -118,7 +122,7 @@ const BODIES: Record<string, CollectionEditorial> = {
   },
   cinnamoroll: {
     paragraphs: [
-      `Cinnamoroll phone cases are the pastel-blue Sanrio sky-pup look — calmer than Hello Kitty, softer than Kuromi. Stock is ${IPHONE_FIT.throughShort}, including Pro and Pro Max, with MagSafe called out per product after review.`,
+      `Cinnamoroll phone cases are the pastel-blue Sanrio sky-pup look — calmer than Hello Kitty, softer than Kuromi. iPhone 18 Pro and iPhone 18 Pro Max have their own page. Earlier phones here run ${IPHONE_FIT.throughShort}, with MagSafe called out per product after review.`,
     ],
     related: [
       { href: "/collections/sanrio", label: "All Sanrio phone cases" },
@@ -129,16 +133,28 @@ const BODIES: Record<string, CollectionEditorial> = {
   },
   miffy: {
     paragraphs: [
-      `Miffy cases follow Dick Bruna's simple bunny — graphic, a little Dutch-modern, and less busy than Sanrio character art. This page is the whole Miffy line, not only phones: iPhone cases for ${IPHONE_FIT.dash} (Pro and Pro Max included), plus AirPods cases and other devices when they are in stock.`,
+      `Miffy cases follow Dick Bruna's simple bunny — graphic, a little Dutch-modern, and less busy than Sanrio character art. iPhone 18 Pro and iPhone 18 Pro Max cases have their own page. This collection is the whole Miffy line: iPhone cases for ${IPHONE_FIT.dash}, plus AirPods cases and other devices when they are in stock.`,
       "MagSafe compatibility is a product-level mark on iPhone cases, not a Miffy-wide promise, and it does not apply to AirPods. If you want character cases more generally, the character index and kawaii collection sit alongside this page.",
     ],
     related: [KAWAII, IPHONE, MAGSAFE, INSIGHTS],
   },
   tamagotchi: {
     paragraphs: [
-      `Tamagotchi phone cases bring the original digital-pet shell language — chunky pixels, device nostalgia, early-2000s color — onto ${IPHONE_FIT.throughShort}. They sit next to our Y2K collection rather than replacing it: Tamagotchi is the character/IP, Y2K is the broader finish and era.`,
+      `Tamagotchi phone cases bring the original digital-pet shell language — chunky pixels, device nostalgia, early-2000s color — onto ${IPHONE_FIT.throughShort}. iPhone 18 Pro and iPhone 18 Pro Max have their own page. They sit next to our Y2K collection rather than replacing it: Tamagotchi is the character, Y2K is the broader finish and era.`,
     ],
     related: [Y2K, IPHONE, MAGSAFE, INSIGHTS],
+  },
+  pompompurin: {
+    paragraphs: [
+      "Pompompurin phone cases are Sanrio's pudding dog — the yellow beret, the brown floppy ears, and a warmer palette than Cinnamoroll. This page is only Pompompurin, so you are not filtering a mixed Sanrio grid.",
+      `iPhone 18 Pro and iPhone 18 Pro Max have their own page. Earlier phones here run ${IPHONE_FIT.throughShort}. Pompompurin AirPods stay on this collection.`,
+    ],
+    related: [
+      { href: "/collections/sanrio", label: "All Sanrio phone cases" },
+      { href: "/collections/cinnamoroll", label: "Cinnamoroll phone cases" },
+      IPHONE,
+      MAGSAFE,
+    ],
   },
   rilakkuma: {
     paragraphs: [
@@ -249,7 +265,29 @@ export function collectionEditorial(input: {
     ? editorialFromCurated(curated, input.parent)
     : editorialFallback(input);
 
-  return withDeviceRelated(base, input.stockedDeviceIds, input.slug);
+  return withIphone18FitLink(
+    withDeviceRelated(base, input.stockedDeviceIds, input.slug),
+    input,
+  );
+}
+
+/** The character page points at its iPhone 18 URL when that page can have stock. */
+function withIphone18FitLink(
+  editorial: CollectionEditorial,
+  input: { slug: string; name: string; stockedDeviceIds?: string[] },
+): CollectionEditorial {
+  if (!isIphone18CollectionSlug(input.slug)) return editorial;
+  const ids = input.stockedDeviceIds;
+  if (ids && ids.length > 0 && !ids.includes("iphone")) return editorial;
+  const href = iphone18FitPath(input.slug);
+  if (editorial.related.some((link) => link.href === href)) return editorial;
+  return {
+    paragraphs: editorial.paragraphs,
+    related: uniqueRelated([
+      { href, label: iphone18FitHeading(input.name) },
+      ...editorial.related,
+    ]),
+  };
 }
 
 function editorialFromCurated(

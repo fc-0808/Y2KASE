@@ -22,6 +22,7 @@ import {
   Sparkles,
   Boxes,
   Crop,
+  Trash2,
 } from "lucide-react";
 import {
   STYLES,
@@ -426,14 +427,20 @@ function IndividualWorkspace({
         item.kind === "image" &&
         (item.styleTags[0] ?? null) !== (prevTag.get(item.id) ?? null),
     );
-    if (!changed || changed.kind !== "image") {
-      updateActive({ media });
-      return;
-    }
     const images = media.filter(
       (item): item is Extract<MediaItem, { kind: "image" }> =>
         item.kind === "image",
     );
+    const remainingIds = new Set(images.map((image) => image.id));
+    const customStyles = current.customStyles.map((style) =>
+      style.imageId != null && !remainingIds.has(style.imageId)
+        ? { ...style, imageId: null }
+        : style,
+    );
+    if (!changed || changed.kind !== "image") {
+      updateActive({ media, customStyles });
+      return;
+    }
     const result = setImageVariationTag({
       imageId: changed.id,
       style: changed.styleTags[0] ?? null,
@@ -450,7 +457,11 @@ function IndividualWorkspace({
           ? { ...item, styleTags: result.tagsByImageId[item.id] ?? [] }
           : item,
       ),
-      customStyles: result.customStyles,
+      customStyles: result.customStyles.map((style) =>
+        style.imageId != null && !remainingIds.has(style.imageId)
+          ? { ...style, imageId: null }
+          : style,
+      ),
     });
   }
 
@@ -1194,6 +1205,7 @@ function MediaOrderEditor({
   /** Photos a custom row already owns — Detect must not retag them. */
   preserveImageIds?: ReadonlySet<number>;
 }) {
+  const imageCount = media.filter((item) => item.kind === "image").length;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detectMessage, setDetectMessage] = useState<{
@@ -1225,6 +1237,10 @@ function MediaOrderEditor({
         m.kind === "image" && m.id === imageId ? { ...m, styleTags } : m,
       ),
     );
+  }
+  function removeImage(imageId: number) {
+    if (imageCount <= 1) return;
+    onChange(media.filter((m) => !(m.kind === "image" && m.id === imageId)));
   }
 
   async function detectStyles() {
@@ -1427,6 +1443,27 @@ function MediaOrderEditor({
                   </>
                 )}
               </div>
+              {item.kind === "image" && (
+                <button
+                  type="button"
+                  draggable={false}
+                  onDragStart={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    removeImage(item.id);
+                  }}
+                  disabled={imageCount <= 1}
+                  className="shrink-0 self-start rounded-full p-1.5 text-[var(--foreground)]/40 hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                  aria-label={`Delete ${item.filename ?? "photo"}`}
+                  title={
+                    imageCount <= 1
+                      ? "Keep at least one photo"
+                      : "Delete photo"
+                  }
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
             </li>
           );
         })}

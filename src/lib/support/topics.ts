@@ -20,7 +20,10 @@ import type { ComponentType } from "react";
 import { Package, RotateCcw, Smartphone, Tag, Truck } from "lucide-react";
 import { BUNDLE, WELCOME_COUPON } from "@/lib/promotions";
 import { ROUTES } from "@/lib/routes";
-import { SHIPPING_ESTIMATE_SUMMARY } from "@/lib/shipping";
+import {
+  SHIPPING_COVERAGE_SUMMARY,
+  SHIPPING_ESTIMATE_SUMMARY,
+} from "@/lib/shipping";
 import { IPHONE_FIT } from "@/lib/pricing";
 import { AIRPODS_SHARED_FIT_NOTE } from "@/lib/catalog/airpods";
 
@@ -46,7 +49,7 @@ export const SUPPORT_TOPICS: SupportTopic[] = [
     id: "shipping",
     icon: Truck,
     question: "How long does shipping take?",
-    answer: SHIPPING_ESTIMATE_SUMMARY,
+    answer: `${SHIPPING_COVERAGE_SUMMARY} ${SHIPPING_ESTIMATE_SUMMARY}`,
     link: { label: "Shipping policy", href: "/policies/shipping-policy" },
   },
   {

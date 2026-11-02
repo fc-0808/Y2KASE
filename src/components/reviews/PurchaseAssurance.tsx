@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { BadgeCheck, RotateCcw, Shield, Truck } from "lucide-react";
 import { PURCHASE_ASSURANCE } from "@/lib/reviews/assurance";
-import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 import { formatShippingFlat, formatShippingThreshold } from "@/lib/pricing";
 
 /**
@@ -28,7 +27,7 @@ export function PurchaseAssurance({
           {
             title: `Free shipping over ${formatShippingThreshold()}`,
             href: PURCHASE_ASSURANCE.shipping.href,
-            detail: `${formatShippingFlat()} standard shipping on smaller orders. Tracked, across ${SHIPPING_COUNTRIES.length} markets.`,
+            detail: `${formatShippingFlat()} standard shipping on smaller orders. Tracked worldwide.`,
             icon: Truck,
           },
           {

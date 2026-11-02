@@ -27,6 +27,7 @@ import {
   SITE_NAME,
   SITE_URL,
 } from "@/lib/site";
+import { INSTAGRAM_PROFILE_URL } from "@/lib/social/instagram-strategy";
 
 export { absoluteUrl, SITE_URL };
 
@@ -40,7 +41,7 @@ export const BRAND = {
   email: SUPPORT_EMAIL,
   /** Sameas profiles strengthen the brand's knowledge-graph entity. */
   sameAs: [
-    "https://instagram.com/y2kase.co",
+    INSTAGRAM_PROFILE_URL,
     "https://facebook.com/y2kase",
     "https://www.pinterest.com/y2kase",
     "https://www.tiktok.com/@y2kase",
@@ -263,7 +264,7 @@ export function shippingServiceJsonLd(): JsonLdObject {
     "@id": SHIPPING_SERVICE_ID,
     name: "Y2KASE standard shipping",
     description:
-      "Tracked delivery to Y2KASE shipping markets, processed in 1–3 business days.",
+      "Tracked delivery worldwide, processed in 1–3 business days. Published transit times cover the markets most orders go to.",
     fulfillmentType: "https://schema.org/FulfillmentTypeDelivery",
     handlingTime: {
       ...servicePeriod(1, 3),
@@ -304,7 +305,7 @@ export function organizationJsonLd(): JsonLdObject {
       email: BRAND.email,
       availableLanguage: "English",
     },
-    areaServed: [...SHIPPING_COUNTRIES],
+    areaServed: "Worldwide",
     sameAs: [...BRAND.sameAs],
     hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
     hasShippingService: shippingServiceJsonLd(),

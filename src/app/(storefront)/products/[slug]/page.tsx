@@ -10,7 +10,6 @@ import {
 } from "@/lib/seo";
 import { productSerpTitle } from "@/lib/seo/copy";
 import { listingEntryPrice } from "@/lib/catalog/custom-styles";
-import { SHIPPING_COUNTRIES } from "@/lib/shipping";
 import { liveProductPageHref } from "@/lib/catalog/product-page";
 import {
   loadProductPageCompanionData,
@@ -147,13 +146,6 @@ function ProductOpenGraphMeta({
       <meta property="product:price:amount" content={price.toFixed(2)} />
       <meta property="product:price:currency" content={currency} />
       <meta property="og:availability" content={availability} />
-      {SHIPPING_COUNTRIES.map((country) => (
-        <meta
-          key={country}
-          property="og:availability:destinations"
-          content={country}
-        />
-      ))}
       <meta property="product:brand" content={BRAND.name} />
     </>
   );

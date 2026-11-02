@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import { getProductSlugById } from "@/lib/products";
 import {
+  removeProductImage,
   saveProductVariations,
   type SaveVariationsResult,
 } from "@/lib/admin/product-variations";
@@ -59,7 +60,10 @@ import {
 
 export type SaveProductPayload = {
   productId: number;
-  /** Image ids in their new display order (top → bottom). */
+  /**
+   * Image ids in their new display order (top → bottom).
+   * Owned ids omitted here are deleted. At least one photo must remain.
+   */
   imageOrder: number[];
   /** 0-based slot the video occupies among the images. Null = no video slot. */
   videoSlot: number | null;
@@ -114,6 +118,19 @@ export async function saveProduct(
 
   const result = await saveProductVariations(payload);
   await revalidateProduct(payload.productId);
+  return result;
+}
+
+/** Remove one gallery photo immediately. The last photo cannot be removed. */
+export async function deleteProductImage(
+  productId: number,
+  imageId: number,
+): Promise<SaveResult> {
+  const session = await requireAdmin(await headers());
+  if (!session) return { ok: false, message: "Not authorized." };
+
+  const result = await removeProductImage(productId, imageId);
+  if (result.ok) await revalidateProduct(productId);
   return result;
 }
 

@@ -71,7 +71,7 @@ export type CollectionSeoCopy = {
  * | `/collections/kawaii`       | "kawaii phone cases"                      | Brand or device queries               |
  * | `/collections/y2k`          | "y2k phone cases"                         |                                       |
  * | `/collections/{character}`  | "{character} phone cases", or "{character} cases" when the grid mixes devices | iPhone 18 model queries               |
- * | `/collections/{character}/iphone-18-pro` | "{character} iPhone 18 Pro and Pro Max cases" — Hello Kitty, Sanrio, Kuromi only | The unscoped character query |
+ * | `/collections/{character}/iphone-18-pro` | "{character} iPhone 18 Pro…" — Hello Kitty, Sanrio, Kuromi, My Melody, Cinnamoroll, Pompompurin, Miffy, Tamagotchi | The unscoped character query |
  * | `/collections/magsafe`      | "magsafe phone cases"                     |                                       |
  * | `/collections/originals`    | "original cute phone cases"               | Licensed character queries            |
  * | `/devices/iphone`           | "iphone cases"                            | Character queries; iPhone 18 is owned by the fit pages |

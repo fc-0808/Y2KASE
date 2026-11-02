@@ -17,7 +17,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const TRANSIT_DAYS = SHIPPING_REGIONS.map((region) => region.maxDays);
 
-/** Soonest any supported market can be asked: Hong Kong's window plus grace. */
+/** Soonest a published market can be asked: the 7–14 day window plus grace. */
 export const EARLIEST_REVIEW_REQUEST_DAYS =
   Math.min(...TRANSIT_DAYS) + REVIEW_REQUEST_GRACE_DAYS;
 

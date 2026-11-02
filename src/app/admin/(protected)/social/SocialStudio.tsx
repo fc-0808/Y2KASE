@@ -21,6 +21,7 @@ import { PRESETS, PLATFORMS } from "@/lib/social/presets";
 import type { SocialCreative, MetricsTotals } from "@/lib/social/creatives";
 import type { JobQueueCounts } from "@/lib/social/jobs";
 import type { PinterestBoard } from "@/lib/social/pinterest";
+import { PINTEREST_POSTING_ENABLED } from "@/lib/social/pinterest-posting";
 import {
   generateCreative,
   moderateCreative,
@@ -1034,8 +1035,14 @@ export function SocialStudio({
                 <button
                   type="button"
                   onClick={handleBulkPublish}
-                  disabled={bulkBusy || !boardId}
-                  title={!boardId ? "Select a Pinterest board first" : ""}
+                  disabled={bulkBusy || !boardId || !PINTEREST_POSTING_ENABLED}
+                  title={
+                    !PINTEREST_POSTING_ENABLED
+                      ? "Pinterest posting is turned off"
+                      : !boardId
+                        ? "Select a Pinterest board first"
+                        : ""
+                  }
                   className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#E60023] px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
                 >
                   {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
@@ -1046,8 +1053,14 @@ export function SocialStudio({
                   <button
                     type="button"
                     onClick={handleBulkSchedule}
-                    disabled={bulkBusy || !boardId}
-                    title={!boardId ? "Select a Pinterest board first" : ""}
+                    disabled={bulkBusy || !boardId || !PINTEREST_POSTING_ENABLED}
+                    title={
+                      !PINTEREST_POSTING_ENABLED
+                        ? "Pinterest posting is turned off"
+                        : !boardId
+                          ? "Select a Pinterest board first"
+                          : ""
+                    }
                     className="inline-flex h-8 items-center gap-1.5 rounded-full bg-violet-600 px-3 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-50"
                   >
                     {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
@@ -1241,14 +1254,19 @@ export function SocialStudio({
                   {/* Pinterest publishing controls (approved + pinterest) */}
                   {pinterestReady &&
                     c.platform === "pinterest" &&
-                    (c.status === "approved" || c.status === "scheduled") && (
+                    (c.status === "approved" || c.status === "scheduled") &&
+                    (PINTEREST_POSTING_ENABLED ? (
                       <PublishControls
                         creativeId={c.id}
                         busy={busy}
                         onPublishNow={doPublishNow}
                         onSchedule={doSchedule}
                       />
-                    )}
+                    ) : (
+                      <p className="text-[11px] font-semibold text-[var(--foreground)]/50">
+                        Pinterest posting is turned off.
+                      </p>
+                    ))}
 
                   <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2">
                     {c.status !== "approved" && c.status !== "published" && (

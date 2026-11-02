@@ -36,6 +36,10 @@ import {
   type SocialCreative,
 } from "@/lib/social/creatives";
 import {
+  PINTEREST_POSTING_DISABLED_MESSAGE,
+  PINTEREST_POSTING_ENABLED,
+} from "@/lib/social/pinterest-posting";
+import {
   buildFacebookCaption,
   buildInstagramCaption,
 } from "@/lib/social/instagram-strategy";
@@ -337,6 +341,10 @@ export async function publishCreative(
   } = {},
 ): Promise<PublishOutcome> {
   const boardId = opts.boardId ?? creative.boardId ?? undefined;
+
+  if (creative.platform === "pinterest" && !PINTEREST_POSTING_ENABLED) {
+    return { ok: false, error: PINTEREST_POSTING_DISABLED_MESSAGE };
+  }
 
   try {
     let outcome: PublishOutcome;

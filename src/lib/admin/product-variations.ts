@@ -13,9 +13,9 @@
  * cache revalidation — callers (Server Actions) own those concerns so a bulk
  * save can authenticate once and revalidate once.
  */
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { products, productOptions } from "@/lib/db/schema";
+import { products, productImages, productOptions } from "@/lib/db/schema";
 import {
   STYLE_OPTION_NAME,
   orderStyles,
@@ -44,7 +44,11 @@ import {
 
 export type SaveVariationsInput = {
   productId: number;
-  /** Image ids in their new display order (top → bottom). */
+  /**
+   * Image ids in their new display order (top → bottom).
+   * An owned id left out of this list is deleted. The list must still contain
+   * at least one photo, and every id must already belong to the product.
+   */
   imageOrder: number[];
   /** 0-based slot the video occupies among the images. Null = no video slot. */
   videoSlot: number | null;
@@ -208,15 +212,29 @@ export async function saveProductVariations(
 
   const priceAxis = priceAxisFor(product.productType);
 
-  // ── Validate the image set matches what's on the product ──────────────────
+  // ── Validate the image set ────────────────────────────────────────────────
+  // A shorter list is a deletion. Unknown ids, duplicates, or an empty
+  // gallery are not: those mean the draft and the database disagree, or the
+  // operator would be left with a listing that has nothing to show.
   const ownedIds = new Set(product.images.map((i) => i.id));
-  const orderIds = input.imageOrder.filter((id) => ownedIds.has(id));
-  if (orderIds.length !== ownedIds.size) {
+  const requested = input.imageOrder.filter((id) => Number.isInteger(id));
+  const requestedUnique = new Set(requested);
+  if (
+    requested.length === 0 ||
+    requestedUnique.size !== requested.length ||
+    requested.some((id) => !ownedIds.has(id))
+  ) {
     return {
       ok: false,
-      message: `#${productId}: image list out of sync — reload and retry.`,
+      message:
+        requested.length === 0
+          ? `#${productId}: keep at least one photo.`
+          : `#${productId}: image list out of sync — reload and retry.`,
     };
   }
+  const orderIds = requested;
+  const removedIds = [...ownedIds].filter((id) => !requestedUnique.has(id));
+  const remainingIds = requestedUnique;
 
   // ── Custom variations ─────────────────────────────────────────────────────
   // Omit = leave stored rows alone (a styles-only write cannot wipe them).
@@ -236,7 +254,7 @@ export async function saveProductVariations(
       flagged = false;
     } else {
       const validated = validateCustomStylesDraft(input.customStyles, {
-        ownedImageIds: ownedIds,
+        ownedImageIds: remainingIds,
         productType: product.productType,
       });
       if (!validated.ok) {
@@ -249,7 +267,7 @@ export async function saveProductVariations(
     }
   } else {
     const kept = validateCustomStylesDraft(product.customStyles ?? [], {
-      ownedImageIds: ownedIds,
+      ownedImageIds: remainingIds,
       productType: product.productType,
     });
     custom = kept.ok ? kept.styles : [];
@@ -292,6 +310,16 @@ export async function saveProductVariations(
       ok: false,
       message: `#${productId}: image list out of sync — reload and retry.`,
     };
+  }
+  if (removedIds.length > 0) {
+    await db
+      .delete(productImages)
+      .where(
+        and(
+          eq(productImages.productId, productId),
+          inArray(productImages.id, removedIds),
+        ),
+      );
   }
 
   // ── 2. Video slot + listing "from" price + multi-product fields ───────────
@@ -367,4 +395,52 @@ export async function saveProductVariations(
   }
 
   return { ok: true, message: "Saved." };
+}
+
+/**
+ * Drop one gallery photo. The last photo stays: a listing with an empty
+ * gallery has nothing to sell. A custom variation linked to this photo keeps
+ * its name and price and loses the photo link.
+ */
+export async function removeProductImage(
+  productId: number,
+  imageId: number,
+): Promise<SaveVariationsResult> {
+  const product = await db.query.products.findFirst({
+    where: eq(products.id, productId),
+    columns: { id: true, customStyles: true },
+    with: { images: { columns: { id: true } } },
+  });
+  if (!product) return { ok: false, message: "Product not found." };
+  if (!product.images.some((image) => image.id === imageId)) {
+    return { ok: false, message: "That photo is no longer on this product." };
+  }
+  if (product.images.length <= 1) {
+    return { ok: false, message: "Keep at least one photo." };
+  }
+
+  await db
+    .delete(productImages)
+    .where(
+      and(
+        eq(productImages.productId, productId),
+        eq(productImages.id, imageId),
+      ),
+    );
+
+  const customStyles = product.customStyles ?? [];
+  const unlinked = customStyles.some((style) => style.imageId === imageId);
+  if (unlinked) {
+    await db
+      .update(products)
+      .set({
+        customStyles: customStyles.map((style) =>
+          style.imageId === imageId ? { ...style, imageId: null } : style,
+        ),
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, productId));
+  }
+
+  return { ok: true, message: "Photo deleted." };
 }

@@ -18,6 +18,7 @@ import {
 import { absoluteUrl, BRAND } from "@/lib/seo";
 import { googleProductCategoryId } from "@/lib/catalog/merchant";
 import { merchantColorValue } from "@/lib/catalog/colors";
+import { shoppingTitle } from "@/lib/catalog/shopping-title";
 import { FEED_CDN_CACHE_CONTROL } from "@/lib/cache-headers";
 
 // Never bake an empty catalog into a deployment when the build environment
@@ -71,9 +72,11 @@ function item(p: CatalogFeedItem): string {
 
   // Offer id is the numeric product id. Slugs run past Merchant Center's
   // 50-character limit, and two Hello Kitty slugs share that prefix.
+  // g:title is the shopping title, not the catalog title. Google matches the
+  // front of it, and the catalog title spends that space on every generation.
   return `    <item>
       <g:id>${p.id}</g:id>
-      <g:title>${xmlEscape(p.title)}</g:title>
+      <g:title>${xmlEscape(shoppingTitle(p))}</g:title>
       <g:description>${xmlEscape(description)}</g:description>
       <g:link>${xmlEscape(link)}</g:link>
       ${imageTags}

@@ -21,12 +21,17 @@ export const ANALYTICS_VISITOR_PROOF_COOKIE = "y2k_vproof";
 export const ANALYTICS_VISITOR_SEEDED_HEADER = "x-y2k-visitor-seeded";
 export const ANALYTICS_VISITOR_SEEDED_VALUE = "1";
 
-/** The beacon contains two short strings and two small browser signals. */
+/** The beacon contains the path, referrer, landing query, and two small browser signals. */
 export const MAX_ANALYTICS_REQUEST_BYTES = 2_048;
 
 export type AnalyticsBeaconPayload = {
   path: string;
   referrer: string | null;
+  /**
+   * `location.search` of the page being viewed, capped by the client.
+   * Older beacons omit it.
+   */
+  search?: string | null;
   /** Positive-only signal: `true` is sufficient to exclude browser automation. */
   webdriver: boolean;
   /** User-Agent Client Hints platform, falling back to `navigator.platform`. */

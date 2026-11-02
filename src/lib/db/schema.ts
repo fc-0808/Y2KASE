@@ -1231,6 +1231,12 @@ export const pageViews = pgTable(
     path: text("path").notNull(),
     /** Document referrer, when present. */
     referrer: text("referrer"),
+    /**
+     * Allowlisted landing-page attribution (utm fields and click-id
+     * presence). Browsers only send an origin for Google, Instagram, and
+     * the other off-site referrers, so the campaign lives here.
+     */
+    landingQuery: text("landing_query"),
     /** Best-effort client IP (first hop of x-forwarded-for). */
     ip: text("ip"),
     country: text("country"),
