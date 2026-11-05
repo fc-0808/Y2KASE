@@ -19,6 +19,8 @@
  *    thumbnails").
  *  • Hit targets are ≥ 44×44px on the stage and ≥ 36×36px on the rail, so
  *    jumping to the last photo is a click, not a pixel hunt.
+ *  • A tap on the photo (or the expand control) opens {@link ProductPhotoViewer}
+ *    so the whole file is on screen. The square stage cannot do that.
  *
  * Keyboard: Left/Right and Up/Down step the gallery; Home/End jump. Thumb
  * buttons use roving tabindex so a 12-image listing is not 12 Tab stops.
@@ -39,9 +41,14 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Expand,
   Play,
 } from "lucide-react";
 import { ProductMedia } from "@/components/ProductMedia";
+import {
+  ProductPhotoViewer,
+  type ProductViewerSlide,
+} from "@/components/product/ProductPhotoViewer";
 import { cn } from "@/lib/utils";
 
 export type ProductGallerySlide =
@@ -124,6 +131,9 @@ export function ProductGallery({
   const railRef = useRef<HTMLDivElement>(null);
   const thumbRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const swipeOrigin = useRef<{ x: number; y: number } | null>(null);
+  const suppressStageClick = useRef(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
   const [rail, setRail] = useState<{
     axis: "x" | "y";
     start: boolean;
@@ -135,6 +145,16 @@ export function ProductGallery({
   const hasStrip = slides.length > 1;
   const atStart = activeIndex <= 0;
   const atEnd = activeIndex >= lastIndex;
+
+  const viewerSlides = useMemo<ProductViewerSlide[]>(
+    () =>
+      slides.map((slide) =>
+        slide.kind === "video"
+          ? { kind: "video", src: slide.url }
+          : { kind: "image", src: slide.url, alt: slide.alt },
+      ),
+    [slides],
+  );
 
   const posterUrl = useMemo(() => {
     const image = slides.find((slide) => slide.kind === "image");
@@ -232,6 +252,11 @@ export function ProductGallery({
     const dx = event.clientX - origin.x;
     const dy = event.clientY - origin.y;
     if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy)) return;
+    // The synthetic click after a swipe must not also open the viewer.
+    suppressStageClick.current = true;
+    window.setTimeout(() => {
+      suppressStageClick.current = false;
+    }, 0);
     goTo(activeIndex + (dx < 0 ? 1 : -1));
   }
 
@@ -258,6 +283,7 @@ export function ProductGallery({
           "relative aspect-square min-w-0 overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:-mx-4 max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
           "transform-gpu touch-pan-y",
           hasStrip && "lg:ml-[6rem]",
+          current?.kind === "image" && "cursor-zoom-in",
         )}
         onPointerDown={onStagePointerDown}
         onPointerUp={onStagePointerEnd}
@@ -271,7 +297,14 @@ export function ProductGallery({
           ) {
             return;
           }
-          thumbRefs.current[activeIndex]?.focus({ preventScroll: true });
+          if (suppressStageClick.current) {
+            suppressStageClick.current = false;
+            return;
+          }
+          if (current?.kind === "image") {
+            setViewerIndex(activeIndex);
+            setViewerOpen(true);
+          }
         }}
       >
         <div
@@ -350,6 +383,26 @@ export function ProductGallery({
               {activeIndex + 1} / {slides.length}
             </p>
           </>
+        )}
+        {current?.kind === "image" && (
+          <button
+            type="button"
+            aria-label="View entire image"
+            aria-haspopup="dialog"
+            aria-expanded={viewerOpen}
+            onClick={() => {
+              setViewerIndex(activeIndex);
+              setViewerOpen(true);
+            }}
+            className={cn(
+              "absolute bottom-3 left-3 z-10 grid size-11 place-items-center rounded-full",
+              "border border-white/80 bg-white text-[var(--foreground)] shadow-sm",
+              "transition hover:text-[var(--primary)]",
+              FOCUS_RING,
+            )}
+          >
+            <Expand className="size-5" strokeWidth={2.4} />
+          </button>
         )}
       </div>
 
@@ -485,6 +538,17 @@ export function ProductGallery({
           )}
         </div>
       )}
+      <ProductPhotoViewer
+        open={viewerOpen}
+        slides={viewerSlides}
+        index={Math.min(viewerIndex, lastIndex)}
+        onIndexChange={setViewerIndex}
+        onClose={() => {
+          goTo(viewerIndex);
+          setViewerOpen(false);
+        }}
+        onImageError={onImageError}
+      />
     </div>
   );
 }

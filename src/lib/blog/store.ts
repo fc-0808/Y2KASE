@@ -116,6 +116,23 @@ export async function getPostById(id: number): Promise<BlogPost | null> {
   return row ?? null;
 }
 
+/**
+ * True when this exact headline was already queued or written.
+ *
+ * Post slugs are chosen by the model, so they often differ from slugify(title).
+ * Checking the topic title is what stops the planner from filling the backlog
+ * with a second "Best Kawaii" guide under a slightly different URL.
+ */
+export async function topicTitleExists(title: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const row = await db
+    .select({ id: blogTopics.id })
+    .from(blogTopics)
+    .where(eq(blogTopics.title, title.trim()))
+    .limit(1);
+  return row.length > 0;
+}
+
 /** True when a slug already exists (any status) — the dedup guard. */
 export async function slugExists(slug: string): Promise<boolean> {
   if (!isDbConfigured()) return false;

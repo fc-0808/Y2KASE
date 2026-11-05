@@ -254,10 +254,9 @@ function collectionTagline(input: CollectionSeoInput, heading: string): string {
  * Skipped for an AirPods-only grid — that page must not claim an iPhone fit.
  */
 const COLLECTION_SNIPPET_LEADS: Record<string, string> = {
-  "hello-kitty":
-    "Hello Kitty iPhone 18 Pro and iPhone 18 Pro Max cases",
+  "hello-kitty": "Hello Kitty iPhone 18 Pro Max case",
   sanrio:
-    "Sanrio iPhone 18 Pro Max and iPhone 18 Pro cases, including Hello Kitty and Kuromi",
+    "Sanrio iPhone 18 Pro case and Sanrio iPhone 18 Pro Max case, including Hello Kitty and Kuromi",
   kuromi: "Kuromi iPhone 18 Pro Max and iPhone 18 Pro cases",
   chiikawa: "Chiikawa phone cases",
 };

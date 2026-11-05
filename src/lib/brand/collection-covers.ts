@@ -11,6 +11,7 @@
 export const COLLECTION_COVER_SLUGS: ReadonlySet<string> = new Set<string>([
   "chiikawa",
   "cinnamoroll",
+  "crayon-shin-chan",
   "disney",
   "hello-kitty",
   "keroppi",
@@ -22,6 +23,7 @@ export const COLLECTION_COVER_SLUGS: ReadonlySet<string> = new Set<string>([
   "monchhichi",
   "my-melody",
   "originals",
+  "peanuts",
   "pochacco",
   "pompompurin",
   "rilakkuma",
@@ -35,7 +37,7 @@ export const COLLECTION_COVER_SLUGS: ReadonlySet<string> = new Set<string>([
  * stable filenames, this query param forces browsers to re-fetch the art
  * whenever it's regenerated instead of serving a stale cached image.
  */
-export const COLLECTION_COVERS_VERSION = "mudoeghg";
+export const COLLECTION_COVERS_VERSION = "mw2z0nwn";
 
 /** Public path to a collection's generated cover image (cache-busted). */
 export function collectionCoverSrc(slug: string): string {

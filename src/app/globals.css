@@ -240,36 +240,45 @@ body {
   content-visibility: visible;
 }
 
-/* Bestsellers: one row. Phone tiles match the other shelves. From a desktop
-   rail, the tile grows so the first screen still shows about 3 / 4 / 5 cases. */
-.bestseller-marquee__viewport {
-  container: bestseller-marquee / inline-size;
+/* Homepage shelves share one tile width. Phone tiles are 10rem, the same as
+   the other product rails. From a desktop rail, the tile grows so the first
+   screen still shows about 3 / 4 / 5 cases. */
+.bestseller-marquee__viewport,
+.category-rail {
+  container: shelf / inline-size;
 }
 .bestseller-marquee__item {
   display: flex;
   flex-direction: column;
   flex: 0 0 auto;
+}
+.bestseller-marquee__item,
+.category-rail__tile {
   width: 10rem;
 }
-@container bestseller-marquee (min-width: 36rem) {
-  .bestseller-marquee__item {
+@container shelf (min-width: 36rem) {
+  .bestseller-marquee__item,
+  .category-rail__tile {
     width: 13rem;
   }
 }
-@container bestseller-marquee (min-width: 45rem) {
-  .bestseller-marquee__item {
+@container shelf (min-width: 45rem) {
+  .bestseller-marquee__item,
+  .category-rail__tile {
     width: calc((100cqi - 3rem) / 3.25);
     min-width: 12rem;
     max-width: 24rem;
   }
 }
-@container bestseller-marquee (min-width: 56rem) {
-  .bestseller-marquee__item {
+@container shelf (min-width: 56rem) {
+  .bestseller-marquee__item,
+  .category-rail__tile {
     width: calc((100cqi - 4rem) / 4.25);
   }
 }
-@container bestseller-marquee (min-width: 72rem) {
-  .bestseller-marquee__item {
+@container shelf (min-width: 72rem) {
+  .bestseller-marquee__item,
+  .category-rail__tile {
     width: calc((100cqi - 5rem) / 5.25);
   }
 }
@@ -324,6 +333,18 @@ h1, h2, h3, .font-display {
 .cv-auto {
   content-visibility: auto;
   contain-intrinsic-size: auto 28rem;
+}
+
+/* Off-screen catalog cards. The browser skips their layout and image decode
+   until they are near the viewport, then keeps the height it measured. */
+.cv-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px 340px;
+}
+@media (min-width: 768px) {
+  .cv-card {
+    contain-intrinsic-size: auto 200px 300px;
+  }
 }
 
 /* Faint Y2K grid overlay (use on a holo panel). */

@@ -29,7 +29,7 @@ import { isBlogGenConfigured } from "../src/lib/blog/generate";
 import { hasFlag, resolveRunMode } from "./lib/cli";
 
 /** Mirrors the generator's gates — keep the two in step. */
-const MIN_WORDS = 500;
+const MIN_WORDS = 900;
 const MIN_SECTIONS = 3;
 const MIN_PRODUCT_LINKS = 2;
 

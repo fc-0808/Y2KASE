@@ -1,11 +1,18 @@
 /**
  * GET /api/cron/blog-generate — autonomous blog publishing (Vercel Cron).
  *
- * Each run tops up the topic backlog from the live catalog, then writes up to
- * BLOG_CRON_BATCH articles. With BLOG_AUTOPUBLISH=true they go live immediately;
+ * Each run tops up the topic backlog from the live catalog, then writes one
+ * article. The schedule is Tuesday and Friday (15:00 UTC): two posts a week.
+ * A third weekly post of the same template does not earn more US search
+ * visits, and a burst of near-duplicate guides is the pattern Google treats
+ * as scaled content. With BLOG_AUTOPUBLISH=true they go live immediately;
  * otherwise they're filed as drafts for review in /admin/blog. The blog index
  * and any new post paths are revalidated so published posts appear without a
  * deploy.
+ *
+ * Fluid CPU reserve does not stop this cron, and it does not skip the
+ * thumbnail. Every post gets an AI hero grounded in the products the
+ * article links to. Other image crons still yield while CPU is reserved.
  *
  * `maxDuration` is raised so a run can comfortably finish its batch (article
  * generation is a single chat call, but we leave headroom).
@@ -16,10 +23,6 @@ import { revalidatePath } from "next/cache";
 import { isDbConfigured } from "@/lib/db";
 import { isBlogGenConfigured } from "@/lib/blog/generate";
 import { runBlogGeneration, BLOG_CRON_BATCH } from "@/lib/blog/engine";
-import {
-  heavyBackgroundPaused,
-  heavyBackgroundPausedResponse,
-} from "@/lib/fluid-cpu-reserve";
 
 export const runtime = "nodejs";
 // Article writing is one chat call, but Nano Banana Pro hero generation polls
@@ -36,7 +39,6 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
-  if (heavyBackgroundPaused()) return heavyBackgroundPausedResponse();
   if (!isDbConfigured()) {
     return NextResponse.json({ ok: true, generated: 0, reason: "no-db" });
   }

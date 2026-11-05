@@ -4,7 +4,13 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, MapPin, User as UserIcon, CreditCard, Truck } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import { resolveAdminOrder } from "@/lib/admin/orders";
-import { formatCents, formatOptionValues, countryFlag, countryName } from "@/lib/utils";
+import {
+  formatCents,
+  formatOptionValues,
+  countryFlag,
+  countryName,
+  orderCustomerName,
+} from "@/lib/utils";
 import { trackingLink } from "@/lib/carriers";
 import { orderDiscountCents, orderDiscountLabel } from "@/lib/order-money";
 import { bundleFreeLineLabel } from "@/lib/orders/bundle-lines";
@@ -173,7 +179,9 @@ export default async function AdminOrderDetailPage({
         {/* Sidebar: customer + shipping + payment */}
         <aside className="space-y-4">
           <Card title="Customer" icon={<UserIcon className="h-4 w-4" />}>
-            <p className="font-semibold">{order.user?.name ?? "Guest"}</p>
+            <p className="font-semibold">
+              {orderCustomerName(order) || "Guest"}
+            </p>
             {order.email ? (
               <p className="break-all text-[var(--foreground)]/60">
                 {order.email}

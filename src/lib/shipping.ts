@@ -43,6 +43,9 @@ export function shippingDays(region: ShippingRegion): string {
   return `${region.minDays}–${region.maxDays} days`;
 }
 
+/** Processing window on the shipping policy, in business days. */
+export const HANDLING_BUSINESS_DAYS = { min: 1, max: 3 } as const;
+
 const [west] = SHIPPING_REGIONS;
 
 export const SHIPPING_ESTIMATE_SUMMARY =

@@ -46,6 +46,10 @@ export const COLLECTION_COVER_THEMES: Record<string, string> = {
     "a clean pixel-art relaxed round brown bear lying back with a sleepy smile, next to a small pink baby bear and a tiny yellow chick, on a flat warm brown-and-cream pixel gradient background",
   chiikawa:
     "a clean pixel-art collage of small round fluffy creatures with big worried eyes — a tiny white spotted creature and a small rabbit-eared companion — with tiny pixel sparkles, on a flat soft-pink pixel gradient background",
+  peanuts:
+    "a clean pixel-art white beagle with black ears sitting on a red doghouse, a tiny yellow bird beside him, on a flat red-and-white pixel stripe background",
+  "crayon-shin-chan":
+    "a clean pixel-art cheeky kid with a round face, thick eyebrows and a red shirt, holding a pixel crayon, on a flat coral-and-cream pixel gradient with little crayon scribbles",
   disney:
     "a clean pixel-art collage of a sparkling magic wand with a star tip, a jeweled crown, and a rainbow ribbon of confetti, on a flat royal-blue pixel gradient background",
   "toy-story":

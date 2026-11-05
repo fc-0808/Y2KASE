@@ -14,6 +14,7 @@ import { getCollectionTree } from "@/lib/collections";
 import { DEVICE_FAMILIES, deviceBrowseHref, deviceIsLive } from "@/lib/catalog/devices";
 import {
   RAIL_HIDDEN_SLUGS,
+  isSameShopAsParent,
   orderRailCategories,
 } from "@/lib/catalog/collections-config";
 import { BUNDLE } from "@/lib/promotions";
@@ -96,13 +97,16 @@ async function HomeContent() {
   });
 
   // Flatten the taxonomy (roots + character children), stocked collections
-  // first, de-duplicated by slug. Each tile renders as a branded cover, so no
-  // per-collection photo assignment is needed.
+  // first, de-duplicated by slug. A character whose cases are exactly the
+  // parent shop (Shin-chan under Crayon Shin-chan, Snoopy under Peanuts) is
+  // the same tile twice, so only the parent stays. Each tile renders as a
+  // branded cover, so no per-collection photo assignment is needed.
   const cats: RailCategory[] = [];
   const seen = new Set<string>();
   for (const node of tree) {
     for (const n of [node, ...node.children]) {
       if (seen.has(n.slug) || RAIL_HIDDEN_SLUGS.has(n.slug)) continue;
+      if (n !== node && isSameShopAsParent(n.totalCount, node.totalCount)) continue;
       seen.add(n.slug);
       cats.push({
         slug: n.slug,

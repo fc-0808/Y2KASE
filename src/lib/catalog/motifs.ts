@@ -54,7 +54,10 @@ export type MotifFamily = {
   slug: MotifFamilySlug;
   /** Shopper-facing label. Title Case, never the slug. */
   label: string;
-  /** Filter-row glyph — visual, not a substitute for the label. */
+  /**
+   * Text stand-in for the picture. Shoppers see
+   * `/brand/motifs/{slug}.webp`, drawn as one Y2K pixel sticker.
+   */
   icon: string;
   /**
    * Recognition vocabulary. Latin aliases match on word boundaries; CJK
@@ -365,6 +368,11 @@ export const MOTIF_FAMILIES: readonly MotifFamily[] = [
 const FAMILY_BY_SLUG: Record<MotifFamilySlug, MotifFamily> = Object.fromEntries(
   MOTIF_FAMILIES.map((family) => [family.slug, family]),
 ) as Record<MotifFamilySlug, MotifFamily>;
+
+/** Shopper-facing sticker for a theme. Same file the filter chips use. */
+export function motifIconSrc(slug: MotifFamilySlug): string {
+  return `/brand/motifs/${slug}.webp`;
+}
 
 export function motifFamily(slug: MotifFamilySlug): MotifFamily {
   return FAMILY_BY_SLUG[slug];

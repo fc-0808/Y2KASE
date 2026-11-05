@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ShoppingBag, Search, ChevronDown, Menu, X, ArrowRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCart, cartCount } from "@/lib/store/cart";
@@ -12,6 +12,7 @@ import { MAGNETIC_RING_SLUG, ORIGINALS_SLUG } from "@/lib/catalog/collections-co
 import { Wordmark } from "@/components/brand/Decor";
 import { useSession } from "@/lib/auth-client";
 import { isSignedInUser } from "@/lib/auth-redirect";
+import { useBodyScrollLock } from "@/lib/hooks/use-modal-dialog";
 
 // Skip SSR — useSession from better-auth is browser-only.
 const UserButton = dynamic(
@@ -47,6 +48,10 @@ export function Navbar({
   const pathname = usePathname();
   const headerRef = useRef<HTMLElement>(null);
 
+  // The menu covers the page. Lock scroll so the document doesn't move under
+  // it (and so iOS doesn't resize the viewport mid-gesture).
+  useBodyScrollLock(mobileOpen);
+
   // Hydration guard: the cart count comes from a persisted client store, so we
   // only render it after mount to avoid an SSR/client mismatch.
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -59,6 +64,17 @@ export function Navbar({
     setPanel(null);
     setMobileOpen(false);
   }, [pathname]);
+
+  // The toggle is mobile-only. A rotate to desktop would otherwise leave the
+  // scroll lock held by a panel that is `md:hidden`.
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const closeOnDesktop = () => {
+      if (mq.matches) setMobileOpen(false);
+    };
+    mq.addEventListener("change", closeOnDesktop);
+    return () => mq.removeEventListener("change", closeOnDesktop);
+  }, []);
 
   // Close the mega-panel on outside click / Escape.
   useEffect(() => {
@@ -484,6 +500,10 @@ function MobileMenu({
   // device, brand and character into one continuous scroll (the old drawer)
   // reads as a wall of identical pills. An accordion gives each browse axis
   // its own scannable header and keeps the initial view short.
+  //
+  // Bodies mount only while open. Animating the open (grid-template-rows)
+  // reflowed this panel on every frame; when the panel sat in the sticky
+  // header, that reflow included the whole page and phones dropped frames.
   const [openSection, setOpenSection] = useState<MobileSectionId | null>(null);
   const [openBrand, setOpenBrand] = useState<string | null>(null);
   const toggleSection = (id: MobileSectionId) =>
@@ -491,9 +511,11 @@ function MobileMenu({
   const showOriginals = (originals?.count ?? 0) > 0;
 
   return (
+    // Fixed to the viewport, not the sticky header. A panel inside the header
+    // grew the header on every section toggle and made phones reflow the page.
     <div
       id="mobile-navigation"
-      className="max-h-[75vh] overflow-y-auto border-t border-[var(--border)] bg-[var(--background)] px-4 py-2 md:hidden"
+      className="fixed inset-x-0 top-[var(--storefront-header-h)] z-30 max-h-[calc(100svh-var(--storefront-header-h))] overflow-y-auto overscroll-y-contain border-b border-[var(--border)] bg-[var(--background)] px-4 pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:hidden"
     >
       <div className="divide-y divide-[var(--border)]">
         <MobileAccordion
@@ -700,28 +722,25 @@ function MobileAccordion({
   onToggle: () => void;
   children: React.ReactNode;
 }) {
+  const panelId = useId();
   return (
     <div>
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center justify-between py-3 text-left text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55"
+        aria-controls={panelId}
+        className="flex w-full touch-manipulation items-center justify-between py-3 text-left text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55 active:text-[var(--primary)]"
       >
         <span>{title}</span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 transition-transform ${
+          aria-hidden
+          className={`h-4 w-4 shrink-0 transition-transform duration-150 ease-out motion-reduce:transition-none ${
             open ? "rotate-180 text-[var(--primary)]" : ""
           }`}
         />
       </button>
-      <div
-        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
-          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        }`}
-      >
-        <div className="overflow-hidden">{children}</div>
-      </div>
+      {open ? <div id={panelId}>{children}</div> : null}
     </div>
   );
 }

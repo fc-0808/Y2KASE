@@ -8,24 +8,28 @@ const FOCUSABLE =
 /**
  * Locks page scroll while a blocking dialog is visible and compensates for the
  * missing scrollbar so opening the dialog does not shift the page horizontally.
+ *
+ * The lock goes on the document element. `overflow: hidden` on `body` turns
+ * body into the scroll container and unsticks the storefront header, so a menu
+ * opened after scrolling paints with the header off-screen.
  */
 export function useBodyScrollLock(active: boolean): void {
   useEffect(() => {
     if (!active) return;
 
-    const scrollbarWidth =
-      window.innerWidth - document.documentElement.clientWidth;
-    const previousOverflow = document.body.style.overflow;
-    const previousPaddingRight = document.body.style.paddingRight;
+    const root = document.documentElement;
+    const scrollbarWidth = window.innerWidth - root.clientWidth;
+    const previousOverflow = root.style.overflow;
+    const previousPaddingRight = root.style.paddingRight;
 
-    document.body.style.overflow = "hidden";
+    root.style.overflow = "hidden";
     if (scrollbarWidth > 0) {
-      document.body.style.paddingRight = `${scrollbarWidth}px`;
+      root.style.paddingRight = `${scrollbarWidth}px`;
     }
 
     return () => {
-      document.body.style.overflow = previousOverflow;
-      document.body.style.paddingRight = previousPaddingRight;
+      root.style.overflow = previousOverflow;
+      root.style.paddingRight = previousPaddingRight;
     };
   }, [active]);
 }

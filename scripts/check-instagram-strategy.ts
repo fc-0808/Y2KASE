@@ -8,6 +8,7 @@
  * copy guards.
  */
 import assert from "node:assert/strict";
+import { buildTikTokPostTitle } from "../src/lib/social/tiktok-title";
 
 import {
   INSTAGRAM_BOOTSTRAP_POSTS,
@@ -555,5 +556,21 @@ try {
     process.env.BETTER_AUTH_SECRET = previousAuthSecret;
   }
 }
+
+const tiktokHelloKitty = buildTikTokPostTitle({
+  productTitle:
+    "Sanrio Hello Kitty Clear Kawaii Case with Charm for iPhone 18 17 16 15 14 13 Pro Max — MagSafe",
+  caption: "the bow stays on",
+});
+assert.equal(tiktokHelloKitty.startsWith("Hello Kitty iPhone 18 Pro"), true);
+assert.equal(/\b(17|16|15|14|13)\b/.test(tiktokHelloKitty), false);
+assert.equal(tiktokHelloKitty.includes("the bow stays on"), true);
+assert.ok(tiktokHelloKitty.length <= 150);
+
+const tiktokAirPods = buildTikTokPostTitle({
+  productTitle: "Pompompurin pudding AirPods case with charm",
+});
+assert.equal(tiktokAirPods.includes("iPhone"), false);
+assert.match(tiktokAirPods, /^Pompompurin AirPods /);
 
 console.log("instagram-strategy: all assertions passed");

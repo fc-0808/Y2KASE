@@ -35,6 +35,7 @@ import {
   isIphone18CollectionSlug,
 } from "../src/lib/seo/fit-landings";
 import { shoppingTitle } from "../src/lib/catalog/shopping-title";
+import { merchantShippingRates } from "../src/lib/catalog/merchant";
 import { IPHONE_FIT } from "../src/lib/pricing";
 import {
   FAQ_ITEMS,
@@ -425,12 +426,29 @@ assert.equal(shoppingOlder.includes("iPhone 18"), false);
 assert.ok(shoppingHelloKitty.length <= 150);
 assert.ok(shoppingKuromi.length <= 150);
 
+const underThreshold = merchantShippingRates({ price: "24.99", currency: "USD" });
+const usUnder = underThreshold.find((rate) => rate.country === "US");
+assert.equal(usUnder?.price, "4.99 USD");
+assert.equal(usUnder?.minTransitDays, 7);
+assert.equal(usUnder?.maxTransitDays, 14);
+assert.equal(usUnder?.minHandlingDays, 1);
+assert.equal(usUnder?.maxHandlingDays, 3);
+assert.equal(underThreshold.some((rate) => rate.country === "GB"), true);
+
+const freeShipping = merchantShippingRates({ price: "39.99", currency: "usd" });
+assert.equal(
+  freeShipping.find((rate) => rate.country === "US")?.price,
+  "0.00 USD",
+);
+assert.deepEqual(merchantShippingRates({ price: "24.99", currency: "EUR" }), []);
+assert.deepEqual(merchantShippingRates({ price: "0", currency: "USD" }), []);
+
 const helloKittyCopy = collectionSeo({
   name: "Hello Kitty",
   slug: "hello-kitty",
   kind: "character",
 });
-assert.match(helloKittyCopy.description, /^Hello Kitty iPhone 18 Pro/);
+assert.match(helloKittyCopy.description, /^Hello Kitty iPhone 18 Pro Max case/);
 assert.match(helloKittyCopy.description, /Hello Kitty Phone Cases/);
 assert.equal(
   /iPhone 18/.test(
@@ -447,8 +465,11 @@ assert.equal(BRAND_TITLE_TEMPLATE, "%s · Y2KASE");
 assert.equal(iphone18FitPath("hello-kitty"), "/collections/hello-kitty/iphone-18-pro");
 const helloKittyFit = iphone18FitCopy("Hello Kitty", "hello-kitty");
 assert.equal(helloKittyFit.heading, iphone18FitHeading("Hello Kitty"));
-assert.equal(helloKittyFit.heading, "Hello Kitty iPhone 18 Pro and Pro Max Cases");
-assert.equal(helloKittyFit.primary, "hello kitty iphone 18 pro case");
+assert.equal(helloKittyFit.heading, "Hello Kitty iPhone 18 Pro Max Cases");
+assert.equal(helloKittyFit.primary, "hello kitty iphone 18 pro max case");
+assert.match(helloKittyFit.description, /Hello Kitty iPhone 18 Pro Max case/);
+assert.match(helloKittyFit.description, /iPhone 18 Pro case/);
+assert.ok(helloKittyFit.description.length <= 160);
 assert.equal(
   iphone18FitHeading("Sanrio"),
   "Sanrio iPhone 18 Pro Max and Pro Cases",
@@ -461,7 +482,7 @@ assert.ok(
   Array.from(`${helloKittyFit.title}${BRAND_TITLE_SUFFIX}`).length <=
     SERP_TITLE_MAX,
 );
-assert.match(helloKittyFit.description, /no base iPhone 18/);
+assert.match(helloKittyFit.description, /No base iPhone 18/);
 const fitNotes = new Set<string>();
 for (const entry of IPHONE_18_COLLECTIONS) {
   assert.equal(isIphone18CollectionSlug(entry.slug), true);

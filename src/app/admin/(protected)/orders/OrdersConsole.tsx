@@ -11,6 +11,7 @@ import {
   formatCents,
   formatOptionValues,
   orderCustomerLabel,
+  orderCustomerName,
 } from "@/lib/utils";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { ORDER_STATUSES } from "@/lib/admin/order-status";
@@ -57,6 +58,7 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
           <tbody className="divide-y divide-[var(--border)]">
             {orders.map((o) => {
               const customer = orderCustomerLabel(o);
+              const name = orderCustomerName(o);
               return (
               <tr key={o.id} className="hover:bg-[var(--muted)]/30">
                 <td className="px-4 py-3">
@@ -67,12 +69,21 @@ export function OrdersConsole({ orders }: { orders: OrderRow[] }) {
                     {o.orderNumber}
                   </Link>
                 </td>
-                <td className="max-w-[200px] px-4 py-3">
+                <td className="max-w-[220px] px-4 py-3">
+                  {name ? (
+                    <span className="block break-words font-semibold leading-snug">
+                      {name}
+                    </span>
+                  ) : null}
                   <span
                     className={cn(
                       "block truncate",
+                      name
+                        ? "text-xs text-[var(--foreground)]/55"
+                        : undefined,
                       customer.muted && "italic text-[var(--foreground)]/45",
                     )}
+                    title={customer.muted ? undefined : customer.text}
                   >
                     {customer.text}
                   </span>

@@ -16,7 +16,7 @@ import {
   type CatalogFeedItem,
 } from "@/lib/products";
 import { absoluteUrl, BRAND } from "@/lib/seo";
-import { googleProductCategoryId } from "@/lib/catalog/merchant";
+import { googleProductCategoryId, merchantShippingRates } from "@/lib/catalog/merchant";
 import { merchantColorValue } from "@/lib/catalog/colors";
 import { shoppingTitle } from "@/lib/catalog/shopping-title";
 import { FEED_CDN_CACHE_CONTROL } from "@/lib/cache-headers";
@@ -60,6 +60,22 @@ function item(p: CatalogFeedItem): string {
   if (!primaryImage) return "";
   const googleCategory = googleProductCategoryId(p.productType);
   const color = merchantColorValue(p.colors);
+  const shipping = merchantShippingRates({
+    price: p.price,
+    currency,
+  })
+    .map(
+      (rate) => `      <g:shipping>
+        <g:country>${xmlEscape(rate.country)}</g:country>
+        <g:service>${xmlEscape(rate.service)}</g:service>
+        <g:price>${xmlEscape(rate.price)}</g:price>
+        <g:min_handling_time>${rate.minHandlingDays}</g:min_handling_time>
+        <g:max_handling_time>${rate.maxHandlingDays}</g:max_handling_time>
+        <g:min_transit_time>${rate.minTransitDays}</g:min_transit_time>
+        <g:max_transit_time>${rate.maxTransitDays}</g:max_transit_time>
+      </g:shipping>`,
+    )
+    .join("\n");
   const imageTags = [
     `<g:image_link>${xmlEscape(absoluteUrl(primaryImage))}</g:image_link>`,
     ...additionalImages
@@ -89,6 +105,7 @@ function item(p: CatalogFeedItem): string {
       <g:product_type>${xmlEscape(p.productTypeLabel)}</g:product_type>
       ${googleCategory ? `<g:google_product_category>${googleCategory}</g:google_product_category>` : ""}
       ${color ? `<g:color>${xmlEscape(color)}</g:color>` : ""}
+      ${shipping}
     </item>`;
 }
 

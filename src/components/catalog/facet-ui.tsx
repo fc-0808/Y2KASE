@@ -377,3 +377,58 @@ export function BrandTree({
     </>
   );
 }
+
+/**
+ * A visual facet cell — swatch, name, count. Shared by the filter sheet and
+ * the desktop dropdown so theme and color cannot drift into a text list on
+ * one surface and a grid on the other.
+ */
+export function VisualChoice({
+  label,
+  count,
+  checked,
+  disabled,
+  onSelect,
+  swatch,
+}: {
+  label: string;
+  count: number;
+  checked: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+  swatch: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={disabled}
+      aria-pressed={checked}
+      aria-label={`${label}, ${count.toLocaleString("en-US")}`}
+      className={cn(
+        "relative flex min-h-[4.5rem] flex-col items-center justify-center gap-1 rounded-2xl border px-1.5 py-2 text-center transition",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+        checked
+          ? "border-[var(--primary)] bg-[var(--primary-soft)]"
+          : "border-[var(--border)] bg-[var(--background)]/40",
+        disabled && "cursor-not-allowed opacity-40",
+      )}
+    >
+      {checked && (
+        <span
+          aria-hidden
+          className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-[var(--primary)] text-white"
+        >
+          <Check className="h-2.5 w-2.5" strokeWidth={4} />
+        </span>
+      )}
+      {swatch}
+      <span className="w-full truncate text-[11px] font-bold leading-tight">
+        {label}
+      </span>
+      <span className="text-[10px] font-bold tabular-nums text-[var(--foreground)]/40">
+        {count}
+      </span>
+    </button>
+  );
+}

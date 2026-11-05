@@ -16,6 +16,7 @@ import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS, cachedCatalogRead, productCacheTag } from "@/lib/cache";
 import { collections, products, productCollections, productImages } from "@/lib/db/schema";
 import type { ProductWithRelations } from "@/lib/db/schema";
+import { getCatalogCacheSignature } from "@/lib/catalog/cache-signature";
 import { listingEntryPrice, normalizeCustomStyles } from "@/lib/catalog/custom-styles";
 import { merchandiseCollectionRail } from "@/lib/catalog/rail-mix";
 import { productTypeLabel } from "@/lib/catalog/product-types";
@@ -41,6 +42,7 @@ import {
 } from "@/lib/catalog/motifs";
 import { resolveCollectionFilterIds } from "@/lib/collections";
 import { getReviewSummaries } from "@/lib/reviews";
+import type { SortValue } from "@/lib/catalog/params";
 import { canonicalizePublicR2Url } from "@/lib/catalog/r2-public";
 import { compareProductsByUpload } from "@/lib/admin/upload-date";
 
@@ -144,7 +146,7 @@ export type ProductQuery = {
    */
   magsafe?: boolean;
   page?: number;
-  sort?: "newest" | "price-asc" | "price-desc";
+  sort?: SortValue;
 };
 
 export type ProductPage = {
@@ -310,7 +312,7 @@ function motifsOverlap(selected: readonly string[]): SQL {
   )}]::text[]`;
 }
 
-export function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
+export async function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
   const normalized = normalizeProductQuery(query);
   if (!isDbConfigured()) {
     return Promise.resolve({
@@ -320,22 +322,120 @@ export function getProducts(query: ProductQuery = {}): Promise<ProductPage> {
       pageSize: PAGE_SIZE,
     });
   }
-  return isDurableCatalogQuery(normalized)
-    ? getProductsCached(normalized)
-    : computeProducts(normalized);
+  if (!isDurableCatalogQuery(normalized)) return computeProducts(normalized);
+  return getProductsCached(await getCatalogCacheSignature(), normalized);
 }
 
 const getProductsCached = cachedCatalogRead(
-  computeProducts,
+  async function productsForSignature(signature: string, query: ProductQuery) {
+    void signature;
+    return computeProducts(query);
+  },
   // v2: default sort now leads with curated bestsellers — bump so stale v1
   // entries (newest-only order) don't linger for the revalidate window.
   // v3: custom variation "from" prices on listing cards. Bump so a
   // named-product listing cannot keep advertising Case Only from v2 cache.
-  ["catalog-product-page-v7"],
+  // v8: catalog signature, shared with the nav counts. v7 could keep serving
+  // a collection total from before products were filed into it.
+  ["catalog-product-page-v8"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
   },
 );
+
+async function computeProductsByListingPrice(
+  sort: "price-asc" | "price-desc",
+  where: SQL | undefined,
+  page: number,
+  offset: number,
+): Promise<ProductPage> {
+  const priced = await db
+    .select({
+      id: products.id,
+      price: products.price,
+      currency: products.currency,
+      productType: products.productType,
+      customStyles: products.customStyles,
+      stylePrices: products.stylePrices,
+    })
+    .from(products)
+    .where(where);
+
+  const direction = sort === "price-asc" ? 1 : -1;
+  priced.sort((a, b) => {
+    const pa = Number(
+      listingPriceFor(
+        a.productType,
+        a.price,
+        a.currency,
+        a.customStyles,
+        a.stylePrices,
+      ),
+    );
+    const pb = Number(
+      listingPriceFor(
+        b.productType,
+        b.price,
+        b.currency,
+        b.customStyles,
+        b.stylePrices,
+      ),
+    );
+    if (pa !== pb) return (pa - pb) * direction;
+    return a.id - b.id;
+  });
+
+  const pageIds = priced.slice(offset, offset + PAGE_SIZE).map((row) => row.id);
+  const rows = pageIds.length
+    ? await db.query.products.findMany({
+        where: inArray(products.id, pageIds),
+        with: {
+          images: {
+            orderBy: (img, { asc }) => asc(img.position),
+            limit: 1,
+          },
+        },
+      })
+    : [];
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const items = pageIds.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [toListItem(row)] : [];
+  });
+
+  return {
+    items: await withRatings(items),
+    total: priced.length,
+    page,
+    pageSize: PAGE_SIZE,
+  };
+}
+
+/** Prior mean and how many reviews it is worth. One 5-star does not lead. */
+const RATING_PRIOR = 4;
+const RATING_PRIOR_WEIGHT = 5;
+
+function ratingScoreSql(): SQL {
+  // Raw SQL on purpose. The relational query rewrites Drizzle column
+  // objects onto the products alias, which turned reviews.rating into
+  // products.rating and failed the whole catalog.
+  return sql.raw(`(
+    select (coalesce(sum(r.rating), 0) + ${RATING_PRIOR} * ${RATING_PRIOR_WEIGHT})::float
+         / (count(*) + ${RATING_PRIOR_WEIGHT})
+    from reviews r
+    where r.product_id = products.id
+      and r.status = 'published'
+  )`);
+}
+
+function ratingCountSql(): SQL {
+  return sql.raw(`(
+    select count(*)
+    from reviews r
+    where r.product_id = products.id
+      and r.status = 'published'
+  )`);
+}
 
 async function computeProducts(query: ProductQuery): Promise<ProductPage> {
   const page = Math.max(1, query.page ?? 1);
@@ -343,16 +443,25 @@ async function computeProducts(query: ProductQuery): Promise<ProductPage> {
 
   const where = and(...(await catalogFilters(query)));
 
+  // Price sorts follow the "from" price on the card. `products.price` is only
+  // the ingest snapshot; Case Only overrides and the live Style table can
+  // advertise a different number, and sorting the column puts a $34.99 card
+  // ahead of a $24.99 one.
+  if (query.sort === "price-asc" || query.sort === "price-desc") {
+    return computeProductsByListingPrice(query.sort, where, page, offset);
+  }
+
   // Default ("newest") sort leads with the curated bestsellers, in their
   // merchandised order, before falling back to newest-first — the catalog
   // should open on the products the store is actively pushing, not bury them
-  // wherever they happen to land by upload date. Explicit price sorts stay
-  // pure so a shopper who asked for cheapest-first gets exactly that.
+  // wherever they happen to land by upload date. "new" is upload date only.
+  // "rating" uses a prior so a single five-star review cannot outrank a
+  // case that many buyers scored well.
   const orderBy =
-    query.sort === "price-asc"
-      ? sql`${products.price} asc`
-      : query.sort === "price-desc"
-        ? sql`${products.price} desc`
+    query.sort === "new"
+      ? desc(products.createdAt)
+      : query.sort === "rating"
+        ? sql`${ratingScoreSql()} desc, ${ratingCountSql()} desc, ${products.featured} desc, ${products.createdAt} desc`
         : sql`${products.featured} desc, ${products.featuredPosition} asc, ${products.createdAt} desc`;
 
   const [rows, [{ count }]] = await Promise.all([
@@ -442,7 +551,7 @@ export async function getCatalogFacetCounts(
  * Only canonical page-1 listings occupy durable cache — see
  * {@link isDurableCatalogQuery}. Facet combos stay on the free CDN layer.
  */
-export function getCatalogPage(
+export async function getCatalogPage(
   query: ProductQuery = {},
   facetSlugs?: string[],
   alsoCountSlugs?: string[],
@@ -461,23 +570,35 @@ export function getCatalogPage(
     });
   }
 
-  return isDurableCatalogQuery(normalized)
-    ? getCatalogPageCached(
-        normalized,
-        normalizedFacetSlugs,
-        normalizedAlsoCountSlugs,
-      )
-    : computeCatalogPage(
-        normalized,
-        normalizedFacetSlugs,
-        normalizedAlsoCountSlugs,
-      );
+  if (!isDurableCatalogQuery(normalized)) {
+    return computeCatalogPage(
+      normalized,
+      normalizedFacetSlugs,
+      normalizedAlsoCountSlugs,
+    );
+  }
+  return getCatalogPageCached(
+    await getCatalogCacheSignature(),
+    normalized,
+    normalizedFacetSlugs,
+    normalizedAlsoCountSlugs,
+  );
 }
 
 const getCatalogPageCached = cachedCatalogRead(
-  computeCatalogPage,
+  async function catalogPageForSignature(
+    signature: string,
+    query: ProductQuery,
+    facetSlugs?: string[],
+    alsoCountSlugs?: string[],
+  ) {
+    void signature;
+    return computeCatalogPage(query, facetSlugs, alsoCountSlugs);
+  },
   // v2: see getProductsCached — same default-sort change, same reason to bump.
-  ["catalog-page-with-facets-v7"],
+  // v8: same catalog signature as the nav. v7 is how /collections/miffy kept
+  // saying 34 after the menu had already counted the two newer cases.
+  ["catalog-page-with-facets-v8"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
   },

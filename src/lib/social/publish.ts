@@ -21,6 +21,7 @@ import {
   getCreatorInfo,
   isTikTokConfigured,
 } from "@/lib/social/tiktok";
+import { buildTikTokPostTitle } from "@/lib/social/tiktok-title";
 import {
   isMetaConfigured,
   publishInstagramCarousel,
@@ -201,16 +202,12 @@ async function publishToTikTok(
     throw new Error("Could not determine privacy level from TikTok creator info.");
   }
 
-  // Build caption: title + caption + hashtags as TikTok title (150 char limit).
-  const hashtags = creative.hashtags.map((t) => `#${t}`).join(" ");
-  const title = [
-    creative.productTitle,
-    creative.caption,
-    hashtags,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .slice(0, 150);
+  // TikTok search reads the start of this 150-character field. Lead with
+  // the character and the iPhone model, not the full catalog title.
+  const title = buildTikTokPostTitle({
+    productTitle: creative.productTitle,
+    caption: creative.caption,
+  });
 
   const videoUrl = tiktokVideoUrl(creative.productId);
 

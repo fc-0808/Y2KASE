@@ -7,10 +7,16 @@
  * `/collections/{character}` owns the character head term. These URLs own
  * the model phrase.
  *
- * Hello Kitty leads with iPhone 18 Pro. Sanrio and Kuromi lead with
- * iPhone 18 Pro Max, because that is the query those pages are shown for.
- * The other characters use the Hello Kitty shape: the character, then
- * iPhone 18 Pro, then Pro Max. One page still covers both models.
+ * Search Console, past 3 months (736 queries). After the brand name, the
+ * clicks are a character plus one iPhone 18 model:
+ *   hello kitty iphone 18 pro max case — 460 impressions, 18 clicks
+ *   hello kitty iphone 18 pro case — 232 impressions, 8 clicks
+ *   sanrio iphone 18 pro case — 103 impressions, 9 clicks
+ *   sanrio iphone 18 pro max case — 116 impressions, 4 clicks
+ * Hello Kitty leads with Pro Max because that query has about twice the
+ * impressions of the Pro query. Sanrio and Kuromi keep Pro Max first and
+ * still name Pro. The other characters lead with Pro. One page still
+ * covers both models — a second URL would be the same grid.
  *
  * Every active iPhone case is sold for both iPhone 18 Pro and iPhone 18 Pro
  * Max, and there is no base iPhone 18 mould. One page per character covers
@@ -22,7 +28,7 @@ import { FREE_SHIPPING_OFFER, IPHONE_FIT } from "@/lib/pricing";
 export const IPHONE_18_FIT_SLUG = "iphone-18-pro";
 
 export const IPHONE_18_COLLECTIONS = [
-  { slug: "hello-kitty", name: "Hello Kitty", lead: "pro" },
+  { slug: "hello-kitty", name: "Hello Kitty", lead: "pro-max" },
   { slug: "sanrio", name: "Sanrio", lead: "pro-max" },
   { slug: "kuromi", name: "Kuromi", lead: "pro-max" },
   { slug: "my-melody", name: "My Melody", lead: "pro" },
@@ -74,10 +80,43 @@ export function iphone18FitPath(collectionSlug: string): string {
   return `/collections/${collectionSlug}/${IPHONE_18_FIT_SLUG}`;
 }
 
+function fitDescription(slug: Iphone18CollectionSlug, heading: string): string {
+  if (slug === "hello-kitty") {
+    return `Hello Kitty iPhone 18 Pro Max case and iPhone 18 Pro case. Clear, glitter, and charm styles. No base iPhone 18 case. ${FREE_SHIPPING_OFFER}.`;
+  }
+  if (slug === "sanrio") {
+    return `Sanrio iPhone 18 Pro case and Sanrio iPhone 18 Pro Max case, including Hello Kitty and Kuromi. No base iPhone 18 case. ${FREE_SHIPPING_OFFER}.`;
+  }
+  return `${heading} at Y2KASE. There is no base iPhone 18 case — choose iPhone 18 Pro or iPhone 18 Pro Max on the product page. ${FREE_SHIPPING_OFFER}.`;
+}
+
+function fitOpening(
+  slug: Iphone18CollectionSlug,
+  name: string,
+  heading: string,
+): string {
+  if (slug === "hello-kitty") {
+    return "Hello Kitty iPhone 18 Pro Max cases are the ones on this page, and the same designs are cut for iPhone 18 Pro. There is no base iPhone 18 case. Choose the model on the product page so the camera opening matches the phone.";
+  }
+  if (slug === "sanrio") {
+    return "Sanrio iPhone 18 Pro cases and Sanrio iPhone 18 Pro Max cases are on this page, including Hello Kitty, Kuromi, My Melody, and Cinnamoroll. There is no base iPhone 18 case. Choose Pro or Pro Max on the product page so the camera opening matches the phone.";
+  }
+  return `${heading} are the ${name} designs sold for Apple's iPhone 18 lineup. This shop does not cut a base iPhone 18 case. iPhone 18 here is Pro and Pro Max only. The same artwork is offered for both, and the model is chosen on the product page so the camera opening matches the phone.`;
+}
+
 /** Title leaf and H1. Must fit in front of the layout's ` · Y2KASE`. */
 export function iphone18FitHeading(name: string): string {
+  // Exact shape of the highest-impression non-brand query.
+  if (name === "Hello Kitty") return "Hello Kitty iPhone 18 Pro Max Cases";
   const entry = IPHONE_18_COLLECTIONS.find((item) => item.name === name);
   return `${name} ${modelPhrase(entry?.lead ?? "pro")}`;
+}
+
+/** Visible anchor from a collection page to its iPhone 18 landing. */
+export function iphone18FitLinkLabel(slug: string): string {
+  const entry = IPHONE_18_COLLECTIONS.find((item) => item.slug === slug);
+  if (!entry) return "iPhone 18";
+  return entry.lead === "pro-max" ? "iPhone 18 Pro Max cases" : "iPhone 18 Pro cases";
 }
 
 export type Iphone18FitCopy = {
@@ -103,12 +142,12 @@ export function iphone18FitCopy(
   return {
     title: heading,
     heading,
-    description: `${heading} at Y2KASE. There is no base iPhone 18 case — choose iPhone 18 Pro or iPhone 18 Pro Max on the product page. ${FREE_SHIPPING_OFFER}.`,
+    description: fitDescription(slug, heading),
     tagline:
       "Fits iPhone 18 Pro and iPhone 18 Pro Max. The camera cutout is not shared — pick the exact model on the product page.",
     primary: primary.toLowerCase(),
     paragraphs: [
-      `${heading} are the ${name} designs sold for Apple's iPhone 18 lineup. This shop does not cut a base iPhone 18 case. iPhone 18 here is Pro and Pro Max only. The same artwork is offered for both, and the model is chosen on the product page so the camera opening matches the phone.`,
+      fitOpening(slug, name, heading),
       FIT_NOTES[slug],
       `These products also list earlier phones where the mould exists — ${IPHONE_FIT.through}. This URL is the iPhone 18 cut, so AirPods cases stay on the main ${name} collection. MagSafe is a mark on the product after review, not a promise of the character.`,
     ],

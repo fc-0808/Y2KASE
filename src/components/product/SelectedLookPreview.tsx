@@ -19,11 +19,14 @@
  * The row is not itself a button. A chevron here reads as "collapse", and a
  * full-width hit target scrolls the shopper back to the gallery while they
  * are still comparing styles — the opposite of why the row exists. Only the
- * "View photos" control makes that trip, and it says so.
+ * "View photos" control makes that trip, and it says so. The photo is the
+ * exception: it is cropped, so tapping it opens the entire image.
  */
 
 import { useEffect, useState } from "react";
+import { Expand } from "lucide-react";
 import { ProductMedia } from "@/components/ProductMedia";
+import { ProductPhotoViewer } from "@/components/product/ProductPhotoViewer";
 import { cn } from "@/lib/utils";
 
 export const PRODUCT_PHOTOS_ID = "product-photos";
@@ -55,7 +58,11 @@ export function SelectedLookPreview({
         "lg:hidden",
       )}
     >
-      <PreviewPhoto src={src} onImageError={onImageError} />
+      <PreviewPhoto
+        src={src}
+        alt={spoken || "Selected product"}
+        onImageError={onImageError}
+      />
       <figcaption className="min-w-0 flex-1 py-3">
         <span className="block text-xs font-bold text-[var(--foreground)]/60">
           Your look
@@ -94,13 +101,16 @@ export function SelectedLookPreview({
  */
 function PreviewPhoto({
   src,
+  alt,
   onImageError,
 }: {
   src: string;
+  alt: string;
   onImageError?: (url: string) => void;
 }) {
   const [shown, setShown] = useState(src);
   const [outgoing, setOutgoing] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   if (src !== shown) {
     setOutgoing(shown);
@@ -148,6 +158,26 @@ function PreviewPhoto({
           onImageError={onImageError}
         />
       </span>
+      <button
+        type="button"
+        aria-label={`View entire image of ${alt}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+        className="absolute inset-0 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)]"
+      >
+        <span className="pointer-events-none absolute bottom-1.5 right-1.5 grid size-7 place-items-center rounded-full border border-black/10 bg-white/95 text-[var(--foreground)] shadow-sm">
+          <Expand className="size-3.5" strokeWidth={2.4} aria-hidden />
+        </span>
+      </button>
+      <ProductPhotoViewer
+        open={open}
+        slides={[{ kind: "image", src: shown, alt }]}
+        index={0}
+        onIndexChange={() => {}}
+        onClose={() => setOpen(false)}
+        onImageError={onImageError}
+      />
     </span>
   );
 }

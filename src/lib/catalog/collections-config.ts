@@ -398,27 +398,65 @@ export const RAIL_HIDDEN_SLUGS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * Tiles that stay at the front of "Shop the universe" even when a character
- * collection outranks them by SKU count. The magnetic ring holder is a
- * feature, not a character, so a pure count sort would bury it. Empty tiles
- * are not pinned. MagSafe stays in the rail by count — it is a wider shop
- * than the ring holder.
+ * Tiles that lead every character row, ahead of the count sort.
+ *
+ * Sanrio's own crew stays together in the order shoppers name them. Kuromi
+ * is second, not wherever a small case count would leave it. Miffy follows
+ * the crew. Empty tiles are not pinned.
  */
-export const RAIL_PINNED_SLUGS: readonly string[] = [MAGNETIC_RING_SLUG];
+export const RAIL_PINNED_SLUGS: readonly string[] = [
+  "sanrio",
+  "hello-kitty",
+  "kuromi",
+  "my-melody",
+  "cinnamoroll",
+  "pompompurin",
+  "miffy",
+];
+
+/**
+ * Not a character face. These close the row, after every licensed shop,
+ * even when they hold more products than a character.
+ */
+export const RAIL_LAST_SLUGS: readonly string[] = [
+  "magsafe",
+  "magnetic-ring",
+  "originals",
+];
+
+/**
+ * A character shelf that holds exactly the same active cases as its parent
+ * shop. Crayon Shin-chan and Shin-chan are one shelf; so are Peanuts and
+ * Snoopy, and SpongeBob SquarePants and SpongeBob. Hello Kitty is not: it is
+ * only part of Sanrio.
+ */
+export function isSameShopAsParent(childCount: number, parentCount: number): boolean {
+  return parentCount > 0 && childCount === parentCount;
+}
 
 export function orderRailCategories<T extends { slug: string; count: number }>(
   categories: readonly T[],
   limit: number,
 ): T[] {
   const bySlug = new Map(categories.map((category) => [category.slug, category]));
-  const pinned = RAIL_PINNED_SLUGS.flatMap((slug) => {
-    const category = bySlug.get(slug);
-    return category && category.count > 0 ? [category] : [];
-  });
-  const pinnedSlugs = new Set(pinned.map((category) => category.slug));
-  const rest = categories.filter((category) => !pinnedSlugs.has(category.slug));
+  const take = (slugs: readonly string[]) =>
+    slugs.flatMap((slug) => {
+      const category = bySlug.get(slug);
+      return category && category.count > 0 ? [category] : [];
+    });
+  const pinned = take(RAIL_PINNED_SLUGS);
+  const last = take(RAIL_LAST_SLUGS);
+  const held = new Set([...pinned, ...last].map((category) => category.slug));
+  const rest = categories.filter((category) => !held.has(category.slug));
+  const ordered = [...pinned, ...rest, ...last];
   const cap = Math.max(0, limit);
-  return [...pinned, ...rest].slice(0, cap);
+  if (ordered.length <= cap) return ordered;
+  const head = ordered.slice(0, cap);
+  const missingLast = last.filter(
+    (category) => !head.some((item) => item.slug === category.slug),
+  );
+  if (missingLast.length === 0) return head;
+  return [...head.slice(0, Math.max(0, cap - missingLast.length)), ...missingLast];
 }
 
 /** A flattened seed node with its resolved parent slug (null for top level). */

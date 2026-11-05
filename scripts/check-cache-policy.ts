@@ -129,6 +129,8 @@ test("next.config sets targeted CDN headers for storefront routes and feeds", ()
   assert.match(src, /CANONICAL_CDN_CACHE_CONTROL/);
   assert.match(src, /FEED_CDN_CACHE_CONTROL/);
   assert.match(src, /Vercel-CDN-Cache-Control/);
+  assert.match(src, /Vercel-Cache-Tag/);
+  assert.match(src, /catalog:products/);
   assert.match(src, /source:\s*"\/"/);
   assert.match(src, /source:\s*"\/products\/:slug"/);
   assert.match(src, /source:\s*"\/products"/);
@@ -156,6 +158,8 @@ test("only canonical page-1 listings occupy durable catalog Data Cache", () => {
   );
   assert.equal(isDurableCatalogQuery({ page: 2, sort: "newest" }), false);
   assert.equal(isDurableCatalogQuery({ page: 1, sort: "price-asc" }), false);
+  assert.equal(isDurableCatalogQuery({ page: 1, sort: "rating" }), false);
+  assert.equal(isDurableCatalogQuery({ page: 1, sort: "new" }), false);
   assert.equal(
     isDurableCatalogQuery({ page: 1, sort: "newest", colors: ["pink"] }),
     false,
@@ -167,6 +171,13 @@ test("only canonical page-1 listings occupy durable catalog Data Cache", () => {
   const products = read("src/lib/products.ts");
   assert.match(products, /export function isDurableCatalogQuery/);
   assert.match(products, /isDurableCatalogQuery\(normalized\)/);
+  assert.match(products, /getCatalogCacheSignature\(\)/);
+  assert.match(
+    read("src/lib/collections.ts"),
+    /getCatalogCacheSignature\(\)/,
+  );
+  assert.match(products, /catalog-page-with-facets-v8/);
+  assert.match(read("src/lib/collections.ts"), /collection-tree-v2/);
 });
 
 test("product cards do not prefetch a Fluid render per visible SKU", () => {
@@ -177,15 +188,20 @@ test("product cards do not prefetch a Fluid render per visible SKU", () => {
 test("image and metrics crons yield while Fluid CPU is reserved for shoppers", () => {
   for (const file of [
     "src/app/api/cron/social-generate/route.ts",
-    "src/app/api/cron/blog-generate/route.ts",
     "src/app/api/cron/pinterest-autopin/route.ts",
     "src/app/api/cron/meta-autopost/route.ts",
     "src/app/api/cron/social-publish/route.ts",
     "src/app/api/cron/social-analytics/route.ts",
   ]) {
     const src = read(file);
-    assert.match(src, /heavyBackgroundPaused\(\)/);
+    assert.match(src, /if \(heavyBackgroundPaused\(\)\) return/);
   }
+  // Blog thumbnails are generated on every post. This cron does not yield
+  // for the Fluid CPU reserve.
+  const blog = read("src/app/api/cron/blog-generate/route.ts");
+  assert.match(blog, /runBlogGeneration/);
+  assert.doesNotMatch(blog, /heavyBackgroundPaused/);
+  assert.doesNotMatch(blog, /skipCovers/);
   const reserve = read("src/lib/fluid-cpu-reserve.ts");
   assert.match(reserve, /FLUID_CPU_RESERVE/);
   assert.doesNotMatch(

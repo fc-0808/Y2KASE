@@ -104,13 +104,22 @@ const nextConfig: NextConfig = {
     // headers cache the HTML at Vercel's edge only (free, ephemeral) without
     // writing durable ISR units — required while Hobby ISR writes are
     // exhausted so new visitors still get a page. https://vercel.com/docs/caching/cdn-cache
+    // Same tag as the Data Cache catalog stamp. A purge of `catalog:products`
+    // drops the menu and the grids together instead of leaving one of them
+    // on an older HTML snapshot.
+    const catalogTag = {
+      key: "Vercel-Cache-Tag",
+      value: "catalog:products",
+    };
     const facetedCdn = [
       { key: "CDN-Cache-Control", value: FACETED_CDN_CACHE_CONTROL },
       { key: "Vercel-CDN-Cache-Control", value: FACETED_CDN_CACHE_CONTROL },
+      catalogTag,
     ];
     const canonicalCdn = [
       { key: "CDN-Cache-Control", value: CANONICAL_CDN_CACHE_CONTROL },
       { key: "Vercel-CDN-Cache-Control", value: CANONICAL_CDN_CACHE_CONTROL },
+      catalogTag,
     ];
     const feedCdn = [
       { key: "CDN-Cache-Control", value: FEED_CDN_CACHE_CONTROL },
@@ -187,10 +196,11 @@ const nextConfig: NextConfig = {
     })),
     // Next 16 rejects local Image sources with query strings unless they are
     // explicitly allow-listed. Keep ordinary local images query-free, then
-    // permit cache-busting only inside the three generated brand-asset trees.
+    // permit cache-busting only inside the generated brand-asset trees.
     localPatterns: [
       { pathname: "/**", search: "" },
       { pathname: "/brand/collection-cards/**" },
+      { pathname: "/brand/collection-rail/**" },
       { pathname: "/brand/collections/**" },
       { pathname: "/brand/device-covers/**" },
     ],

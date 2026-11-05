@@ -26,7 +26,12 @@ import {
 
 /** Max posts generated per rolling 24h — a spend + quality guardrail. */
 export const BLOG_DAILY_LIMIT = Number(process.env.BLOG_DAILY_LIMIT ?? 5);
-const MIN_ARTICLE_WORDS = 500;
+/**
+ * Floor, not a target. Google does not rank by word count. A buyer guide
+ * that names a few real cases needs about 1,100–1,500 words to give each
+ * one a reason; under 900 the page is a list of links and gets rejected.
+ */
+const MIN_ARTICLE_WORDS = 900;
 const MAX_ARTICLE_TITLE_LENGTH = 70;
 
 /**
@@ -291,18 +296,19 @@ Return STRICT JSON matching this TypeScript type:
   "excerpt": string,      // one-sentence card summary, <= 160 chars
   "tags": string[],       // 3-6 lowercase topical tags, no '#'
   "body": string,         // the article in Markdown (see STRICT rules below)
-  "faq": [ { "question": string, "answer": string } ]  // 3-4 concise, genuinely helpful Q&As
+  "faq": [ { "question": string, "answer": string } ]  // 3-4 Q&As. Each answer is 40-70 words and states the answer in its first sentence.
 }
 
 STRICT Markdown rules for "body":
-- 600-900 words, scannable and genuinely helpful.
-- Do NOT include the H1 title (it is rendered separately). Start with a short 1-2 sentence intro paragraph.
+- 1,100-1,500 words. A guide that recommends several products should land near the top of that range; a single how-to can land near the bottom. Do not add brand history, trend essays, or a second ending to fill space.
+- Do NOT include the H1 title (it is rendered separately). Open with 2-4 sentences that answer the search directly: who it is for, which phones it covers, and the first pick. Do not open with a vague scene.
 - Use AT LEAST 3 '## ' or '### ' sections. An article with no headings will be rejected.
 - Use ONLY these elements: '## ' and '### ' headings, paragraphs, '**bold**', '*italic*', '- ' bullet lists, '1. ' numbered lists, '> ' blockquotes, and '---' horizontal rules.
 - Do NOT use images, tables, code blocks, HTML, or H1 (#).
 - Include 3-6 internal links using EXACTLY the routes provided in CATALOG DATA (e.g. [Hello Kitty collection](/collections/hello-kitty)). Do NOT link to any other path and do NOT link to external websites.
-- AT LEAST 2 of those links MUST be individual product pages (/products/...) whenever CATALOG DATA lists any. Give each recommended product its own '### ' section.
+- AT LEAST 2 of those links MUST be individual product pages (/products/...) whenever CATALOG DATA lists any. Give each recommended product its own '### ' section of about 120-180 words: why this one, who it suits, and one concrete detail from that product (charm, grip, glitter, strap, or MagSafe).
 - When a section recommends one specific product, link that product in the section's FIRST sentence. Its catalog photo is placed automatically from that link, so the image lands beside the copy describing it.
+- Never mention the catalog, a batch, missing links, or that a product was not provided. If CATALOG DATA has no product for a character, do not write a section about that character.
 - End with a short, natural call-to-action paragraph linking to /products or the featured collection.
 
 Return ONLY the JSON object, no markdown fences.`;

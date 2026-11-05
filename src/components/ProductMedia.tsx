@@ -30,10 +30,12 @@ export function ProductMedia({
   sizes,
   fit = "cover",
   loading,
+  priority = false,
   fetchPriority,
   className,
   imageClassName,
   bare = false,
+  matte = true,
   fallbackClassName = "text-4xl",
   onImageError,
   onLoad,
@@ -44,6 +46,8 @@ export function ProductMedia({
   sizes?: string;
   fit?: ProductMediaFit;
   loading?: ImageProps["loading"];
+  /** Preload the file. Only the image that can be the page's LCP. */
+  priority?: boolean;
   fetchPriority?: ImageProps["fetchPriority"];
   /** Container classes: sizing (aspect/height/width), radius, borders. */
   className?: string;
@@ -54,6 +58,12 @@ export function ProductMedia({
    * white out of the photo, so the page shows through on every browser.
    */
   bare?: boolean;
+  /**
+   * White photo well behind the pixels. Turn off in a viewer that letterboxes
+   * on its own scrim — `bare` is the wrong switch there because it also
+   * knocks the studio white out of the file.
+   */
+  matte?: boolean;
   /** Sizing for the emoji fallback shown when no image is available. */
   fallbackClassName?: string;
   /** Fired after a requested `src` fails to decode, so galleries can drop it. */
@@ -73,7 +83,11 @@ export function ProductMedia({
   return (
     <div
       className={`relative ${
-        bare ? "bg-transparent" : "overflow-hidden bg-[var(--product-surface)]"
+        bare
+          ? "bg-transparent"
+          : matte
+            ? "overflow-hidden bg-[var(--product-surface)]"
+            : "overflow-hidden bg-transparent"
       }${className ? ` ${className}` : ""}`}
     >
       {showImage && renderable ? (
@@ -91,7 +105,8 @@ export function ProductMedia({
                 sizes={sizes}
                 quality={82}
                 unoptimized
-                loading={loading}
+                priority={priority}
+                loading={priority ? "eager" : loading}
                 fetchPriority={fetchPriority}
                 onError={() => {
                   setFailedSrc(renderable);
@@ -121,7 +136,8 @@ export function ProductMedia({
             // `/_next/image` — Vercel is 402ing that path, and the volume would
             // re-exhaust Image Optimization quota if it is later re-enabled.
             unoptimized
-            loading={loading}
+            priority={priority}
+            loading={priority ? "eager" : loading}
             fetchPriority={fetchPriority}
             onError={() => {
               setFailedSrc(renderable);

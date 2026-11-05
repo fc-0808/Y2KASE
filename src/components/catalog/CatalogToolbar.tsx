@@ -9,23 +9,20 @@
  * either one routing the shopper off its own surface.
  *
  * ── Two chromes, one state ──────────────────────────────────────────────────
- * Desktop (`lg+`) keeps the pill dropdowns: plenty of width, hover, and the
- * shopper can see the grid while they tick. Mobile does not — five wrapping
- * pills plus search plus sort ate most of the first fold (the attached
- * /products screenshot). Industry PLPs (Shopify Dawn, Nike, Apple, Sephora)
- * collapse that into a sticky Filter + Sort pair and a bottom sheet.
+ * Both widths ask for a design with the look rail. Desktop keeps a Device
+ * pill when the catalog sells more than one kind of product. The phone uses
+ * the same question as a short sheet, and otherwise the bar is search plus
+ * sort — characters, themes, colors and MagSafe are not a second menu.
+ * The whole stack sticks under the header in the page color. Scrolling down
+ * tucks it away; scrolling up brings the search row and the look rail back.
  *
  * One client island owns both chromes so optimistic checkbox state cannot
  * fork when the shopper resizes a tablet.
  */
 
-import { useCallback, useState } from "react";
-import { Search, SlidersHorizontal } from "lucide-react";
-import {
-  activeFilterCount,
-  buildCatalogHref,
-  type CatalogParams,
-} from "@/lib/catalog/params";
+import { useCallback, useRef, useState } from "react";
+import { Search } from "lucide-react";
+import { buildCatalogHref, type CatalogParams } from "@/lib/catalog/params";
 import { cn } from "@/lib/utils";
 import {
   CatalogFilters,
@@ -33,8 +30,11 @@ import {
   type FacetCounts,
 } from "./CatalogFilters";
 import { CatalogFilterSheet } from "./CatalogFilterSheet";
+import { LookRail } from "./LookRail";
 import { CatalogSortSheet, SortMenu, SortTriggerButton } from "./SortMenu";
 import { useCatalogFilters } from "./use-catalog-filters";
+import { useCollapseOnScrollDown } from "./use-collapse-on-scroll";
+import type { LookCharacter } from "@/lib/catalog/look-rail";
 
 export function CatalogToolbar({
   params,
@@ -45,7 +45,8 @@ export function CatalogToolbar({
   searchLabel = "Search products",
   lockedDevice,
   resultCount,
-  resetHref,
+  characters,
+  flushTop = false,
 }: {
   params: CatalogParams;
   brands: BrandOption[];
@@ -55,10 +56,19 @@ export function CatalogToolbar({
   searchLabel?: string;
   /** Device this surface is already scoped to — hides the Device facet. */
   lockedDevice?: string;
-  /** Live result size, shown on the mobile sheet's apply button. */
+  /** Live result size, shown on the device sheet's apply button. */
   resultCount: number;
-  /** Unfiltered href for this surface — omit when nothing is active. */
-  resetHref?: string;
+  /**
+   * Shop All has no title, so the page's top padding would show the ambient
+   * wash between the header and this bar. Pull the bar's own background up
+   * through that padding.
+   */
+  flushTop?: boolean;
+  /**
+   * Character tiles for the look rail, already capped and ordered on the
+   * server. Empty hides that segment; themes and colors still render.
+   */
+  characters: readonly LookCharacter[];
 }) {
   const model = useCatalogFilters({
     params,
@@ -69,53 +79,86 @@ export function CatalogToolbar({
   });
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const closeFilters = useCallback(() => setFilterOpen(false), []);
   const closeSort = useCallback(() => setSortOpen(false), []);
-  const filterCount = activeFilterCount(params);
+  // Typing or an open sheet pins the chrome. A downward scroll tucks the
+  // search row and the character rail under the header; scrolling up brings
+  // both back, even mid-page.
+  const barRef = useRef<HTMLDivElement>(null);
+  const collapsed = useCollapseOnScrollDown(
+    !filterOpen && !sortOpen && !searchFocused,
+    barRef,
+  );
 
   return (
     <>
-      <div className="sticky top-[var(--storefront-header-h)] z-30 -mx-4 border-b border-[var(--border)] bg-[var(--background)]/90 px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6 lg:static lg:z-auto lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
-        {/* Mobile refine bar — search, then equal-weight Filter / Sort. */}
-        <div className="flex flex-col gap-2 lg:hidden">
-          <CatalogSearch
-            params={params}
-            searchPlaceholder={searchPlaceholder}
-            searchLabel={searchLabel}
-          />
-          <div className="flex items-center gap-2">
-            <FilterTriggerButton
-              count={filterCount}
-              expanded={filterOpen}
+      <div
+        ref={barRef}
+        inert={collapsed}
+        onFocusCapture={() => setSearchFocused(true)}
+        onBlurCapture={(event) => {
+          const next = event.relatedTarget;
+          if (next instanceof Node && event.currentTarget.contains(next)) return;
+          setSearchFocused(false);
+        }}
+        className={cn(
+          "sticky top-[var(--storefront-header-h)] z-30 -mx-4 bg-background px-4 pb-2 transition-transform duration-200 ease-out motion-reduce:transition-none sm:-mx-6 sm:px-6",
+          flushTop && "-mt-4 pt-2 sm:-mt-6 sm:pt-2",
+          collapsed && "-translate-y-full pointer-events-none",
+        )}
+      >
+        <div className="flex items-center gap-3 lg:hidden">
+          {model.deviceFacetVisible && (
+            <button
+              type="button"
               onClick={() => {
                 setSortOpen(false);
                 setFilterOpen(true);
               }}
-            />
-            <SortTriggerButton
-              params={params}
-              expanded={sortOpen}
-              onClick={() => {
-                setFilterOpen(false);
-                setSortOpen(true);
-              }}
-            />
-          </div>
+              aria-expanded={filterOpen}
+              aria-haspopup="dialog"
+              className={cn(
+                "flex h-11 shrink-0 items-center rounded-full border px-3.5 text-sm font-bold shadow-sm transition",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
+                params.device || filterOpen
+                  ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
+                  : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]/80",
+              )}
+            >
+              {model.deviceTriggerLabel}
+            </button>
+          )}
+          <CatalogSearch
+            params={params}
+            searchPlaceholder={searchPlaceholder}
+            searchLabel={searchLabel}
+            className="min-w-0"
+          />
+          <SortTriggerButton
+            params={params}
+            expanded={sortOpen}
+            iconOnly
+            className="w-11 flex-none px-0"
+            onClick={() => {
+              setFilterOpen(false);
+              setSortOpen(true);
+            }}
+          />
         </div>
 
-        {/* Desktop — facet pills, then search + sort. */}
-        <div className="hidden lg:flex lg:items-center lg:justify-between lg:gap-3">
+        <div className="relative z-20 hidden items-center gap-3 lg:flex">
           <CatalogFilters model={model} />
-          <div className="flex items-center gap-2">
-            <CatalogSearch
-              params={params}
-              searchPlaceholder={searchPlaceholder}
-              searchLabel={searchLabel}
-              className="lg:flex-none"
-            />
-            <SortMenu params={params} />
-          </div>
+          <CatalogSearch
+            params={params}
+            searchPlaceholder={searchPlaceholder}
+            searchLabel={searchLabel}
+            className="w-full max-w-md"
+          />
+          <SortMenu params={params} />
         </div>
+
+        <LookRail model={model} characters={characters} />
       </div>
 
       <CatalogFilterSheet
@@ -123,7 +166,6 @@ export function CatalogToolbar({
         onClose={closeFilters}
         model={model}
         resultCount={resultCount}
-        resetHref={resetHref}
       />
       <CatalogSortSheet
         open={sortOpen}
@@ -131,44 +173,6 @@ export function CatalogToolbar({
         params={params}
       />
     </>
-  );
-}
-
-function FilterTriggerButton({
-  count,
-  expanded,
-  onClick,
-}: {
-  count: number;
-  expanded: boolean;
-  onClick: () => void;
-}) {
-  const active = count > 0;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-expanded={expanded}
-      aria-haspopup="dialog"
-      aria-label={
-        count > 0 ? `Filters, ${count} applied` : "Filters"
-      }
-      className={cn(
-        "flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full border px-3 text-sm font-bold shadow-sm transition",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
-        active || expanded
-          ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
-          : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]/80",
-      )}
-    >
-      <SlidersHorizontal aria-hidden className="h-4 w-4 shrink-0" />
-      <span>Filters</span>
-      {count > 0 && (
-        <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--primary)] px-1 text-[11px] font-extrabold tabular-nums text-white">
-          {count}
-        </span>
-      )}
-    </button>
   );
 }
 
@@ -207,7 +211,7 @@ function CatalogSearch({
         placeholder={searchPlaceholder}
         aria-label={searchLabel}
         key={params.q ?? ""}
-        className="h-11 w-full rounded-full border border-[var(--border)] bg-[var(--card)] pl-10 pr-4 text-sm shadow-sm outline-none transition focus:border-[var(--primary)] lg:h-10 lg:w-64"
+        className="h-11 w-full rounded-full border border-[var(--border)] bg-[var(--card)] pl-10 pr-4 text-sm shadow-sm outline-none transition focus:border-[var(--primary)] lg:h-10"
       />
     </form>
   );

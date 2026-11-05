@@ -15,10 +15,9 @@ import path from "node:path";
 import sharp from "sharp";
 import {
   flattenTaxonomy,
-  MAGNETIC_RING_SLUG,
   ORIGINALS_SLUG,
   RAIL_HIDDEN_SLUGS,
-  RAIL_PINNED_SLUGS,
+  isSameShopAsParent,
   orderRailCategories,
 } from "../src/lib/catalog/collections-config";
 import {
@@ -52,27 +51,38 @@ function coverFile(slug: string): string {
   return path.join(COVER_DIR, `${slug}.webp`);
 }
 
-test("the magnetic ring holder leads Shop the universe when it has stock", () => {
-  assert.equal(RAIL_PINNED_SLUGS[0], MAGNETIC_RING_SLUG);
+test("Sanrio, Hello Kitty, and Miffy lead Shop the universe", () => {
   const ordered = orderRailCategories(
     [
-      { slug: "sanrio", count: 200 },
+      { slug: "originals", count: 200 },
+      { slug: "miffy", count: 10 },
+      { slug: "hello-kitty", count: 20 },
+      { slug: "sanrio", count: 50 },
       { slug: "magsafe", count: 100 },
-      { slug: MAGNETIC_RING_SLUG, count: 12 },
     ],
     14,
   );
-  assert.equal(ordered[0]?.slug, MAGNETIC_RING_SLUG);
-  assert.equal(ordered[1]?.slug, "sanrio");
+  assert.deepEqual(
+    ordered.slice(0, 3).map((category) => category.slug),
+    ["sanrio", "hello-kitty", "miffy"],
+  );
+  assert.equal(ordered.at(-1)?.slug, "originals");
 
   const empty = orderRailCategories(
     [
-      { slug: "sanrio", count: 10 },
-      { slug: MAGNETIC_RING_SLUG, count: 0 },
+      { slug: "sanrio", count: 0 },
+      { slug: "miffy", count: 4 },
+      { slug: "hello-kitty", count: 0 },
     ],
     14,
   );
-  assert.equal(empty[0]?.slug, "sanrio");
+  assert.equal(empty[0]?.slug, "miffy");
+});
+
+test("a character shelf that matches its parent shop is one tile", () => {
+  assert.equal(isSameShopAsParent(9, 9), true);
+  assert.equal(isSameShopAsParent(57, 116), false);
+  assert.equal(isSameShopAsParent(0, 0), false);
 });
 
 test("Originals is featured and not rail-hidden", () => {

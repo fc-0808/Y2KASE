@@ -83,7 +83,10 @@ export type OrderLineSummary = Pick<
   | "bundleFree"
 >;
 
-export type OrderRow = Order & { items: OrderLineSummary[] };
+export type OrderRow = Order & {
+  items: OrderLineSummary[];
+  user: { name: string } | null;
+};
 
 export type OrderStats = {
   total: number;
@@ -108,6 +111,7 @@ export async function getOrders(
     orderBy: desc(orders.createdAt),
     ...(limit ? { limit } : {}),
     with: {
+      user: { columns: { name: true } },
       items: {
         columns: {
           id: true,

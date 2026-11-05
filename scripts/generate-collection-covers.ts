@@ -35,6 +35,7 @@ import {
   hasBespokeCoverTheme,
 } from "./lib/collection-cover-themes";
 import { generateImage, requireKieApiKey } from "./lib/nano-banana";
+import { buildCollectionRail } from "./build-collection-rail";
 
 const OUT_WIDTH = 1024; // retina-crisp for a ~320px banner, tiny on disk as WebP
 const OUT_DIR = path.join(process.cwd(), "public", "brand", "collections");
@@ -214,6 +215,10 @@ async function main() {
     .filter((f) => f.endsWith(".webp"))
     .map((f) => f.replace(/\.webp$/, ""));
   writeManifest(onDisk, Date.now().toString(36));
+  const rail = await buildCollectionRail();
+  console.log(
+    `  Rail tiles: ${rail.count}, ${rail.before} bytes → ${rail.after} bytes`,
+  );
 
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(

@@ -28,13 +28,29 @@ import { MOTIF_FAMILY_SLUGS, isMotifFamilySlug } from "./motifs";
 /** Canonical path of the unscoped catalog. */
 export const CATALOG_PATH = "/products";
 
-export const SORT_VALUES = ["newest", "price-asc", "price-desc"] as const;
+export const SORT_VALUES = [
+  "newest",
+  "new",
+  "rating",
+  "price-asc",
+  "price-desc",
+] as const;
 export type SortValue = (typeof SORT_VALUES)[number];
 export const DEFAULT_SORT: SortValue = "newest";
 
-/** Full labels — the sort sheet, desktop menu, and accessible names. */
+/**
+ * Full labels — the sort sheet, desktop menu, and accessible names.
+ *
+ * The `newest` key is the default order: curated bestsellers, then newer
+ * uploads. Shoppers meet that as Featured. The query value stays `newest`
+ * so existing links and the catalog cache key do not change.
+ * `new` is upload date only. `rating` is a review score that does not let
+ * one five-star review outrank a case many people liked.
+ */
 export const SORT_LABELS: Record<SortValue, string> = {
-  newest: "Newest",
+  newest: "Featured",
+  new: "Newest",
+  rating: "Top rated",
   "price-asc": "Price: Low to High",
   "price-desc": "Price: High to Low",
 };
@@ -45,7 +61,9 @@ export const SORT_LABELS: Record<SortValue, string> = {
  * the full phrase.
  */
 export const SORT_TRIGGER_LABELS: Record<SortValue, string> = {
-  newest: "Newest",
+  newest: "Featured",
+  new: "Newest",
+  rating: "Top rated",
   "price-asc": "Low to high",
   "price-desc": "High to low",
 };
@@ -267,7 +285,7 @@ export function parseCatalogParams(
 
 /**
  * Serialise catalog state back to a URL on its own `basePath`, applying
- * `overrides` on top. Defaults (page 1, newest-first) are omitted so the common
+ * `overrides` on top. Defaults (page 1, the featured order) are omitted so the common
  * case stays a clean, canonical path, and touching any facet resets pagination
  * unless the caller explicitly sets a page.
  */

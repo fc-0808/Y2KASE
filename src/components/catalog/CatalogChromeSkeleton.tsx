@@ -1,30 +1,22 @@
 import { PRODUCT_CARD_FRAME, PRODUCT_MOSAIC } from "@/components/ProductCard";
 
 /**
- * Shared browse-chrome skeleton — sticky mobile refine bar (search + Filter /
- * Sort) and the desktop pill row — so /products, collection and device
+ * Shared browse-chrome skeleton — sticky mobile bar (search + sort) and the
+ * desktop search row — so /products, collection and device
  * loadings paint the same shape the live toolbar now has.
  */
-export function CatalogChromeSkeleton() {
+export function CatalogChromeSkeleton({ flushTop = false }: { flushTop?: boolean }) {
   return (
-    <div className="sticky top-[var(--storefront-header-h)] z-30 -mx-4 border-b border-[var(--border)] bg-[var(--background)]/90 px-4 py-2.5 sm:-mx-6 sm:px-6 lg:static lg:z-auto lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
-      <div className="flex flex-col gap-2 lg:hidden">
-        <div className="h-11 w-full animate-pulse rounded-full bg-[var(--muted)]" />
-        <div className="grid grid-cols-2 gap-2">
-          <div className="h-11 animate-pulse rounded-full bg-[var(--muted)]" />
-          <div className="h-11 animate-pulse rounded-full bg-[var(--muted)]" />
-        </div>
+    <div
+      className={`sticky top-[var(--storefront-header-h)] z-30 -mx-4 bg-background px-4 sm:-mx-6 sm:px-6 ${flushTop ? "-mt-4 pt-2 sm:-mt-6 sm:pt-2" : ""}`}
+    >
+      <div className="flex items-center gap-3 lg:hidden">
+        <div className="h-11 min-w-0 flex-1 animate-pulse rounded-full bg-[var(--muted)]" />
+        <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-[var(--muted)]" />
       </div>
-      <div className="hidden lg:flex lg:items-center lg:justify-between lg:gap-3">
-        <div className="flex gap-2">
-          <div className="h-10 w-36 animate-pulse rounded-full bg-[var(--muted)]" />
-          <div className="h-10 w-28 animate-pulse rounded-full bg-[var(--muted)]" />
-          <div className="h-10 w-24 animate-pulse rounded-full bg-[var(--muted)]" />
-        </div>
-        <div className="flex gap-2">
-          <div className="h-10 w-64 animate-pulse rounded-full bg-[var(--muted)]" />
-          <div className="h-10 w-36 animate-pulse rounded-full bg-[var(--muted)]" />
-        </div>
+      <div className="hidden lg:flex lg:items-center lg:gap-3">
+        <div className="h-10 w-full max-w-md animate-pulse rounded-full bg-[var(--muted)]" />
+        <div className="h-10 w-36 shrink-0 animate-pulse rounded-full bg-[var(--muted)]" />
       </div>
     </div>
   );
@@ -37,9 +29,10 @@ export function CatalogChromeSkeleton() {
  */
 export function ProductsListingSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-3 sm:px-6 sm:py-7">
-      <CatalogChromeSkeleton />
-      <div className="mb-4 mt-3 h-5 w-40 animate-pulse rounded-full bg-[var(--muted)] sm:mb-6 sm:mt-4" />
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
+      <CatalogChromeSkeleton flushTop />
+      <LookRailSkeleton />
+      <div className="mb-3 mt-3 h-5 w-40 animate-pulse rounded-full bg-[var(--muted)] sm:mb-4 sm:mt-4" />
       <CatalogGridSkeleton />
     </div>
   );
@@ -65,8 +58,29 @@ export function CatalogIdentityLandingSkeleton({
         ) : null}
       </div>
       <CatalogChromeSkeleton />
-      <div className="mb-4 mt-3 h-5 w-40 animate-pulse rounded-full bg-[var(--muted)] sm:mb-6 sm:mt-4" />
+      <LookRailSkeleton />
+      <div className="mb-3 mt-3 h-5 w-40 animate-pulse rounded-full bg-[var(--muted)] sm:mb-4 sm:mt-4" />
       <CatalogGridSkeleton />
+    </div>
+  );
+}
+
+function LookRailSkeleton() {
+  return (
+    <div className="mt-2" aria-hidden>
+      <div className="flex h-8 items-end gap-3">
+        <div className="mb-2 h-3 w-16 animate-pulse rounded-full bg-[var(--muted)]" />
+        <div className="mb-2 h-3 w-12 animate-pulse rounded-full bg-[var(--muted)]" />
+        <div className="mb-2 h-3 w-10 animate-pulse rounded-full bg-[var(--muted)]" />
+      </div>
+      <div className="mt-2 flex gap-2 overflow-hidden lg:gap-3">
+        {Array.from({ length: 8 }, (_, i) => (
+          <div key={i} className="w-20 shrink-0 lg:w-[6.75rem]">
+            <div className="aspect-video animate-pulse rounded-xl bg-[var(--muted)]" />
+            <div className="mx-auto mt-1.5 h-2.5 w-12 animate-pulse rounded-full bg-[var(--muted)]" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

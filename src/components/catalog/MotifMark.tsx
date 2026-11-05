@@ -1,10 +1,10 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
-import type { MotifFamily } from "@/lib/catalog/motifs";
+import { motifIconSrc, type MotifFamily } from "@/lib/catalog/motifs";
 
 /**
- * Visual motif chip — emoji on a pastel disc, shared by the catalog filter,
- * applied-filter chips and the admin picker so a Cloud looks like a cloud
- * everywhere.
+ * Theme sticker — the same pixel mark on the look rail, the applied-filter
+ * chip, and the admin picker, so a Cloud is a cloud everywhere.
  */
 export function MotifMark({
   family,
@@ -19,14 +19,22 @@ export function MotifMark({
     <span
       aria-hidden
       className={cn(
-        "inline-grid shrink-0 place-items-center rounded-full bg-[var(--muted)]",
-        size === "sm" && "h-3.5 w-3.5 text-[9px]",
-        size === "md" && "h-5 w-5 text-[11px]",
-        size === "lg" && "h-6 w-6 text-sm",
+        "relative inline-grid shrink-0 overflow-hidden bg-[#efe4ff]",
+        size === "sm" && "h-4 w-4 rounded-md",
+        size === "md" && "h-8 w-8 rounded-lg",
+        size === "lg" && "block aspect-square w-full rounded-xl",
         className,
       )}
     >
-      {family.icon}
+      <Image
+        src={motifIconSrc(family.slug)}
+        alt=""
+        fill
+        sizes={size === "lg" ? "(min-width: 1024px) 108px, 80px" : "32px"}
+        quality={75}
+        fetchPriority={size === "lg" ? "low" : "auto"}
+        className="object-cover"
+      />
     </span>
   );
 }

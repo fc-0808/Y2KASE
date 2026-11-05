@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { cache as reactCache } from "react";
 import { db, isDbConfigured } from "@/lib/db";
 import { CACHE_TAGS, cachedCatalogRead } from "@/lib/cache";
+import { getCatalogCacheSignature } from "@/lib/catalog/cache-signature";
 import {
   collections,
   productCollections,
@@ -59,20 +60,27 @@ async function activeMembership(): Promise<Map<number, Set<number>>> {
  * cost is paid site-wide. It is therefore wrapped in two cache layers:
  *  - `cachedCatalogRead` — a cross-request Data Cache entry, tagged so admin edits
  *    invalidate it on demand, turning a full `product_collections ⨝ products`
- *    scan into a single cached read.
+ *    scan into a single cached read. The key includes
+ *    {@link getCatalogCacheSignature} so this entry cannot refresh ahead of
+ *    the product grid.
  *  - React `cache` — request-level memoization so the layout and the page that
  *    both call this within one render share a single computation.
  */
 const getCollectionTreeCached = cachedCatalogRead(
-  computeCollectionTree,
-  ["collection-tree"],
+  async function collectionTreeForSignature(signature: string) {
+    void signature;
+    return computeCollectionTree();
+  },
+  // v2: signature argument. v1 could stay at an older catalog while the grid
+  // was already refreshed, so the menu count and the collection page disagreed.
+  ["collection-tree-v2"],
   { tags: [CACHE_TAGS.collections, CACHE_TAGS.products] },
 );
 
 export const getCollectionTree = reactCache(
   async (): Promise<CollectionNode[]> => {
     if (!isDbConfigured()) return [];
-    return getCollectionTreeCached();
+    return getCollectionTreeCached(await getCatalogCacheSignature());
   },
 );
 

@@ -87,7 +87,7 @@ export function useCatalogFilters({
   params,
   brands,
   counts,
-  brandsLabel = "Brands",
+  brandsLabel = "Characters",
   lockedDevice,
 }: {
   params: CatalogParams;
@@ -280,7 +280,7 @@ export function useCatalogFilters({
   const colorTriggerLabel =
     selectedColorFamilies.length === 1
       ? selectedColorFamilies[0]!.label
-      : "Color";
+      : "Colors";
   // Hide the facet entirely until at least one product in this view has a
   // colour — an empty Color menu on an unclassified catalogue is worse than
   // no menu. A selected value still shows, so a stale bookmark remains
@@ -295,7 +295,7 @@ export function useCatalogFilters({
   const motifTriggerLabel =
     selectedMotifFamilies.length === 1
       ? selectedMotifFamilies[0]!.label
-      : "Theme";
+      : "Themes";
   const motifFacetVisible =
     selectedMotifs.length > 0 ||
     MOTIF_FAMILIES.some((family) => (counts.motifs[family.slug] ?? 0) > 0);

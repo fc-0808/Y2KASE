@@ -6,14 +6,9 @@ import {
 } from "@/lib/products";
 import { getBrandFacets, getCollectionBySlug } from "@/lib/collections";
 import { findDevice, catalogHasMultipleDevices, deviceFilterLabel } from "@/lib/catalog/devices";
-import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
-import {
-  CatalogSummary,
-  buildCatalogChips,
-  humanize,
-} from "@/components/catalog/CatalogSummary";
-import { CatalogPagination } from "@/components/catalog/CatalogPagination";
+import { buildCatalogChips, humanize } from "@/components/catalog/CatalogSummary";
+import { CatalogStream } from "@/components/catalog/CatalogStream";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import { brandOptionName } from "@/components/catalog/brand-options";
 import { colorFamilyLabel, isColorFamilySlug } from "@/lib/catalog/colors";
@@ -36,6 +31,9 @@ import {
   type CatalogParams,
   type CatalogSearchParams,
 } from "@/lib/catalog/params";
+import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
+import { lookCharacters } from "@/lib/catalog/look-characters";
+import { isSoloDesignView } from "@/lib/catalog/look-rail";
 
 /**
  * Faceted catalog: never durable ISR. Each query string is a unique write.
@@ -82,6 +80,7 @@ export default async function ProductsPage({
       ...(brand.children?.map((child) => child.slug) ?? []),
     ]),
   );
+  offered.add(ORIGINALS_SLUG);
   const scoped: CatalogParams = {
     ...requested,
     brands: requested.brands.filter((slug) => offered.has(slug)),
@@ -110,7 +109,7 @@ export default async function ProductsPage({
 
   const [{ items, total, pageSize, facetCounts }, activeCollection] =
     await Promise.all([
-      getCatalogPage(query, undefined, characterSlugs),
+      getCatalogPage(query, undefined, [...characterSlugs, ORIGINALS_SLUG]),
       params.collection
         ? getCollectionBySlug(params.collection)
         : Promise.resolve(null),
@@ -127,8 +126,6 @@ export default async function ProductsPage({
   }
 
   const activeDevice = params.device ? findDevice(params.device) : undefined;
-  const rangeStart = total === 0 ? 0 : (params.page - 1) * pageSize + 1;
-  const rangeEnd = Math.min(params.page * pageSize, total);
   const brandName = (slug: string) =>
     brandOptionName(brands, slug) ?? humanize(slug);
   const magsafeLabel =
@@ -143,20 +140,17 @@ export default async function ProductsPage({
     collectionName: activeCollection?.name,
   });
   const filtered = hasActiveFilters(params);
+  const soloDesign = isSoloDesignView(params);
   const showDeviceBadge =
     catalogHasMultipleDevices(facetCounts.devices) && !params.device;
 
   /*
-   * The page heading is intentionally not painted.
-   *
-   * The branded hero band that used to carry it pushed the first row of
-   * products most of a fold down the page on mobile for no merchandising
-   * return — on a catalog you have already navigated to, "Shop All" tells the
-   * shopper nothing the products underneath don't. The <h1> itself still ships:
-   * it remains the document's outline root for assistive technology and the
-   * page's primary heading for crawlers, and it still describes the *filtered*
-   * view rather than the route. Deleting it outright would have been a real
-   * accessibility and SEO regression dressed up as a visual cleanup.
+   * Shop All stays untitled. A hero that said "Shop All" pushed the first
+   * cases off the phone for no merchandising return. The <h1> still ships
+   * for assistive technology and crawlers. It becomes visible only when one
+   * design facet is the entire view ("Hello Kitty cases", "Pink cases"),
+   * which is the moment the title tells the shopper something the grid does
+   * not already say.
    */
   const heading = activeDevice
     ? deviceFilterLabel(activeDevice.id)
@@ -177,7 +171,7 @@ export default async function ProductsPage({
               : PAGE_COPY.catalog.heading;
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-3 sm:px-6 sm:py-7">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -199,39 +193,38 @@ export default async function ProductsPage({
             : []),
         ]}
       />
-      <h1 className="sr-only">{heading}</h1>
-
       <CatalogToolbar
         params={params}
         brands={brands}
         counts={facetCounts}
         resultCount={total}
-        resetHref={filtered ? CATALOG_PATH : undefined}
+        characters={lookCharacters(brands, facetCounts.brands, params.brands)}
+        flushTop
       />
 
-      <CatalogSummary
-        total={total}
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        chips={chips}
-        resetHref={filtered ? CATALOG_PATH : undefined}
-      />
+      <h1
+        className={
+          soloDesign
+            ? "mt-3 text-xl font-black leading-none tracking-tight sm:text-2xl"
+            : "sr-only"
+        }
+      >
+        {heading}
+      </h1>
 
       {items.length > 0 ? (
-        <>
-          <div className={PRODUCT_MOSAIC}>
-            {items.map((product, index) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                imagePriority={index === 0}
-                headingLevel={2}
-                showDeviceBadge={showDeviceBadge}
-              />
-            ))}
-          </div>
-          <CatalogPagination params={params} totalPages={totalPages} />
-        </>
+        <CatalogStream
+          key={JSON.stringify(query)}
+          items={items}
+          total={total}
+          page={params.page}
+          pageSize={pageSize}
+          query={query}
+          params={params}
+          chips={chips}
+          resetHref={filtered ? CATALOG_PATH : undefined}
+          showDeviceBadge={showDeviceBadge}
+        />
       ) : (
         <CatalogEmpty filtered={filtered} resetHref={CATALOG_PATH} />
       )}

@@ -94,32 +94,28 @@ export function ProductCard({
     device && device.id !== "iphone" ? device.label : undefined;
   const media = catalogCardMedia(product.productType);
 
+  const productHref = `/products/${product.slug}`;
+  const saleBadge = onSale ? (
+    <span className="absolute left-2 top-2 rounded-full bg-[var(--primary)] px-2 py-0.5 text-[10px] font-extrabold text-white shadow-[0_3px_0_#d62f88] md:left-3 md:top-3 md:px-2.5 md:py-1 md:text-xs">
+      Sale
+    </span>
+  ) : null;
+
   return (
     <Link
-      href={`/products/${product.slug}`}
+      href={productHref}
       // A cold product render is a Fluid function. Prefetch would run one
       // for every card in view, including for someone who only scrolls.
       prefetch={false}
-      className="group block h-full min-h-0 w-full bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+      className="group flex h-full min-h-0 w-full flex-1 flex-col bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
     >
-      <ProductMedia
-        src={product.imageUrl}
-        alt={product.title}
-        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 360px"
-        loading={imagePriority ? "eager" : "lazy"}
-        fetchPriority={imagePriority ? "high" : "auto"}
-        fit={media.fit}
-        bare
-        className={`${PRODUCT_CARD_FRAME} shrink-0`}
-        imageClassName={media.imageClassName}
-      >
-        {onSale && (
-          <span className="absolute left-2 top-2 rounded-full bg-[var(--primary)] px-2 py-0.5 text-[10px] font-extrabold text-white shadow-[0_3px_0_#d62f88] md:left-3 md:top-3 md:px-2.5 md:py-1 md:text-xs">
-            Sale
-          </span>
-        )}
-      </ProductMedia>
       {/*
+        No enlarge control on the tile. A badge in the corner of every photo
+        covers the case and reads as chrome, not merchandise (Apple, SSENSE,
+        the Baymard listing guidelines). The whole card is the product link.
+        The full photo opens from the product page, where there is one image
+        and room for that control.
+
         Left-aligned at every breakpoint. Centred card copy looks balanced
         against a centred product photo but it is slower to scan across a
         two-column grid (Baymard: title and price must be visually distinct
@@ -131,6 +127,20 @@ export function ProductCard({
         The kicker slot is reserved whenever badges are on; the title slot is
         always two lines; the price is pinned to the bottom with `mt-auto`.
       */}
+      <ProductMedia
+        src={product.imageUrl}
+        alt={product.title}
+        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 360px"
+        loading={imagePriority ? "eager" : "lazy"}
+        priority={imagePriority}
+        fetchPriority={imagePriority ? "high" : "auto"}
+        fit={media.fit}
+        bare
+        className={`${PRODUCT_CARD_FRAME} w-full shrink-0`}
+        imageClassName={media.imageClassName}
+      >
+        {saleBadge}
+      </ProductMedia>
       <div className="flex min-h-0 flex-1 flex-col gap-1 pt-2 text-left md:gap-1.5 md:pt-2.5">
         {showDeviceBadge && deviceKicker ? (
           <p className={KICKER_SLOT}>{deviceKicker}</p>

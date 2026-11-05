@@ -92,6 +92,22 @@ export function countryName(code?: string | null): string {
   }
 }
 
+function tidyName(value?: string | null): string {
+  return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+/**
+ * The person this order is for. The shipping name is who the parcel is
+ * addressed to; the account name covers a signed-in checkout that never
+ * reached payment.
+ */
+export function orderCustomerName(order: {
+  shippingAddress?: { name?: string | null } | null;
+  user?: { name?: string | null } | null;
+}): string {
+  return tidyName(order.shippingAddress?.name) || tidyName(order.user?.name);
+}
+
 /**
  * Human label for an order's customer column. Guest checkouts start with no
  * email (it's collected by Stripe at payment), so instead of rendering a blank

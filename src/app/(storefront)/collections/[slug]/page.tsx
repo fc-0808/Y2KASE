@@ -18,7 +18,7 @@ import {
 } from "@/lib/products";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
-import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
+import { CatalogStream } from "@/components/catalog/CatalogStream";
 import { JsonLd } from "@/components/JsonLd";
 import {
   breadcrumbJsonLd,
@@ -28,17 +28,15 @@ import {
   FACET_PAGE_ROBOTS,
   isIndexableCatalogPage,
 } from "@/lib/seo";
-import { collectionSeo, collectionBrowseTagline, collectionFilteredTitle } from "@/lib/seo/copy";
+import { collectionSeo, collectionFilteredTitle } from "@/lib/seo/copy";
 import {
+  iphone18FitLinkLabel,
   iphone18FitPath,
   isIphone18CollectionSlug,
 } from "@/lib/seo/fit-landings";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
-import {
-  CatalogSummary,
-  buildCatalogChips,
-} from "@/components/catalog/CatalogSummary";
-import { CatalogPagination } from "@/components/catalog/CatalogPagination";
+import { lookCharacters } from "@/lib/catalog/look-characters";
+import { buildCatalogChips } from "@/components/catalog/CatalogSummary";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import { CollectionEditorialBlock } from "@/components/CollectionEditorialBlock";
 import { collectionEditorial } from "@/lib/seo/collection-editorial";
@@ -54,7 +52,7 @@ import {
   catalogHasMultipleDevices,
   stockedDeviceIds,
 } from "@/lib/catalog/devices";
-import { MAGNETIC_RING_SLUG } from "@/lib/catalog/collections-config";
+import { MAGNETIC_RING_SLUG, ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
 import type { BrandOption } from "@/components/catalog/brand-options";
 
 /** Faceted collection landings: never durable ISR. */
@@ -218,6 +216,7 @@ async function CollectionCatalog({
   const offered = new Set([
     ...children.map((child) => child.slug),
     ...characterFacets.map((character) => character.slug),
+    ORIGINALS_SLUG,
   ]);
   const scoped: CatalogParams = {
     ...requested,
@@ -248,7 +247,7 @@ async function CollectionCatalog({
       : characterFacets.map((character) => character.slug);
   const { items, total, pageSize, facetCounts } = await getCatalogPage(
     query,
-    facetSlugs,
+    [...facetSlugs, ORIGINALS_SLUG],
   );
   const visibleCharacters = characterFacets.filter(
     (character) =>
@@ -265,15 +264,11 @@ async function CollectionCatalog({
     redirect(buildCatalogHref(catalogParams, { page: totalPages }));
   }
 
-  const accent = collection.accentColor ?? "var(--primary)";
-  const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
-  const rangeEnd = Math.min(catalogParams.page * pageSize, total);
   const filtered = hasActiveFilters(catalogParams);
   const chips = buildCatalogChips(catalogParams, { brands: brandOptions });
   const stocked = stockedDeviceIds(facetCounts.devices);
   const seoInput = { ...collection, stockedDeviceIds: stocked };
   const copy = collectionSeo(seoInput);
-  const tagline = collectionBrowseTagline(seoInput, stocked);
   const showDeviceBadge =
     catalogHasMultipleDevices(facetCounts.devices) && !catalogParams.device;
   const parent =
@@ -314,25 +309,13 @@ async function CollectionCatalog({
         ]}
       />
 
-      {/* Identity band: where you are and what this is. The product count lives
-          in the result summary below instead of here — with filters on the page
-          a fixed "41 products" beside the title would contradict the "1–8 of 8"
-          directly under it. The concise description remains visible because
-          on-page content, not hidden metadata, is what shoppers and answer
-          engines can evaluate and quote. */}
-      <header
-        className="mb-3 overflow-hidden rounded-2xl border border-[var(--border)] px-3 py-3 sm:mb-4 sm:rounded-3xl sm:px-6 sm:py-4"
-        style={{
-          // `color-mix`, not `${accent}1f`: `accentColor` is nullable
-          // (`taxonomy-sync` writes `?? null`), so this can resolve to
-          // `var(--primary)`, which no appended hex alpha can express.
-          // `var(--primary)1f` is an invalid stop and drops the whole gradient.
-          background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 12%, transparent), transparent 70%)`,
-        }}
-      >
+      {/* Title on a phone. The description stays in the page for search, and
+          on a wider screen, but it does not sit between the heading and the
+          cases. */}
+      <header className="mb-3 sm:mb-4">
         <nav
           aria-label="Breadcrumb"
-          className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/65 sm:text-sm"
+          className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/55"
         >
           <Link href="/collections" className="hover:text-[var(--primary)]">
             Collections
@@ -361,18 +344,15 @@ async function CollectionCatalog({
             );
           })}
         </nav>
-        <h1 className="mt-1.5 text-xl font-black sm:text-3xl">
+        <h1 className="mt-2 text-2xl font-black leading-none tracking-tight sm:text-3xl">
           {copy.heading}
         </h1>
-        <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:mt-1.5 sm:line-clamp-none sm:text-base">
-          {tagline}
-        </p>
         {isIphone18CollectionSlug(slug) && stocked.includes("iphone") && (
           <Link
             href={iphone18FitPath(slug)}
-            className="mt-2 inline-flex min-h-9 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+            className="mt-2.5 inline-flex min-h-8 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
           >
-            iPhone 18
+            {iphone18FitLinkLabel(slug)}
           </Link>
         )}
       </header>
@@ -389,32 +369,26 @@ async function CollectionCatalog({
         searchPlaceholder={`Search ${collection.name}…`}
         searchLabel={`Search ${collection.name} products`}
         resultCount={total}
-        resetHref={filtered ? basePath : undefined}
-      />
-
-      <CatalogSummary
-        total={total}
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        chips={chips}
-        resetHref={filtered ? basePath : undefined}
+        characters={lookCharacters(
+          brandOptions,
+          facetCounts.brands,
+          catalogParams.brands,
+        )}
       />
 
       {items.length > 0 ? (
-        <>
-          <div className={PRODUCT_MOSAIC}>
-            {items.map((product, index) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                imagePriority={index === 0}
-                headingLevel={2}
-                showDeviceBadge={showDeviceBadge}
-              />
-            ))}
-          </div>
-          <CatalogPagination params={catalogParams} totalPages={totalPages} />
-        </>
+        <CatalogStream
+          key={JSON.stringify(query)}
+          items={items}
+          total={total}
+          page={catalogParams.page}
+          pageSize={pageSize}
+          query={query}
+          params={catalogParams}
+          chips={chips}
+          resetHref={filtered ? basePath : undefined}
+          showDeviceBadge={showDeviceBadge}
+        />
       ) : (
         <CatalogEmpty
           filtered={filtered}

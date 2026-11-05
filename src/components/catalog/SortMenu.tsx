@@ -7,7 +7,7 @@
  * <select> painted the OS picker over the Y2K chrome on every platform.
  *
  * Mobile: the compact refine-bar button opens {@link CatalogSortSheet}, a
- * bottom sheet with the same three radios. Combining Filter and Sort into one
+ * bottom sheet with the same radios. Combining Filter and Sort into one
  * unclear control is the pattern Baymard and Shopify both warn against; they
  * stay sibling actions that share URL state via {@link buildCatalogHref}.
  */
@@ -168,10 +168,15 @@ export function SortTriggerButton({
   params,
   expanded,
   onClick,
+  iconOnly = false,
+  className,
 }: {
   params: CatalogParams;
   expanded: boolean;
   onClick: () => void;
+  /** Phone bar: the arrows alone, so search keeps the width. */
+  iconOnly?: boolean;
+  className?: string;
 }) {
   const active = params.sort !== DEFAULT_SORT;
   return (
@@ -187,10 +192,13 @@ export function SortTriggerButton({
         active || expanded
           ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
           : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]/80",
+        className,
       )}
     >
       <ArrowDownUp aria-hidden className="h-4 w-4 shrink-0" />
-      <span className="truncate">{SORT_TRIGGER_LABELS[params.sort]}</span>
+      {!iconOnly && (
+        <span className="truncate">{SORT_TRIGGER_LABELS[params.sort]}</span>
+      )}
     </button>
   );
 }

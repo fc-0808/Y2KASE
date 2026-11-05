@@ -19,7 +19,11 @@ import {
   type CatalogParams,
 } from "@/lib/catalog/params";
 import type { ProductWithRelations, Review } from "@/lib/db/schema";
-import { SHIPPING_COUNTRIES, SHIPPING_REGIONS } from "@/lib/shipping";
+import {
+  HANDLING_BUSINESS_DAYS,
+  SHIPPING_COUNTRIES,
+  SHIPPING_REGIONS,
+} from "@/lib/shipping";
 import { productTypeLabel } from "@/lib/catalog/product-types";
 import {
   absoluteUrl,
@@ -263,11 +267,10 @@ export function shippingServiceJsonLd(): JsonLdObject {
     "@type": "ShippingService",
     "@id": SHIPPING_SERVICE_ID,
     name: "Y2KASE standard shipping",
-    description:
-      "Tracked delivery worldwide, processed in 1–3 business days. Published transit times cover the markets most orders go to.",
+    description: `Tracked delivery worldwide, processed in ${HANDLING_BUSINESS_DAYS.min}–${HANDLING_BUSINESS_DAYS.max} business days. Published transit times cover the markets most orders go to.`,
     fulfillmentType: "https://schema.org/FulfillmentTypeDelivery",
     handlingTime: {
-      ...servicePeriod(1, 3),
+      ...servicePeriod(HANDLING_BUSINESS_DAYS.min, HANDLING_BUSINESS_DAYS.max),
       businessDays: [
         "https://schema.org/Monday",
         "https://schema.org/Tuesday",

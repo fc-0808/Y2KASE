@@ -109,7 +109,9 @@ export async function generateAndStore(
   });
 
   // Persist first with the catalog-photo fallback cover, so a slow or failed
-  // hero-image step can never block the article from being saved/published.
+  // hero-image step can never block the article from being saved. The hero
+  // is still generated for every post; the catalog photo only remains if
+  // that generation fails.
   const postId = await insertPost({
     slug: article.slug,
     title: article.title,

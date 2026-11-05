@@ -1,4 +1,5 @@
 import { revalidateTag, unstable_cache } from "next/cache";
+import { forgetCatalogSignature } from "@/lib/catalog/cache-signature";
 
 /**
  * Storefront cache policy.
@@ -223,6 +224,7 @@ export function revalidateReviewSurfaces(): void {
   const state = devCatalogState();
   state.entries.clear();
   state.generation += 1;
+  forgetCatalogSignature();
   try {
     revalidateTag(CACHE_TAGS.reviews, "max");
   } catch (err) {
@@ -234,6 +236,7 @@ export function revalidateStorefrontCatalog(): void {
   const state = devCatalogState();
   state.entries.clear();
   state.generation += 1;
+  forgetCatalogSignature();
   try {
     revalidateTag(CACHE_TAGS.products, "max");
     revalidateTag(CACHE_TAGS.collections, "max");

@@ -23,15 +23,13 @@ import {
   type ProductQuery,
 } from "@/lib/products";
 import { getBrandFacets } from "@/lib/collections";
-import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
+import { CatalogStream } from "@/components/catalog/CatalogStream";
 import { CatalogIdentityLandingSkeleton } from "@/components/catalog/CatalogChromeSkeleton";
 import { JsonLd } from "@/components/JsonLd";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
-import {
-  CatalogSummary,
-  buildCatalogChips,
-} from "@/components/catalog/CatalogSummary";
-import { CatalogPagination } from "@/components/catalog/CatalogPagination";
+import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
+import { lookCharacters } from "@/lib/catalog/look-characters";
+import { buildCatalogChips } from "@/components/catalog/CatalogSummary";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import { DeviceGlyph } from "@/components/brand/DeviceGlyph";
 import {
@@ -166,6 +164,7 @@ async function DeviceLandingContent({
       ...(brand.children?.map((child) => child.slug) ?? []),
     ]),
   );
+  offered.add(ORIGINALS_SLUG);
   const scoped: CatalogParams = {
     ...requested,
     device: undefined,
@@ -201,7 +200,7 @@ async function DeviceLandingContent({
   const { items, total, pageSize, facetCounts } = await getCatalogPage(
     query,
     undefined,
-    characterSlugs,
+    [...characterSlugs, ORIGINALS_SLUG],
   );
 
   const filtered = hasActiveFilters(catalogParams);
@@ -219,8 +218,6 @@ async function DeviceLandingContent({
     redirect(buildCatalogHref(catalogParams, { page: totalPages }));
   }
 
-  const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
-  const rangeEnd = Math.min(catalogParams.page * pageSize, total);
   const chips = buildCatalogChips(catalogParams, { brands });
 
   // Destination links below the grid, counted under this device rather than the
@@ -259,22 +256,12 @@ async function DeviceLandingContent({
         ]}
       />
 
-      {/* Identity band: where you are and what this is, in two lines. The
-          design count that used to sit here now lives in the result summary
-          below — with filters on the page a fixed "108 designs" beside the
-          title would contradict the "1–24 of 40" directly under it — and the
-          long-form intro moved below the grid, where it no longer pushes the
-          first row of products off a phone screen. */}
-      <header
-        className="mb-3 overflow-hidden rounded-2xl border border-[var(--border)] px-3 py-3 sm:mb-4 sm:rounded-3xl sm:px-6 sm:py-4"
-        style={{
-          background:
-            "linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, transparent), transparent 70%)",
-        }}
-      >
+      {/* Title, then products. Fit notes and the long intro sit under the
+          grid so a phone opens on the cases, not on three paragraphs. */}
+      <header className="mb-3 sm:mb-4">
         <nav
           aria-label="Breadcrumb"
-          className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/65 sm:text-sm"
+          className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/55"
         >
           <Link href="/" className="hover:text-[var(--primary)]">
             Home
@@ -291,54 +278,9 @@ async function DeviceLandingContent({
             {seo.heading}
           </span>
         </nav>
-        <h1 className="mt-1.5 text-xl font-black sm:text-3xl">
+        <h1 className="mt-2 text-2xl font-black leading-none tracking-tight sm:text-3xl">
           {seo.heading}
         </h1>
-        <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70 sm:mt-1.5 sm:line-clamp-none sm:text-base">
-          {seo.tagline}
-        </p>
-        {slug === "iphone" && (
-          <p className="mt-2.5 text-sm font-semibold text-[var(--foreground)]/75">
-            Looking for the foldable?{" "}
-            <Link
-              href="/devices/iphone-duo"
-              className="text-[var(--primary)] underline-offset-2 hover:underline"
-            >
-              iPhone Duo cases
-            </Link>{" "}
-            are a separate mould. These designs do not fit it.
-          </p>
-        )}
-        {slug === "iphone" && (
-          <p className="mt-1.5 text-sm font-semibold text-[var(--foreground)]/75">
-            <Link
-              href="/devices/magnetic-grips"
-              className="text-[var(--primary)] underline-offset-2 hover:underline"
-            >
-              Magnetic grips
-            </Link>{" "}
-            are their own section, at the same price as an iPhone case.
-          </p>
-        )}
-        {slug === "iphone" && (
-          <nav
-            aria-label="iPhone 18 cases by character"
-            className="mt-2.5 flex gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible"
-          >
-            {IPHONE_18_COLLECTIONS.filter(
-              (entry) => (facetCounts.brands[entry.slug] ?? 0) > 0,
-            ).map((entry) => (
-              <Link
-                key={entry.slug}
-                href={iphone18FitPath(entry.slug)}
-                aria-label={iphone18FitHeading(entry.name)}
-                className="inline-flex min-h-10 shrink-0 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
-              >
-                {entry.name}
-              </Link>
-            ))}
-          </nav>
-        )}
       </header>
 
       <CatalogToolbar
@@ -349,32 +291,22 @@ async function DeviceLandingContent({
         searchPlaceholder={`Search ${catalogLabel}…`}
         searchLabel={`Search ${catalogLabel}`}
         resultCount={total}
-        resetHref={filtered ? basePath : undefined}
-      />
-
-      <CatalogSummary
-        total={total}
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        chips={chips}
-        resetHref={filtered ? basePath : undefined}
+        characters={lookCharacters(brands, facetCounts.brands, catalogParams.brands)}
       />
 
       {items.length > 0 ? (
-        <>
-          <div className={PRODUCT_MOSAIC}>
-            {items.map((product, index) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                imagePriority={index === 0}
-                headingLevel={2}
-                showDeviceBadge={false}
-              />
-            ))}
-          </div>
-          <CatalogPagination params={catalogParams} totalPages={totalPages} />
-        </>
+        <CatalogStream
+          key={JSON.stringify(query)}
+          items={items}
+          total={total}
+          page={catalogParams.page}
+          pageSize={pageSize}
+          query={query}
+          params={catalogParams}
+          chips={chips}
+          resetHref={filtered ? basePath : undefined}
+          showDeviceBadge={false}
+        />
       ) : (
         <CatalogEmpty
           filtered={filtered}
@@ -396,8 +328,18 @@ async function DeviceLandingContent({
         destinations under the products stops them competing with the controls
         for the fold.
       */}
+      {slug === "iphone" && (
+        <Iphone18CharacterLinks counts={facetCounts.brands} />
+      )}
+
       {brandLinks.length > 0 && (
-        <section className="mt-12 border-t border-[var(--border)] pt-6">
+        <section
+          className={
+            slug === "iphone"
+              ? "mt-8"
+              : "mt-12 border-t border-[var(--border)] pt-6"
+          }
+        >
           <h2 className="mb-3 text-lg font-black">
             Shop {catalogLabel} by brand
           </h2>
@@ -420,6 +362,25 @@ async function DeviceLandingContent({
             ))}
           </div>
         </section>
+      )}
+
+      {slug === "iphone" && (
+        <p className="mt-8 max-w-3xl text-sm leading-relaxed text-[var(--foreground)]/70">
+          <Link
+            href="/devices/iphone-duo"
+            className="font-semibold text-[var(--primary)]"
+          >
+            iPhone Duo
+          </Link>{" "}
+          needs its own case.{" "}
+          <Link
+            href="/devices/magnetic-grips"
+            className="font-semibold text-[var(--primary)]"
+          >
+            Magnetic grips
+          </Link>{" "}
+          are a separate section.
+        </p>
       )}
 
       {/* Long-form copy + the exact fit list: unique, quotable on-page content
@@ -458,5 +419,41 @@ async function DeviceLandingContent({
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * iPhone 18 character pages, under the grid.
+ *
+ * These leave this page for a character's own iPhone 18 landing. The look
+ * rail above already filters characters in place, so the same names in the
+ * header were a second row that did something else. Down here they read as
+ * destinations, which is what the links actually are.
+ */
+function Iphone18CharacterLinks({
+  counts,
+}: {
+  counts: Record<string, number>;
+}) {
+  const links = IPHONE_18_COLLECTIONS.filter(
+    (entry) => (counts[entry.slug] ?? 0) > 0,
+  );
+  if (links.length === 0) return null;
+  return (
+    <section className="mt-12 border-t border-[var(--border)] pt-6">
+      <h2 className="mb-3 text-lg font-black">iPhone 18 by character</h2>
+      <div className="flex flex-wrap gap-2">
+        {links.map((entry) => (
+          <Link
+            key={entry.slug}
+            href={iphone18FitPath(entry.slug)}
+            aria-label={iphone18FitHeading(entry.name)}
+            className="inline-flex min-h-9 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+          >
+            {entry.name}
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }

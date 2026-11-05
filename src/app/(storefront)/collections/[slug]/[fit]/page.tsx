@@ -14,14 +14,12 @@ import {
 import { getCatalogPage, type ProductQuery } from "@/lib/products";
 import { isColorFamilySlug } from "@/lib/catalog/colors";
 import { isMotifFamilySlug } from "@/lib/catalog/motifs";
-import { ProductCard, PRODUCT_MOSAIC } from "@/components/ProductCard";
+import { CatalogStream } from "@/components/catalog/CatalogStream";
 import { JsonLd } from "@/components/JsonLd";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
-import {
-  CatalogSummary,
-  buildCatalogChips,
-} from "@/components/catalog/CatalogSummary";
-import { CatalogPagination } from "@/components/catalog/CatalogPagination";
+import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
+import { lookCharacters } from "@/lib/catalog/look-characters";
+import { buildCatalogChips } from "@/components/catalog/CatalogSummary";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import {
   breadcrumbJsonLd,
@@ -129,7 +127,7 @@ async function readFitCatalog(
   const children = stockedChildren(tree, slug);
   const catalogParams = scopeFitCatalog(
     requested,
-    new Set(children.map((child) => child.slug)),
+    new Set([...children.map((child) => child.slug), ORIGINALS_SLUG]),
   );
   if (buildCatalogHref(catalogParams) !== buildCatalogHref(requested)) {
     redirect(buildCatalogHref(catalogParams));
@@ -216,7 +214,7 @@ async function Iphone18FitCatalog({
     await Promise.all([
       getCatalogPage(
         query,
-        children.map((child) => child.slug),
+        [...children.map((child) => child.slug), ORIGINALS_SLUG],
       ),
       getCollectionBreadcrumb(collection),
     ]);
@@ -235,9 +233,6 @@ async function Iphone18FitCatalog({
       catalogParams.brands.includes(child.slug),
   );
   const copy = iphone18FitCopy(collection.name, slug);
-  const accent = collection.accentColor ?? "var(--primary)";
-  const rangeStart = total === 0 ? 0 : (catalogParams.page - 1) * pageSize + 1;
-  const rangeEnd = Math.min(catalogParams.page * pageSize, total);
   const chips = buildCatalogChips(catalogParams, { brands: brandOptions });
   const chipClass =
     "inline-flex min-h-11 shrink-0 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 text-sm font-semibold shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2";
@@ -275,12 +270,7 @@ async function Iphone18FitCatalog({
         ]}
       />
 
-      <header
-        className="mb-3 min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] px-3.5 py-3 sm:mb-4 sm:rounded-3xl sm:px-6 sm:py-4"
-        style={{
-          background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 16%, transparent), transparent 72%)`,
-        }}
-      >
+      <header className="mb-3 min-w-0 sm:mb-4">
         <nav
           aria-label="Breadcrumb"
           className="flex min-w-0 items-center gap-1 text-xs text-[var(--foreground)]/55"
@@ -299,15 +289,12 @@ async function Iphone18FitCatalog({
             iPhone 18
           </span>
         </nav>
-        <h1 className="mt-1.5 min-w-0 text-[1.65rem] font-black leading-none tracking-tight sm:text-4xl">
+        <h1 className="mt-2 min-w-0 text-2xl font-black leading-none tracking-tight sm:text-3xl">
           <span className="sr-only">{copy.heading}</span>
           <span aria-hidden="true" className="block truncate">
             {collection.name}
           </span>
         </h1>
-        <p className="mt-1 text-sm font-medium text-[var(--foreground)]/65">
-          Pro & Pro Max
-        </p>
       </header>
 
       <CatalogToolbar
@@ -319,32 +306,26 @@ async function Iphone18FitCatalog({
         searchPlaceholder={`Search ${collection.name}…`}
         searchLabel={`Search ${collection.name} iPhone 18 cases`}
         resultCount={total}
-        resetHref={filtered ? basePath : undefined}
-      />
-
-      <CatalogSummary
-        total={total}
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        chips={chips}
-        resetHref={filtered ? basePath : undefined}
+        characters={lookCharacters(
+          brandOptions,
+          facetCounts.brands,
+          catalogParams.brands,
+        )}
       />
 
       {items.length > 0 ? (
-        <>
-          <div className={PRODUCT_MOSAIC}>
-            {items.map((product, index) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                imagePriority={index === 0}
-                headingLevel={2}
-                showDeviceBadge={false}
-              />
-            ))}
-          </div>
-          <CatalogPagination params={catalogParams} totalPages={totalPages} />
-        </>
+        <CatalogStream
+          key={JSON.stringify(query)}
+          items={items}
+          total={total}
+          page={catalogParams.page}
+          pageSize={pageSize}
+          query={query}
+          params={catalogParams}
+          chips={chips}
+          resetHref={filtered ? basePath : undefined}
+          showDeviceBadge={false}
+        />
       ) : (
         <CatalogEmpty
           filtered={filtered}
