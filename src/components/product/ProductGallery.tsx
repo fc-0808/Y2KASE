@@ -171,11 +171,9 @@ export function ProductGallery({
   const hasStrip = slides.length > 1;
   const atStart = activeIndex <= 0;
   const atEnd = activeIndex >= lastIndex;
-  // One frame for every slide. Matching each file's own ratio changes the
-  // stage height on swipe, so the title, price, and buy bar jump. The frame
-  // stays as tall as the tallest slide. On a phone that file is taller than
-  // the screen, so a max-height (see the stage) keeps the whole case above
-  // the sticky buy bar instead of letting the bar cover it.
+  // One frame for every slide, as wide as the screen. Squeezing that frame
+  // shorter than the file leaves white bars beside the case. Wider slides
+  // fit inside this frame; the hero fills it.
   const frameRatio = useMemo(() => {
     let tallest = Infinity;
     for (const slide of slides) {
@@ -376,14 +374,19 @@ export function ProductGallery({
           className="absolute inset-0 grid place-items-center"
         >
           <div
-            className="relative max-h-full"
+            className={cn(
+              "relative max-h-full",
+              current?.kind === "video" && "h-full min-h-0 w-full overflow-hidden",
+            )}
             style={
-              currentRatio
-                ? {
-                    aspectRatio: currentRatio,
-                    width: fittedWidth(currentRatio),
-                  }
-                : { width: "100%", height: "100%" }
+              current?.kind === "video"
+                ? undefined
+                : currentRatio
+                  ? {
+                      aspectRatio: currentRatio,
+                      width: fittedWidth(currentRatio),
+                    }
+                  : { width: "100%", height: "100%" }
             }
           >
             {current?.kind === "video" ? (
@@ -391,7 +394,7 @@ export function ProductGallery({
                 <video
                   key={current.url}
                   src={current.url}
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-cover"
                   controls
                   autoPlay
                   muted
