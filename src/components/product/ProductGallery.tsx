@@ -58,6 +58,22 @@ export type ProductGallerySlide =
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2";
 
+/** 44px hit target, small translucent face so the photo stays visible. */
+const STAGE_ARROW = cn(
+  "group absolute top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center",
+  FOCUS_RING,
+  "disabled:pointer-events-none disabled:opacity-25",
+);
+const STAGE_ARROW_FACE = cn(
+  "grid size-7 place-items-center rounded-full",
+  "bg-white/45 text-[var(--foreground)]/70 backdrop-blur-[2px]",
+  "transition group-hover:bg-white/75 group-hover:text-[var(--foreground)]",
+);
+const RAIL_ARROW = cn(
+  "group absolute z-10 grid size-9 place-items-center",
+  FOCUS_RING,
+);
+
 const SWIPE_PX = 48;
 
 function reducedMotion(): boolean {
@@ -110,6 +126,18 @@ function slideKey(slide: ProductGallerySlide): string {
   return slide.kind === "video" ? `video-${slide.url}` : `img-${slide.id}`;
 }
 
+/**
+ * Width of a slide inside the shared frame, as a percentage of the frame.
+ * A wider slide uses the full width. A taller one shrinks so it stays fully
+ * visible without the frame itself changing size.
+ */
+function fittedWidth(mediaRatio: number, frameRatio: number): string {
+  if (!(mediaRatio > 0) || !(frameRatio > 0) || mediaRatio >= frameRatio) {
+    return "100%";
+  }
+  return `${(mediaRatio / frameRatio) * 100}%`;
+}
+
 function slideLabel(slide: ProductGallerySlide, index: number, total: number): string {
   const kind = slide.kind === "video" ? "product video" : "product photo";
   return `${kind} ${index + 1} of ${total}`;
@@ -134,6 +162,7 @@ export function ProductGallery({
   const suppressStageClick = useRef(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
+  const [ratios, setRatios] = useState<Record<string, number>>({});
   const [rail, setRail] = useState<{
     axis: "x" | "y";
     start: boolean;
@@ -145,6 +174,28 @@ export function ProductGallery({
   const hasStrip = slides.length > 1;
   const atStart = activeIndex <= 0;
   const atEnd = activeIndex >= lastIndex;
+  // One frame for every slide. Matching each file's own ratio changes the
+  // stage height on swipe, so the title, price, and buy bar jump. The frame
+  // stays as tall as the tallest slide: a wider photo letterboxes above and
+  // below, and a portrait photo still meets the left and right edges.
+  const frameRatio = useMemo(() => {
+    let tallest = Infinity;
+    for (const slide of slides) {
+      if (slide.kind !== "image") continue;
+      const ratio = ratios[slide.url];
+      if (ratio > 0 && ratio < tallest) tallest = ratio;
+    }
+    return Number.isFinite(tallest) ? tallest : 3 / 4;
+  }, [ratios, slides]);
+  const currentMediaUrl =
+    current?.kind === "image" || current?.kind === "video" ? current.url : "";
+  const currentRatio = currentMediaUrl ? ratios[currentMediaUrl] : undefined;
+
+  const rememberRatio = useCallback((url: string, width: number, height: number) => {
+    if (width <= 0 || height <= 0) return;
+    const ratio = width / height;
+    setRatios((prev) => (prev[url] === ratio ? prev : { ...prev, [url]: ratio }));
+  }, []);
 
   const viewerSlides = useMemo<ProductViewerSlide[]>(
     () =>
@@ -215,7 +266,7 @@ export function ProductGallery({
   }
 
   function onGalleryKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (!(event.target instanceof HTMLElement)) return;
+    if (!(event.target instanceof Element)) return;
     if (event.target.closest("video")) return;
     const { key } = event;
     if (key === "ArrowLeft" || key === "ArrowUp") {
@@ -239,10 +290,22 @@ export function ProductGallery({
 
   function onStagePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType !== "touch") return;
-    if (event.target instanceof HTMLElement && event.target.closest("button, video")) {
+    // The chevron is an SVG, which is not an HTMLElement. A press on the
+    // icon must still count as a press on its button. A swipe that starts
+    // on the video must still change slides — the <video> fills the stage.
+    if (event.target instanceof Element && event.target.closest("button")) {
       return;
     }
+    const onVideo =
+      event.target instanceof Element &&
+      Boolean(event.target.closest("video, [data-video-swipe]"));
     swipeOrigin.current = { x: event.clientX, y: event.clientY };
+    if (!onVideo) return;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // The pointer can already be gone. The swipe still completes on pointerup.
+    }
   }
 
   function onStagePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
@@ -280,11 +343,12 @@ export function ProductGallery({
     >
       <div
         className={cn(
-          "relative aspect-square min-w-0 overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:-mx-4 max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
+          "relative min-w-0 overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:-mx-4 max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
           "transform-gpu touch-pan-y",
           hasStrip && "lg:ml-[6rem]",
           current?.kind === "image" && "cursor-zoom-in",
         )}
+        style={{ aspectRatio: frameRatio }}
         onPointerDown={onStagePointerDown}
         onPointerUp={onStagePointerEnd}
         onPointerCancel={() => {
@@ -292,7 +356,7 @@ export function ProductGallery({
         }}
         onClick={(event) => {
           if (
-            event.target instanceof HTMLElement &&
+            event.target instanceof Element &&
             event.target.closest("button, video")
           ) {
             return;
@@ -311,99 +375,122 @@ export function ProductGallery({
           id={panelId}
           role="tabpanel"
           aria-labelledby={`${uid}-tab-${activeIndex}`}
-          className="absolute inset-0"
+          className="absolute inset-0 grid place-items-center"
         >
-          {current?.kind === "video" ? (
-            <video
-              key={current.url}
-              src={current.url}
-              className="h-full w-full object-contain"
-              controls
-              autoPlay
-              muted
-              loop
-              playsInline
-              onError={() => onImageError(current.url)}
-            />
-          ) : current?.kind === "image" ? (
-            <ProductMedia
-              key={current.url}
-              src={current.url}
-              alt={current.alt}
-              fit="contain"
-              loading={activeIndex === 0 ? "eager" : "lazy"}
-              fetchPriority={activeIndex === 0 ? "high" : "auto"}
-              sizes="(max-width: 1024px) 100vw, 40vw"
-              className="h-full w-full"
-              onImageError={onImageError}
-            />
-          ) : (
-            <div className="grid h-full place-items-center text-6xl">🎀</div>
-          )}
-        </div>
-
-        {hasStrip && (
-          <>
-            <button
-              type="button"
-              aria-label="Previous photo"
-              aria-controls={panelId}
-              disabled={atStart}
-              onClick={() => goTo(activeIndex - 1)}
-              className={cn(
-                "absolute left-2 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full",
-                "border border-white/80 bg-white text-[var(--foreground)] shadow-sm",
-                "transition hover:text-[var(--primary)]",
-                FOCUS_RING,
-                "disabled:pointer-events-none disabled:opacity-30",
-              )}
-            >
-              <ChevronLeft className="size-5" strokeWidth={2.4} />
-            </button>
-            <button
-              type="button"
-              aria-label="Next photo"
-              aria-controls={panelId}
-              disabled={atEnd}
-              onClick={() => goTo(activeIndex + 1)}
-              className={cn(
-                "absolute right-2 top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center rounded-full",
-                "border border-white/80 bg-white text-[var(--foreground)] shadow-sm",
-                "transition hover:text-[var(--primary)]",
-                FOCUS_RING,
-                "disabled:pointer-events-none disabled:opacity-30",
-              )}
-            >
-              <ChevronRight className="size-5" strokeWidth={2.4} />
-            </button>
-            <p
-              aria-hidden
-              className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-[var(--foreground)]/70 px-2.5 py-1 text-xs font-bold tabular-nums tracking-wide text-white"
-            >
-              {activeIndex + 1} / {slides.length}
-            </p>
-          </>
-        )}
-        {current?.kind === "image" && (
-          <button
-            type="button"
-            aria-label="View entire image"
-            aria-haspopup="dialog"
-            aria-expanded={viewerOpen}
-            onClick={() => {
-              setViewerIndex(activeIndex);
-              setViewerOpen(true);
-            }}
-            className={cn(
-              "absolute bottom-3 left-3 z-10 grid size-11 place-items-center rounded-full",
-              "border border-white/80 bg-white text-[var(--foreground)] shadow-sm",
-              "transition hover:text-[var(--primary)]",
-              FOCUS_RING,
-            )}
+          <div
+            className="relative max-h-full"
+            style={
+              currentRatio
+                ? {
+                    aspectRatio: currentRatio,
+                    width: fittedWidth(currentRatio, frameRatio),
+                  }
+                : { width: "100%", height: "100%" }
+            }
           >
-            <Expand className="size-5" strokeWidth={2.4} />
-          </button>
-        )}
+            {current?.kind === "video" ? (
+              <>
+                <video
+                  key={current.url}
+                  src={current.url}
+                  className="h-full w-full object-contain"
+                  controls
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  onLoadedMetadata={(event) => {
+                    const video = event.currentTarget;
+                    rememberRatio(current.url, video.videoWidth, video.videoHeight);
+                  }}
+                  onError={() => onImageError(current.url)}
+                />
+                {/* Swipes land on this layer. The native controls stay
+                    reachable in the strip along the bottom. */}
+                <div
+                  data-video-swipe
+                  className="absolute inset-x-0 top-0 bottom-12 z-[1] touch-pan-y"
+                />
+              </>
+            ) : current?.kind === "image" ? (
+              <ProductMedia
+                key={current.url}
+                src={current.url}
+                alt={current.alt}
+                fit="contain"
+                loading={activeIndex === 0 ? "eager" : "lazy"}
+                fetchPriority={activeIndex === 0 ? "high" : "auto"}
+                sizes="(max-width: 1024px) 100vw, 40vw"
+                className="h-full w-full"
+                onLoad={(size) => rememberRatio(current.url, size.width, size.height)}
+                onImageError={onImageError}
+              />
+            ) : (
+              <div className="grid h-full place-items-center text-6xl">🎀</div>
+            )}
+
+            {hasStrip && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Previous photo"
+                  aria-controls={panelId}
+                  disabled={atStart}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    goTo(activeIndex - 1);
+                  }}
+                  className={cn(STAGE_ARROW, "left-1")}
+                >
+                  <span className={STAGE_ARROW_FACE}>
+                    <ChevronLeft className="size-3.5" strokeWidth={2.4} />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next photo"
+                  aria-controls={panelId}
+                  disabled={atEnd}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    goTo(activeIndex + 1);
+                  }}
+                  className={cn(STAGE_ARROW, "right-1")}
+                >
+                  <span className={STAGE_ARROW_FACE}>
+                    <ChevronRight className="size-3.5" strokeWidth={2.4} />
+                  </span>
+                </button>
+                <p
+                  aria-hidden
+                  className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-[var(--foreground)]/70 px-2.5 py-1 text-xs font-bold tabular-nums tracking-wide text-white"
+                >
+                  {activeIndex + 1} / {slides.length}
+                </p>
+              </>
+            )}
+            {current?.kind === "image" && (
+              <button
+                type="button"
+                aria-label="View entire image"
+                aria-haspopup="dialog"
+                aria-expanded={viewerOpen}
+                onClick={() => {
+                  setViewerIndex(activeIndex);
+                  setViewerOpen(true);
+                }}
+                className={cn(
+                  "group absolute bottom-3 left-3 z-10 grid size-11 place-items-center",
+                  FOCUS_RING,
+                )}
+              >
+                <span className={STAGE_ARROW_FACE}>
+                  <Expand className="size-3.5" strokeWidth={2.4} />
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {hasStrip && (
@@ -472,6 +559,9 @@ export function ProductGallery({
                       loading="lazy"
                       sizes="80px"
                       className="h-full w-full"
+                      onLoad={(size) =>
+                        rememberRatio(slide.url, size.width, size.height)
+                      }
                       onImageError={onImageError}
                     />
                   )}
@@ -495,16 +585,15 @@ export function ProductGallery({
                 aria-label="Show previous thumbnails"
                 onClick={() => scrollRail(-1)}
                 className={cn(
-                  "absolute z-10 grid size-10 place-items-center rounded-full",
-                  "border border-[var(--border)] bg-[var(--card)]/95 text-[var(--foreground)] shadow-sm",
-                  "transition hover:border-[var(--primary)] hover:text-[var(--primary)]",
-                  FOCUS_RING,
-                  "left-0.5 top-1/2 -translate-y-1/2",
-                  "lg:left-1/2 lg:top-0.5 lg:-translate-x-1/2 lg:translate-y-0",
+                  RAIL_ARROW,
+                  "left-0 top-1/2 -translate-y-1/2",
+                  "lg:left-1/2 lg:top-0 lg:-translate-x-1/2 lg:translate-y-0",
                 )}
               >
-                <ChevronLeft className="size-4 lg:hidden" strokeWidth={2.4} />
-                <ChevronUp className="hidden size-4 lg:block" strokeWidth={2.4} />
+                <span className={STAGE_ARROW_FACE}>
+                  <ChevronLeft className="size-3.5 lg:hidden" strokeWidth={2.4} />
+                  <ChevronUp className="hidden size-3.5 lg:block" strokeWidth={2.4} />
+                </span>
               </button>
             </>
           )}
@@ -523,16 +612,15 @@ export function ProductGallery({
                 aria-label="Show more thumbnails"
                 onClick={() => scrollRail(1)}
                 className={cn(
-                  "absolute z-10 grid size-10 place-items-center rounded-full",
-                  "border border-[var(--border)] bg-[var(--card)]/95 text-[var(--foreground)] shadow-sm",
-                  "transition hover:border-[var(--primary)] hover:text-[var(--primary)]",
-                  FOCUS_RING,
-                  "right-0.5 top-1/2 -translate-y-1/2",
-                  "lg:bottom-0.5 lg:left-1/2 lg:right-auto lg:top-auto lg:-translate-x-1/2 lg:translate-y-0",
+                  RAIL_ARROW,
+                  "right-0 top-1/2 -translate-y-1/2",
+                  "lg:bottom-0 lg:left-1/2 lg:right-auto lg:top-auto lg:-translate-x-1/2 lg:translate-y-0",
                 )}
               >
-                <ChevronRight className="size-4 lg:hidden" strokeWidth={2.4} />
-                <ChevronDown className="hidden size-4 lg:block" strokeWidth={2.4} />
+                <span className={STAGE_ARROW_FACE}>
+                  <ChevronRight className="size-3.5 lg:hidden" strokeWidth={2.4} />
+                  <ChevronDown className="hidden size-3.5 lg:block" strokeWidth={2.4} />
+                </span>
               </button>
             </>
           )}

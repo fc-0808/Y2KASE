@@ -92,7 +92,6 @@ export function ProductDetailClient({
   reviewHighlight = null,
   magsafe = false,
   videoUrl,
-  videoPosition,
   images,
   options,
   customStyles: customStylesInput,
@@ -114,6 +113,7 @@ export function ProductDetailClient({
   /** MagSafe fact under the button only when this product is tagged. */
   magsafe?: boolean;
   videoUrl: string | null;
+  /** Stored slot. The storefront always shows the video second. */
   videoPosition: number | null;
   images: Img[];
   options: Option[];
@@ -181,11 +181,11 @@ export function ProductDetailClient({
   const allSelected = axes.every((o) => selected[o.name]);
   const selectedStyle = selected[STYLE_OPTION_NAME];
 
-  // The video is spliced into the slide list at this slot, so an image's index
-  // within `gallery` shifts by one for slides at/after it. -1 = no video.
-  const videoSlot = playableVideoUrl
-    ? Math.max(0, Math.min(videoPosition ?? 1, gallery.length))
-    : -1;
+  // The video is always the second thumbnail when the product has photos.
+  // A stored slot can put it later in the strip; shoppers look for it in the
+  // same place on every page. -1 = no video. An image's index within
+  // `gallery` shifts by one for slides at/after the video.
+  const videoSlot = playableVideoUrl ? (gallery.length === 0 ? 0 : 1) : -1;
   const imageIndexToSlideIndex = (imgIdx: number) =>
     videoSlot >= 0 && imgIdx >= videoSlot ? imgIdx + 1 : imgIdx;
 
@@ -246,7 +246,7 @@ export function ProductDetailClient({
     }));
     if (!playableVideoUrl) return imgSlides;
 
-    // Insert the video at its configured slot (default: second slide, index 1).
+    // Second slide, after the hero photo.
     return [
       ...imgSlides.slice(0, videoSlot),
       { kind: "video", url: playableVideoUrl },
