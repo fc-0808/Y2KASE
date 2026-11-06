@@ -24,6 +24,11 @@ import {
 import { isTrackablePath } from "@/lib/analytics/paths";
 import { sanitizeLandingQuery } from "@/lib/analytics/referrer";
 import {
+  allowDocumentFetchDest,
+  allowDocumentFetchMode,
+  allowDocumentFetchSite,
+  allowDocumentFetchUser,
+  ACCEPT_CLIENT_HINTS,
   ANALYTICS_VISITOR_COOKIE,
   ANALYTICS_VISITOR_PROOF_COOKIE,
   ANALYTICS_VISITOR_SEEDED_HEADER,
@@ -59,6 +64,19 @@ function clientIp(req: NextRequest): string | null {
   return req.headers.get("x-real-ip");
 }
 
+/** Keep a request header short and free of control characters. */
+function headerValue(
+  req: NextRequest,
+  name: string,
+  max: number,
+): string | null {
+  const raw = req.headers.get(name);
+  if (!raw) return null;
+  const clean = raw.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  if (!clean) return null;
+  return clean.slice(0, max);
+}
+
 /** Vercel sets these on every request at the edge; absent in local dev. */
 function geo(req: NextRequest) {
   const h = req.headers;
@@ -85,6 +103,7 @@ function noContent(extraHeaders?: Record<string, string>): NextResponse {
     status: 204,
     headers: {
       "Cache-Control": "private, no-store, max-age=0",
+      "Accept-CH": ACCEPT_CLIENT_HINTS,
       ...extraHeaders,
     },
   });
@@ -357,6 +376,20 @@ export async function POST(req: NextRequest) {
     longitude: g.longitude,
     timezone: g.timezone,
     userAgent: ua ?? null,
+    secChUa: headerValue(req, "sec-ch-ua", 300),
+    secChUaMobile: headerValue(req, "sec-ch-ua-mobile", 8),
+    secChUaPlatform: headerValue(req, "sec-ch-ua-platform", 64),
+    secChUaFullVersionList: headerValue(req, "sec-ch-ua-full-version-list", 300),
+    secChUaPlatformVersion: headerValue(req, "sec-ch-ua-platform-version", 32),
+    secChUaArch: headerValue(req, "sec-ch-ua-arch", 32),
+    secChUaModel: headerValue(req, "sec-ch-ua-model", 64),
+    secChUaBitness: headerValue(req, "sec-ch-ua-bitness", 8),
+    secFetchSite: allowDocumentFetchSite(body.secFetchSite),
+    secFetchMode: allowDocumentFetchMode(body.secFetchMode),
+    secFetchDest: allowDocumentFetchDest(body.secFetchDest),
+    secFetchUser: allowDocumentFetchUser(body.secFetchUser),
+    acceptLanguage: headerValue(req, "accept-language", 160),
+    ja4Digest: headerValue(req, "x-vercel-ja4-digest", 128),
     device: parsed.device,
     browser: parsed.browser,
     os: parsed.os,

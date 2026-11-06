@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Relative, not "@/lib/routes": Next.js require()s this config before the app's
 // path aliases exist. The module is kept dependency-free for the same reason.
+import { ACCEPT_CLIENT_HINTS } from "./src/lib/analytics/protocol";
 import { REDIRECTS, assertRedirectsAreResolvable } from "./src/lib/routes";
 import {
   CANONICAL_CDN_CACHE_CONTROL,
@@ -130,6 +131,10 @@ const nextConfig: NextConfig = {
       { key: "Vercel-CDN-Cache-Control", value: OG_CDN_CACHE_CONTROL },
     ];
     return [
+      {
+        source: "/:path*",
+        headers: [{ key: "Accept-CH", value: ACCEPT_CLIENT_HINTS }],
+      },
       { source: "/", headers: canonicalCdn },
       { source: "/products/:slug", headers: canonicalCdn },
       { source: "/products/:slug/opengraph-image", headers: ogCdn },

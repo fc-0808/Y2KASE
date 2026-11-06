@@ -140,6 +140,8 @@ export type VisitorOverview = {
 
 export type RecentVisit = {
   id: number;
+  visitorId: string;
+  userId: string | null;
   path: string;
   referrer: string | null;
   landingQuery: string | null;
@@ -147,10 +149,64 @@ export type RecentVisit = {
   country: string | null;
   region: string | null;
   city: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  timezone: string | null;
   device: string | null;
   browser: string | null;
   os: string | null;
+  userAgent: string | null;
+  secChUa: string | null;
+  secChUaMobile: string | null;
+  secChUaPlatform: string | null;
+  secChUaFullVersionList: string | null;
+  secChUaPlatformVersion: string | null;
+  secChUaArch: string | null;
+  secChUaModel: string | null;
+  secChUaBitness: string | null;
+  secFetchSite: string | null;
+  secFetchMode: string | null;
+  secFetchDest: string | null;
+  secFetchUser: string | null;
+  acceptLanguage: string | null;
+  ja4Digest: string | null;
+  /** Previous page view from the same visitor id, if any. */
+  previousAt: Date | null;
   createdAt: Date;
+};
+
+/**
+ * Desktop Chrome 148, 149, and 150. The catalog crawler copies these three
+ * frozen sentences. Android Chrome, Edge, Opera, and Ecosia also contain the
+ * version number, so they are excluded.
+ */
+const CATALOG_CRAWLER_VERSION =
+  /Chrome\/14[89]\.0\.0\.0|Chrome\/150\.0\.0\.0/;
+const CATALOG_CRAWLER_EXCEPTION = /Mobile|Edg\/|OPR\/|Ecosia/i;
+
+export function isCatalogCrawlerVisit(input: {
+  userAgent: string | null | undefined;
+  device?: string | null;
+}): boolean {
+  const ua = input.userAgent ?? "";
+  if (!CATALOG_CRAWLER_VERSION.test(ua)) return false;
+  if (CATALOG_CRAWLER_EXCEPTION.test(ua)) return false;
+  if (input.device && input.device !== "desktop") return false;
+  return true;
+}
+
+/** Major version from a Chrome-family user agent, for the visitors table. */
+export function chromeMajorVersion(ua: string | null | undefined): string | null {
+  const match = /(?:Chrome|CriOS|Edg|OPR)\/(\d+)/.exec(ua ?? "");
+  return match?.[1] ?? null;
+}
+
+export type DailyTrafficReading = {
+  /** Hong Kong calendar day, YYYY-MM-DD. */
+  day: string;
+  visitors: number;
+  catalogCrawler: number;
+  everyoneElse: number;
 };
 
 export type CountRow = { label: string; value: number };
@@ -222,6 +278,8 @@ export async function getRecentVisits(limit = 100): Promise<RecentVisit[]> {
   return db
     .select({
       id: pageViews.id,
+      visitorId: pageViews.visitorId,
+      userId: pageViews.userId,
       path: pageViews.path,
       referrer: pageViews.referrer,
       landingQuery: pageViews.landingQuery,
@@ -229,9 +287,33 @@ export async function getRecentVisits(limit = 100): Promise<RecentVisit[]> {
       country: pageViews.country,
       region: pageViews.region,
       city: pageViews.city,
+      latitude: pageViews.latitude,
+      longitude: pageViews.longitude,
+      timezone: pageViews.timezone,
       device: pageViews.device,
       browser: pageViews.browser,
       os: pageViews.os,
+      userAgent: pageViews.userAgent,
+      secChUa: pageViews.secChUa,
+      secChUaMobile: pageViews.secChUaMobile,
+      secChUaPlatform: pageViews.secChUaPlatform,
+      secChUaFullVersionList: pageViews.secChUaFullVersionList,
+      secChUaPlatformVersion: pageViews.secChUaPlatformVersion,
+      secChUaArch: pageViews.secChUaArch,
+      secChUaModel: pageViews.secChUaModel,
+      secChUaBitness: pageViews.secChUaBitness,
+      secFetchSite: pageViews.secFetchSite,
+      secFetchMode: pageViews.secFetchMode,
+      secFetchDest: pageViews.secFetchDest,
+      secFetchUser: pageViews.secFetchUser,
+      acceptLanguage: pageViews.acceptLanguage,
+      ja4Digest: pageViews.ja4Digest,
+      previousAt: sql<Date | null>`(
+        SELECT max(older.created_at)
+        FROM page_views AS older
+        WHERE older.visitor_id = page_views.visitor_id
+          AND older.created_at < page_views.created_at
+      )`,
       createdAt: pageViews.createdAt,
     })
     .from(pageViews)
@@ -280,6 +362,64 @@ export async function getDeviceBreakdown(): Promise<CountRow[]> {
     .groupBy(pageViews.device)
     .orderBy(desc(count()));
   return rows.map((r) => ({ label: r.label ?? "Unknown", value: r.value }));
+}
+
+const catalogCrawlerRow = sql`(
+  ${pageViews.userAgent} ~ 'Chrome/14[89]\\.0\\.0\\.0|Chrome/150\\.0\\.0\\.0'
+  AND ${pageViews.userAgent} !~ 'Mobile|Edg/|OPR/|Ecosia'
+  AND coalesce(${pageViews.device}, 'desktop') = 'desktop'
+)`;
+
+const hkDay = sql`(${pageViews.createdAt} at time zone 'Asia/Hong_Kong')::date`;
+
+/**
+ * Hong Kong daily totals, newest first. Splits the catalog crawler
+ * (desktop Chrome 148–150) from everyone else so a quiet day is readable.
+ */
+export async function getDailyTrafficReading(
+  days = 10,
+): Promise<DailyTrafficReading[]> {
+  if (!isDbConfigured()) return [];
+  const today = startOfToday();
+  const since = new Date(today.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      day: sql<string>`to_char(${hkDay}, 'YYYY-MM-DD')`,
+      visitors: countDistinct(pageViews.visitorId),
+      catalogCrawler: sql<number>`count(distinct ${pageViews.visitorId}) filter (where ${catalogCrawlerRow})`,
+    })
+    .from(pageViews)
+    .where(withHumanGeo(gte(pageViews.createdAt, since)))
+    .groupBy(hkDay);
+
+  const byDay = new Map(
+    rows.map((row) => [
+      row.day,
+      {
+        visitors: Number(row.visitors),
+        catalogCrawler: Number(row.catalogCrawler),
+      },
+    ]),
+  );
+  const out: DailyTrafficReading[] = [];
+  for (let i = 0; i < days; i++) {
+    const key = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Hong_Kong",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(today.getTime() - i * 24 * 60 * 60 * 1000));
+    const hit = byDay.get(key);
+    const visitors = hit?.visitors ?? 0;
+    const catalogCrawler = hit?.catalogCrawler ?? 0;
+    out.push({
+      day: key,
+      visitors,
+      catalogCrawler,
+      everyoneElse: Math.max(0, visitors - catalogCrawler),
+    });
+  }
+  return out;
 }
 
 /** Daily views + uniques for the last `days` days, oldest → newest. */

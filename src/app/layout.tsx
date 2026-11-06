@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -125,11 +126,18 @@ export const viewport: Viewport = {
   colorScheme: "light",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const requestHeaders = await headers();
+  const pageRequest = {
+    secFetchSite: requestHeaders.get("sec-fetch-site"),
+    secFetchMode: requestHeaders.get("sec-fetch-mode"),
+    secFetchDest: requestHeaders.get("sec-fetch-dest"),
+    secFetchUser: requestHeaders.get("sec-fetch-user"),
+  };
   return (
     <html
       lang="en"
@@ -206,7 +214,7 @@ export default function RootLayout({
         {children}
         <Analytics />
         <SpeedInsights />
-        <VisitorTracker />
+        <VisitorTracker pageRequest={pageRequest} />
       </body>
     </html>
   );

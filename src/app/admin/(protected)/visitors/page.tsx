@@ -1,19 +1,24 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Globe, Users, Eye, CalendarDays, ExternalLink } from "lucide-react";
+import { Globe, Users, Eye, CalendarDays } from "lucide-react";
 import { isDbConfigured } from "@/lib/db";
 import {
   getVisitorOverview,
   getRecentVisits,
+  getDailyTrafficReading,
   getTopPages,
   getTopCountries,
   getDeviceBreakdown,
   getViewsTrend,
+  chromeMajorVersion,
+  isCatalogCrawlerVisit,
   TREND_RANGES,
+  type RecentVisit,
   type TrendRangeKey,
 } from "@/lib/analytics";
 import { describeVisitSource } from "@/lib/analytics/referrer";
 import { cn } from "@/lib/utils";
+import { VisitList, type VisitCard } from "./visit-list";
 
 export const metadata: Metadata = { title: "Admin · Visitors" };
 export const dynamic = "force-dynamic";
@@ -25,6 +30,16 @@ const timeFmt = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   timeZone: "Asia/Hong_Kong",
 });
+
+const dayFmt = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "Asia/Hong_Kong",
+});
+
+function formatReadingDay(isoDay: string): string {
+  return dayFmt.format(new Date(`${isoDay}T12:00:00+08:00`));
+}
 
 /** Turn a 2-letter ISO country code into its flag emoji. */
 function flag(code: string | null): string {
@@ -57,15 +72,17 @@ export default async function AdminVisitorsPage({
   const rangeLabel =
     TREND_RANGES.find((r) => r.key === range)?.label ?? "14 days";
 
-  const [overview, trend, topPages, topCountries, devices, recent] =
+  const [overview, trend, reading, topPages, topCountries, devices, recent] =
     await Promise.all([
       getVisitorOverview(),
       getViewsTrend(range),
+      getDailyTrafficReading(10),
       getTopPages(8),
       getTopCountries(8),
       getDeviceBreakdown(),
       getRecentVisits(100),
     ]);
+  const todayReading = reading[0];
 
   const kpis = [
     { label: "Unique visitors", value: overview.uniqueVisitors, icon: Users, accent: "text-fuchsia-600" },
@@ -86,13 +103,12 @@ export default async function AdminVisitorsPage({
       : [0, Math.floor(n * 0.25), Math.floor(n * 0.5), Math.floor(n * 0.75), n - 1];
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
+    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="mb-6">
-        <h1 className="text-3xl font-black">Visitors</h1>
-        <p className="mt-1 text-sm text-[var(--foreground)]/60">
-          First-party, privacy-conscious analytics — traffic, geography and
-          devices. Known crawlers and abusive traffic are filtered at capture
-          and reporting time.
+        <h1 className="text-2xl font-black sm:text-3xl">Visitors</h1>
+        <p className="mt-1 max-w-prose text-sm text-[var(--foreground)]/60 text-pretty">
+          Traffic, geography, and devices. The daily reading separates the
+          catalog crawler from everyone else.
         </p>
       </div>
 
@@ -113,6 +129,76 @@ export default async function AdminVisitorsPage({
           </div>
         ))}
       </div>
+
+      <section className="mb-6 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="font-bold">Daily reading</h2>
+          <p className="text-xs text-[var(--foreground)]/50">
+            Hong Kong time · newest first
+          </p>
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-[var(--foreground)]/60 text-pretty">
+          Catalog crawler means desktop Chrome 148, 149, or 150. Everyone else
+          is the rest of the day.
+        </p>
+        {todayReading ? (
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <ReadingStat label="Today" value={todayReading.visitors} />
+            <ReadingStat
+              label="Crawler"
+              value={todayReading.catalogCrawler}
+              tone="amber"
+            />
+            <ReadingStat
+              label="Everyone else"
+              value={todayReading.everyoneElse}
+              tone="emerald"
+            />
+          </div>
+        ) : null}
+        <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border)]">
+          <div className="hidden grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] gap-2 bg-[var(--muted)]/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--foreground)]/50 sm:grid">
+            <span>Day</span>
+            <span className="text-right">Visitors</span>
+            <span className="text-right">Crawler</span>
+            <span className="text-right">Everyone else</span>
+          </div>
+          <ul className="divide-y divide-[var(--border)]">
+            {reading.map((row, index) => (
+              <li key={row.day}>
+                <div className="px-3 py-3 sm:hidden">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">{formatReadingDay(row.day)}</span>
+                    {index === 0 ? <TodayMark /> : null}
+                  </div>
+                  <p className="mt-1 text-xs tabular-nums text-[var(--foreground)]/65">
+                    {row.visitors} visitors · {row.catalogCrawler} crawler ·{" "}
+                    {row.everyoneElse} everyone else
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "hidden grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] items-center gap-2 px-3 py-2.5 text-sm sm:grid",
+                    index === 0 && "bg-[var(--muted)]/40",
+                  )}
+                >
+                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                    {formatReadingDay(row.day)}
+                    {index === 0 ? <TodayMark /> : null}
+                  </span>
+                  <span className="text-right tabular-nums">{row.visitors}</span>
+                  <span className="text-right tabular-nums text-amber-800">
+                    {row.catalogCrawler}
+                  </span>
+                  <span className="text-right tabular-nums">
+                    {row.everyoneElse}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
 
       {/* Unique-visitors trend with range selector */}
       <section className="mb-6 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
@@ -240,144 +326,210 @@ export default async function AdminVisitorsPage({
 
       {/* Recent visits */}
       <section className="rounded-2xl border border-[var(--border)]">
-        <header className="border-b border-[var(--border)] px-5 py-3">
+        <header className="border-b border-[var(--border)] px-4 py-3 sm:px-5">
           <h2 className="font-bold">Recent visits</h2>
+          <p className="mt-0.5 text-xs text-[var(--foreground)]/50 md:hidden">
+            Tap a visit to open its client hints and the rest of the stored
+            fields.
+          </p>
+          <p className="mt-0.5 hidden text-xs text-[var(--foreground)]/50 md:block">
+            Every stored field. Client hints, language, and JA4 come from the
+            browser. Fetch metadata is the page load: none is a typed address,
+            cross-site is another site. A click inside the shop has no new page
+            load, so those four stay blank. Visits from before this change
+            leave the new fields blank.
+          </p>
         </header>
         {recent.length === 0 ? (
           <div className="p-8">
             <EmptyHint />
           </div>
         ) : (
-          <>
-            {/* Mobile: stacked cards (the table doesn't fit a phone screen). */}
-            <ul className="divide-y divide-[var(--border)] md:hidden">
-              {recent.map((v) => (
-                <li key={v.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <a
-                      href={v.path}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex min-w-0 items-center gap-1 truncate font-mono text-xs font-semibold hover:text-primary"
-                    >
-                      <span className="truncate">{v.path}</span>
-                      <ExternalLink className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
-                    </a>
-                    <span className="shrink-0 text-xs text-[var(--foreground)]/50">
-                      {timeFmt.format(new Date(v.createdAt))}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--foreground)]/60">
-                    <span>
-                      <span className="mr-1">{flag(v.country)}</span>
-                      {[v.city, v.region, v.country]
-                        .filter(Boolean)
-                        .join(", ") || "Unknown"}
-                    </span>
-                    <span aria-hidden>·</span>
-                    <span className="capitalize">
-                      {v.device ?? "—"}
-                      {v.browser ? ` · ${v.browser}` : ""}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex w-full items-start gap-x-2 text-[11px] text-[var(--foreground)]/40">
-                    <span className="shrink-0 font-mono">{v.ip ?? "—"}</span>
-                    <span aria-hidden>·</span>
-                    <ReferrerLabel
-                      referrer={v.referrer}
-                      landingQuery={v.landingQuery}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {/* Desktop: full table. */}
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead className="bg-[var(--muted)]/50 text-left text-xs uppercase tracking-wide text-[var(--foreground)]/50">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">Time</th>
-                    <th className="px-4 py-3 font-semibold">Page</th>
-                    <th className="px-4 py-3 font-semibold">Location</th>
-                    <th className="px-4 py-3 font-semibold">IP</th>
-                    <th className="px-4 py-3 font-semibold">Device</th>
-                    <th className="px-4 py-3 font-semibold">Referrer</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border)]">
-                  {recent.map((v) => (
-                    <tr key={v.id} className="hover:bg-[var(--muted)]/30">
-                      <td className="whitespace-nowrap px-4 py-2.5 text-[var(--foreground)]/60">
-                        {timeFmt.format(new Date(v.createdAt))}
-                      </td>
-                      <td className="max-w-[200px] px-4 py-2.5 font-mono text-xs">
-                        <a
-                          href={v.path}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="group flex items-center gap-1 truncate hover:text-primary"
-                        >
-                          <span className="truncate">{v.path}</span>
-                          <ExternalLink className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
-                        </a>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2.5">
-                        <span className="mr-1">{flag(v.country)}</span>
-                        {[v.city, v.region, v.country]
-                          .filter(Boolean)
-                          .join(", ") || "Unknown"}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-[var(--foreground)]/60">
-                        {v.ip ?? "—"}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-[var(--foreground)]/70">
-                        <span className="capitalize">{v.device ?? "—"}</span>
-                        {v.browser && (
-                          <span className="text-[var(--foreground)]/40">
-                            {" "}
-                            · {v.browser}
-                          </span>
-                        )}
-                      </td>
-                      <td className="max-w-[18rem] px-4 py-2.5 align-top text-xs text-[var(--foreground)]/50">
-                        <ReferrerLabel
-                          referrer={v.referrer}
-                          landingQuery={v.landingQuery}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+          <VisitList visits={recent.map(visitCard)} />
         )}
       </section>
     </div>
   );
 }
 
-function ReferrerLabel({
-  referrer,
-  landingQuery,
-}: {
-  referrer: string | null;
-  landingQuery: string | null;
-}) {
-  const { source, detail, title } = describeVisitSource(referrer, landingQuery);
+function TodayMark() {
   return (
-    <span className="block min-w-0" title={title}>
-      <span className="block font-semibold text-[var(--foreground)]/75">
-        {source}
-      </span>
-      {detail ? (
-        <span className="mt-0.5 block break-words font-mono text-[11px] leading-snug text-[var(--foreground)]/50">
-          {detail}
-        </span>
-      ) : null}
+    <span className="rounded-full bg-[var(--primary)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--primary)]">
+      Today
     </span>
   );
+}
+
+function ReadingStat({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: number;
+  tone?: "default" | "amber" | "emerald";
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 px-3 py-2.5">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-[var(--foreground)]/45">
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-1 text-xl font-black tabular-nums",
+          tone === "amber" && "text-amber-800",
+          tone === "emerald" && "text-emerald-800",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function visitCard(visit: RecentVisit): VisitCard {
+  const version = chromeMajorVersion(visit.userAgent);
+  const place =
+    [flag(visit.country), visit.city, visit.region, visit.country]
+      .filter(Boolean)
+      .join(" ") || "Unknown";
+  const browser = visit.browser
+    ? version
+      ? `${visit.browser} ${version}`
+      : visit.browser
+    : null;
+  return {
+    id: visit.id,
+    path: visit.path,
+    time: timeFmt.format(new Date(visit.createdAt)),
+    crawler: isCatalogCrawlerVisit(visit),
+    summary: [place, visit.device ? capitalize(visit.device) : null, browser]
+      .filter(Boolean)
+      .join(" · "),
+    fields: visitFields(visit),
+  };
+}
+
+function visitFields(visit: RecentVisit): {
+  label: string;
+  value: string;
+  mono?: boolean;
+  wide?: boolean;
+}[] {
+  const source = describeVisitSource(visit.referrer, visit.landingQuery);
+  const version = chromeMajorVersion(visit.userAgent);
+  const coordinates =
+    visit.latitude && visit.longitude
+      ? `${visit.latitude}, ${visit.longitude}`
+      : "—";
+  return [
+    { label: "Visitor id", value: visit.visitorId, mono: true, wide: true },
+    { label: "Logged-in user", value: visit.userId ?? "—", mono: true, wide: true },
+    {
+      label: "Location",
+      value:
+        [flag(visit.country), visit.city, visit.region, visit.country]
+          .filter(Boolean)
+          .join(" ") || "Unknown",
+    },
+    { label: "Coordinates", value: coordinates, mono: true },
+    { label: "Timezone", value: visit.timezone ?? "—" },
+    { label: "IP address", value: visit.ip ?? "—", mono: true },
+    {
+      label: "Device",
+      value: visit.device ? capitalize(visit.device) : "—",
+    },
+    {
+      label: "Browser",
+      value: visit.browser
+        ? version
+          ? `${visit.browser} ${version}`
+          : visit.browser
+        : "—",
+    },
+    { label: "Operating system", value: visit.os ?? "—" },
+    { label: "Source", value: source.detail ? `${source.source} · ${source.detail}` : source.source },
+    { label: "Referrer", value: visit.referrer ?? "—", mono: true, wide: true },
+    {
+      label: "Landing query",
+      value: visit.landingQuery ?? "—",
+      mono: true,
+      wide: true,
+    },
+    { label: "User agent", value: visit.userAgent ?? "—", mono: true, wide: true },
+    { label: "sec-ch-ua", value: visit.secChUa ?? "—", mono: true, wide: true },
+    { label: "sec-ch-ua-mobile", value: visit.secChUaMobile ?? "—" },
+    { label: "sec-ch-ua-platform", value: platformValue(visit) },
+    {
+      label: "sec-ch-ua-full-version-list",
+      value: visit.secChUaFullVersionList ?? "—",
+      mono: true,
+      wide: true,
+    },
+    { label: "sec-ch-ua-platform-version", value: visit.secChUaPlatformVersion ?? "—" },
+    { label: "sec-ch-ua-arch", value: visit.secChUaArch ?? "—" },
+    { label: "sec-ch-ua-model", value: visit.secChUaModel ?? "—" },
+    { label: "sec-ch-ua-bitness", value: visit.secChUaBitness ?? "—" },
+    { label: "Sec-Fetch-Site", value: fetchSiteValue(visit) },
+    { label: "Sec-Fetch-Mode", value: visit.secFetchMode ?? "—" },
+    { label: "Sec-Fetch-Dest", value: visit.secFetchDest ?? "—" },
+    { label: "Sec-Fetch-User", value: visit.secFetchUser ?? "—" },
+    { label: "Accept-Language", value: visit.acceptLanguage ?? "—", wide: true },
+    { label: "JA4", value: visit.ja4Digest ?? "—", mono: true, wide: true },
+    {
+      label: "Previous page from this visitor",
+      value: previousPageGap(visit),
+      wide: true,
+    },
+  ];
+}
+
+function platformValue(visit: RecentVisit): string {
+  const platform = visit.secChUaPlatform;
+  if (!platform) return "—";
+  const ua = visit.userAgent ?? "";
+  const hint = platform.toLowerCase();
+  const windows = /windows/i.test(ua);
+  const mac = /macintosh|mac os x/i.test(ua);
+  const android = /android/i.test(ua);
+  const disagrees =
+    (windows && !hint.includes("windows")) ||
+    (mac && !hint.includes("mac")) ||
+    (android && !hint.includes("android"));
+  return disagrees ? `${platform} · disagrees with the user agent` : platform;
+}
+
+function fetchSiteValue(visit: RecentVisit): string {
+  const site = visit.secFetchSite;
+  if (!site) return "—";
+  const referrer = visit.referrer ?? "";
+  if (
+    site === "none" &&
+    /google\.|bing\.|duckduckgo\.|yahoo\./i.test(referrer)
+  ) {
+    return `${site} · disagrees with the referrer`;
+  }
+  return site;
+}
+
+function previousPageGap(visit: RecentVisit): string {
+  if (!visit.previousAt) return "First page from this visitor";
+  const previous = new Date(visit.previousAt);
+  if (Number.isNaN(previous.getTime())) return "First page from this visitor";
+  const seconds = Math.max(
+    0,
+    Math.round((new Date(visit.createdAt).getTime() - previous.getTime()) / 1000),
+  );
+  const when = timeFmt.format(previous);
+  if (seconds < 60) return `${seconds}s after the previous page · ${when}`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m after the previous page · ${when}`;
+  const hours = Math.round(minutes / 60);
+  return `${hours}h after the previous page · ${when}`;
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function BreakdownCard({

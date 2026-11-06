@@ -60,15 +60,24 @@ page every six minutes, mostly `/products`. That is a catalog copy using
 rented home connections after the Singapore ranges were denied. Do not deny
 those ISPs.
 
-Two edge checks cover it instead:
+Two edge checks cover it:
 
 - Bot Protection is in challenge mode. A client that claims to be a browser
-  but fails Vercel's browser check must pass a JavaScript checkpoint. A
-  shopper passes once per hour. A scraper that changes address every request
-  has to pass every time, and an automated browser fails that check.
-- `Challenge scripted Chrome` challenges a Chrome user agent that omits
-  `sec-ch-ua`. Real Chrome sends that header on every request. Googlebot is
-  excluded because its renderer identifies itself in the same user agent.
+  but fails Vercel's browser check must pass a JavaScript checkpoint.
+- `Challenge scripted Chrome` challenges two cases for one hour. A Chrome
+  user agent with no `sec-ch-ua` header is a script. Desktop Chrome
+  `148.0.0.0`, `149.0.0.0`, and `150.0.0.0` are the crawler's presets. The
+  action is a checkpoint, not a refusal: a real browser on those old versions
+  passes once and keeps browsing. The crawler uses a new address and a new
+  browser profile every page, so it must pass every time. The version match
+  ignores `Mobile`, `Edg/`, `OPR/`, and Ecosia. Stable Chrome on 2026-11-03
+  is 157. Googlebot is excluded.
+
+On 2026-11-05 the crawler started sending `sec-ch-ua`, so the missing-header
+check no longer matched it. Do not add 155, 156, or 157: those versions have
+referrers and second-page sessions. Do not switch the version match back to
+deny: from June through September a handful of real desktop sessions used
+the same sentence and opened a second page.
 
 Bot Protection challenges clients that pretend to be a browser. Stripe,
 Resend, and Vercel cron do not send a Chrome user agent, so they are not

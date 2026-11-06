@@ -50,6 +50,20 @@ async function main() {
   `;
 
   await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "landing_query" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua_mobile" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua_platform" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua_full_version_list" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua_platform_version" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua_arch" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua_model" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_ch_ua_bitness" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_fetch_site" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_fetch_mode" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_fetch_dest" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "sec_fetch_user" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "accept_language" text`;
+  await sql`ALTER TABLE "page_views" ADD COLUMN IF NOT EXISTS "ja4_digest" text`;
 
   await sql`CREATE INDEX IF NOT EXISTS "page_views_created_idx" ON "page_views" ("created_at")`;
   await sql`CREATE INDEX IF NOT EXISTS "page_views_visitor_idx" ON "page_views" ("visitor_id")`;

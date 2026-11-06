@@ -1247,6 +1247,26 @@ export const pageViews = pgTable(
     timezone: text("timezone"),
     /** Raw User-Agent string for auditing. */
     userAgent: text("user_agent"),
+    /**
+     * Browser-written client hints and fetch metadata. A script can copy
+     * User-Agent; these are what Chrome attaches itself. Absent on old rows.
+     */
+    secChUa: text("sec_ch_ua"),
+    secChUaMobile: text("sec_ch_ua_mobile"),
+    secChUaPlatform: text("sec_ch_ua_platform"),
+    /** High-entropy hints. Chrome sends these only after Accept-CH. */
+    secChUaFullVersionList: text("sec_ch_ua_full_version_list"),
+    secChUaPlatformVersion: text("sec_ch_ua_platform_version"),
+    secChUaArch: text("sec_ch_ua_arch"),
+    secChUaModel: text("sec_ch_ua_model"),
+    secChUaBitness: text("sec_ch_ua_bitness"),
+    secFetchSite: text("sec_fetch_site"),
+    secFetchMode: text("sec_fetch_mode"),
+    secFetchDest: text("sec_fetch_dest"),
+    secFetchUser: text("sec_fetch_user"),
+    acceptLanguage: text("accept_language"),
+    /** TLS fingerprint from Vercel. Identifies the program, not the person. */
+    ja4Digest: text("ja4_digest"),
     /** Derived from UA: mobile | tablet | desktop | bot. */
     device: text("device"),
     browser: text("browser"),
