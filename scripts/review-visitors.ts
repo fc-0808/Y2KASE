@@ -27,6 +27,8 @@ async function main() {
   const { db } = await import("../src/lib/db");
   const { pageViews } = await import("../src/lib/db/schema");
   const { reviewVisitors } = await import("../src/lib/analytics/visitor-review");
+  const { DASHBOARD_EXCLUDED_USER_IDS, DASHBOARD_EXCLUDED_VISITOR_IDS } =
+    await import("../src/lib/analytics");
 
   const rows = await db
     .select({
@@ -55,6 +57,11 @@ async function main() {
           isNull(pageViews.ip),
           notInArray(pageViews.ip, ["::1", "127.0.0.1", "0.0.0.0"]),
         ),
+        or(
+          isNull(pageViews.userId),
+          notInArray(pageViews.userId, [...DASHBOARD_EXCLUDED_USER_IDS]),
+        ),
+        notInArray(pageViews.visitorId, [...DASHBOARD_EXCLUDED_VISITOR_IDS]),
       ),
     )
     .orderBy(desc(pageViews.createdAt))

@@ -40,7 +40,10 @@ ranges outside this incident, including Tencent space a supplier can use.
 Do not deny Singapore itself. StarHub, Singtel, M1 and Simba had ordinary
 browsing sessions and stay allowed. Tencent China (AS45090) is not in this
 list; owner and supplier traffic from CN, TW and HK is already omitted from
-reports without being blocked at the edge.
+reports without being blocked at the edge. The shop admin account and the
+iPhone signed into it are also omitted. A US VPN was making that phone look
+like a Los Angeles shopper. The phone's JA4 is shared with real iPhone
+Chrome, so the fingerprint stays in the reports.
 
 `POST /api/track` also has a fixed-window WAF rule:
 

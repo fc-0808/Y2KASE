@@ -30,6 +30,17 @@ import { reviewVisitor } from "@/lib/analytics/visitor-review";
 
 const EXCLUDED_COUNTRIES = ["CN", "TW", "HK"] as const;
 const EXCLUDED_IPS = ["::1", "127.0.0.1", "0.0.0.0"] as const;
+/**
+ * The shop admin account, and the iPhone browser signed into it. A US VPN
+ * makes those visits look like Los Angeles shoppers. The JA4 on that phone is
+ * shared with real Safari and iPhone Chrome, so it is not an exclusion.
+ */
+export const DASHBOARD_EXCLUDED_USER_IDS = [
+  "PFW51KgPJxLMre7AY0DWPD9BrpKw4YR1",
+] as const;
+export const DASHBOARD_EXCLUDED_VISITOR_IDS = [
+  "3cf803ab-33ed-4efa-b89e-d79e925af48e",
+] as const;
 const EXCLUDED_CIDR_LIST = ANALYTICS_EXCLUDED_IPV4_CIDRS.join(",");
 
 /** SQL predicate: keep rows that are not internal owner/supplier traffic. */
@@ -42,6 +53,11 @@ const humanTraffic = and(
     isNull(pageViews.ip),
     notInArray(pageViews.ip, EXCLUDED_IPS as unknown as string[]),
   ),
+  or(
+    isNull(pageViews.userId),
+    notInArray(pageViews.userId, [...DASHBOARD_EXCLUDED_USER_IDS]),
+  ),
+  notInArray(pageViews.visitorId, [...DASHBOARD_EXCLUDED_VISITOR_IDS]),
   // Exclude crawler infrastructure and confirmed abuse ranges. Applying the
   // same list at query time repairs historical reports without deleting the
   // raw incident evidence, while /api/track prevents new rows at capture time.
