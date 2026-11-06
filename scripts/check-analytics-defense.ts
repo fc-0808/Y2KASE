@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { reviewVisitors } from "../src/lib/analytics/visitor-review";
 import {
   ABUSIVE_ANALYTICS_IPV4_CIDRS,
   analyticsFingerprintKey,
@@ -237,6 +238,68 @@ assert.equal(
   }),
   "runtime_platform_mismatch",
 );
+assert.equal(
+  automationRejection({
+    headers: browserHeaders({
+      "sec-ch-ua-full-version-list":
+        '"HeadlessChrome";v="141.0.7390.37", "Chromium";v="141.0.7390.37"',
+    }),
+    userAgent: MAC_CHROME,
+    webdriver: false,
+    runtimePlatform: "MacIntel",
+  }),
+  "headless_chrome",
+);
+assert.equal(
+  automationRejection({
+    headers: browserHeaders({ "sec-ch-ua-platform": "Mac OS X" }),
+    userAgent: MAC_CHROME,
+    webdriver: false,
+    runtimePlatform: "MacIntel",
+  }),
+  "headless_chrome",
+);
+assert.equal(
+  automationRejection({
+    headers: browserHeaders({ "sec-ch-ua-platform-version": '"10_15_7"' }),
+    userAgent: MAC_CHROME,
+    webdriver: false,
+    runtimePlatform: "MacIntel",
+  }),
+  "headless_chrome",
+);
+
+const macShopper = {
+  id: 1,
+  visitorId: "shopper",
+  userAgent: MAC_CHROME,
+  device: "desktop",
+  secChUaPlatform: '"macOS"',
+  secChUaPlatformVersion: '"15.7.0"',
+  country: "US",
+  referrer: "https://www.google.com/",
+};
+assert.equal(reviewVisitors([macShopper])[0]?.crawler, false);
+const headless = [
+  ["PS", 1],
+  ["CL", 2],
+  ["OM", 3],
+].map(([country, id]) => ({
+  id: Number(id),
+  visitorId: `bot-${id}`,
+  userAgent: MAC_CHROME,
+  device: "desktop",
+  secChUaFullVersionList: '"HeadlessChrome";v="141.0.7390.37"',
+  secChUaPlatform: "Mac OS X",
+  secChUaPlatformVersion: '"10_15_7"',
+  ja4Digest: "t13d_same",
+  country: String(country),
+  referrer: null,
+}));
+const reviewed = reviewVisitors(headless);
+assert.equal(reviewed.every((row) => row.crawler), true);
+assert.match(reviewed[0]?.reasons.join(" ") ?? "", /Headless Chrome/);
+assert.match(reviewed[0]?.reasons.join(" ") ?? "", /Same fingerprint/);
 
 // ── Signed visitor-cookie handshake ──────────────────────────────────────────
 

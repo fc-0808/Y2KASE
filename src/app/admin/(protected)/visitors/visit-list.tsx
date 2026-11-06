@@ -9,6 +9,7 @@ export type VisitCard = {
   path: string;
   time: string;
   crawler: boolean;
+  reasons: string[];
   /** One line kept visible on a phone before the visit is opened. */
   summary: string;
   fields: {
@@ -50,6 +51,9 @@ function VisitRow({ visit }: { visit: VisitCard }) {
             {visit.time}
           </time>
         </div>
+        {visit.reasons.length > 0 ? (
+          <Reasons reasons={visit.reasons} className="basis-full" />
+        ) : null}
       </div>
 
       <button
@@ -66,6 +70,7 @@ function VisitRow({ visit }: { visit: VisitCard }) {
           <span className="mt-1 block text-xs text-[var(--foreground)]/60">
             {visit.summary}
           </span>
+          {visit.reasons.length > 0 ? <Reasons reasons={visit.reasons} /> : null}
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1">
           <Reading crawler={visit.crawler} />
@@ -117,6 +122,20 @@ function VisitRow({ visit }: { visit: VisitCard }) {
   );
 }
 
+function Reasons({
+  reasons,
+  className,
+}: {
+  reasons: string[];
+  className?: string;
+}) {
+  return (
+    <span className={cn("mt-1 block text-[11px] leading-snug text-amber-800", className)}>
+      {reasons.join(" · ")}
+    </span>
+  );
+}
+
 function Reading({ crawler }: { crawler: boolean }) {
   return (
     <span
@@ -127,7 +146,7 @@ function Reading({ crawler }: { crawler: boolean }) {
           : "border-emerald-200 bg-emerald-50 text-emerald-900",
       )}
     >
-      {crawler ? "Catalog crawler" : "Shopper"}
+      {crawler ? "Crawler" : "Shopper"}
     </span>
   );
 }

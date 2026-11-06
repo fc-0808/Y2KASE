@@ -24,7 +24,9 @@ September 2026, Alibaba Cloud Singapore (AS45102), four observed /24s:
 October 2026, the one-page proxy farm moved to Tencent Cloud Singapore
 (Aceville PTE LTD, AS132203) and Huawei Cloud Singapore (AS136907). Blocking
 each /24 failed as soon as the pool rotated, so the deny is the registry
-allocation that contained the traffic:
+allocation that contained the traffic. The same deny rule also refuses a
+headless Chrome script: a client hint containing `HeadlessChrome`, a
+`sec-ch-ua-platform` of `Mac OS X`, or a platform version of `10_15_7`.
 
 - `43.128.0.0/13`, `43.152.0.0/13`, `43.160.0.0/12`
 - `101.32.0.0/16`, `129.226.0.0/16`, `150.109.0.0/19`
@@ -78,6 +80,22 @@ check no longer matched it. Do not add 155, 156, or 157: those versions have
 referrers and second-page sessions. Do not switch the version match back to
 deny: from June through September a handful of real desktop sessions used
 the same sentence and opened a second page.
+
+On 2026-11-06 a Playwright 1.56 headless Chromium (build 141.0.7390.37)
+rotated residential proxies about every three minutes. The user agent and
+`sec-ch-ua` claimed Mac Chrome 145. `sec-ch-ua-full-version-list` still said
+`HeadlessChrome`. The platform hint was `Mac OS X` and the platform version
+was `10_15_7`, both copied from the user-agent sentence. A person's Chrome
+sends `macOS` and a dotted OS version, and never the HeadlessChrome brand.
+The deny rule refuses that set. Do not match the user-agent phrase
+`Mac OS X` by itself: real Mac Chrome 145 still uses that sentence.
+
+`npm run visitors:review` reads the latest visits, including CN, TW, and HK,
+and prints the rows that match a script. One shared JA4 is not a crawler.
+The same fingerprint counts only when at least three visitors each open one
+page, send no referrer, stay signed out, and land in three countries or five
+cities. A normal Chrome version shares one fingerprint across real shoppers,
+and those shoppers have referrers or a second page.
 
 Bot Protection challenges clients that pretend to be a browser. Stripe,
 Resend, and Vercel cron do not send a Chrome user agent, so they are not

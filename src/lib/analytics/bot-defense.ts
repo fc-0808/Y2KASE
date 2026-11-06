@@ -305,6 +305,31 @@ type BrowserPlatform =
   | "macos"
   | "windows";
 
+/**
+ * Playwright's headless Chromium leaks the brand HeadlessChrome, or wears a
+ * Mac costume whose platform hint is the user-agent phrase "Mac OS X" /
+ * "10_15_7". A person's Chrome sends "macOS" and a dotted OS version.
+ */
+export function isHeadlessChromeClient(
+  headers: HeaderReader,
+  userAgent?: string | null,
+): boolean {
+  const hints = [
+    userAgent,
+    headers.get("sec-ch-ua"),
+    headers.get("sec-ch-ua-full-version-list"),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  if (/HeadlessChrome/i.test(hints)) return true;
+  const platform = headers.get("sec-ch-ua-platform") ?? "";
+  if (/Mac OS X/i.test(platform)) return true;
+  const platformVersion = (headers.get("sec-ch-ua-platform-version") ?? "")
+    .replaceAll('"', "")
+    .trim();
+  return platformVersion === "10_15_7";
+}
+
 function browserPlatform(value: string | null | undefined): BrowserPlatform | null {
   const normalized = value?.replaceAll('"', "").trim().toLowerCase() ?? "";
   if (!normalized) return null;
@@ -332,6 +357,7 @@ function platformIsCompatible(
 
 export type AutomationRejection =
   | "webdriver"
+  | "headless_chrome"
   | "client_hint_platform_mismatch"
   | "runtime_platform_mismatch"
   | "mobile_hint_mismatch";
@@ -347,6 +373,9 @@ export function automationRejection(input: {
   runtimePlatform: string | null;
 }): AutomationRejection | null {
   if (input.webdriver) return "webdriver";
+  if (isHeadlessChromeClient(input.headers, input.userAgent)) {
+    return "headless_chrome";
+  }
 
   const expected = browserPlatform(input.userAgent);
   const hinted = browserPlatform(input.headers.get("sec-ch-ua-platform"));

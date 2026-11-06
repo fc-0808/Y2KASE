@@ -11,12 +11,12 @@ import {
   getDeviceBreakdown,
   getViewsTrend,
   chromeMajorVersion,
-  isCatalogCrawlerVisit,
   TREND_RANGES,
   type RecentVisit,
   type TrendRangeKey,
 } from "@/lib/analytics";
 import { describeVisitSource } from "@/lib/analytics/referrer";
+import { reviewVisitors } from "@/lib/analytics/visitor-review";
 import { cn } from "@/lib/utils";
 import { VisitList, type VisitCard } from "./visit-list";
 
@@ -345,7 +345,7 @@ export default async function AdminVisitorsPage({
             <EmptyHint />
           </div>
         ) : (
-          <VisitList visits={recent.map(visitCard)} />
+          <VisitList visits={reviewCards(recent)} />
         )}
       </section>
     </div>
@@ -387,7 +387,15 @@ function ReadingStat({
   );
 }
 
-function visitCard(visit: RecentVisit): VisitCard {
+function reviewCards(visits: RecentVisit[]): VisitCard[] {
+  const verdicts = new Map(reviewVisitors(visits).map((verdict) => [verdict.id, verdict]));
+  return visits.map((visit) => visitCard(visit, verdicts.get(visit.id)));
+}
+
+function visitCard(
+  visit: RecentVisit,
+  verdict: { crawler: boolean; reasons: string[] } | undefined,
+): VisitCard {
   const version = chromeMajorVersion(visit.userAgent);
   const place =
     [flag(visit.country), visit.city, visit.region, visit.country]
@@ -402,7 +410,8 @@ function visitCard(visit: RecentVisit): VisitCard {
     id: visit.id,
     path: visit.path,
     time: timeFmt.format(new Date(visit.createdAt)),
-    crawler: isCatalogCrawlerVisit(visit),
+    crawler: verdict?.crawler ?? false,
+    reasons: verdict?.reasons ?? [],
     summary: [place, visit.device ? capitalize(visit.device) : null, browser]
       .filter(Boolean)
       .join(" · "),

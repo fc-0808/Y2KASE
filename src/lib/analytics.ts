@@ -16,6 +16,7 @@ import {
   ANALYTICS_EXCLUDED_IPV4_CIDRS,
   isBotUserAgent,
 } from "@/lib/analytics/bot-defense";
+import { reviewVisitor } from "@/lib/analytics/visitor-review";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal-traffic exclusion
@@ -175,24 +176,15 @@ export type RecentVisit = {
   createdAt: Date;
 };
 
-/**
- * Desktop Chrome 148, 149, and 150. The catalog crawler copies these three
- * frozen sentences. Android Chrome, Edge, Opera, and Ecosia also contain the
- * version number, so they are excluded.
- */
-const CATALOG_CRAWLER_VERSION =
-  /Chrome\/14[89]\.0\.0\.0|Chrome\/150\.0\.0\.0/;
-const CATALOG_CRAWLER_EXCEPTION = /Mobile|Edg\/|OPR\/|Ecosia/i;
-
 export function isCatalogCrawlerVisit(input: {
   userAgent: string | null | undefined;
   device?: string | null;
+  secChUa?: string | null;
+  secChUaFullVersionList?: string | null;
+  secChUaPlatform?: string | null;
+  secChUaPlatformVersion?: string | null;
 }): boolean {
-  const ua = input.userAgent ?? "";
-  if (!CATALOG_CRAWLER_VERSION.test(ua)) return false;
-  if (CATALOG_CRAWLER_EXCEPTION.test(ua)) return false;
-  if (input.device && input.device !== "desktop") return false;
-  return true;
+  return reviewVisitor({ id: 0, visitorId: "", ...input }).crawler;
 }
 
 /** Major version from a Chrome-family user agent, for the visitors table. */
@@ -365,9 +357,16 @@ export async function getDeviceBreakdown(): Promise<CountRow[]> {
 }
 
 const catalogCrawlerRow = sql`(
-  ${pageViews.userAgent} ~ 'Chrome/14[89]\\.0\\.0\\.0|Chrome/150\\.0\\.0\\.0'
-  AND ${pageViews.userAgent} !~ 'Mobile|Edg/|OPR/|Ecosia'
-  AND coalesce(${pageViews.device}, 'desktop') = 'desktop'
+  (
+    ${pageViews.userAgent} ~ 'Chrome/14[89]\\.0\\.0\\.0|Chrome/150\\.0\\.0\\.0'
+    AND ${pageViews.userAgent} !~ 'Mobile|Edg/|OPR/|Ecosia'
+    AND coalesce(${pageViews.device}, 'desktop') = 'desktop'
+  )
+  OR coalesce(${pageViews.userAgent}, '') ILIKE '%HeadlessChrome%'
+  OR coalesce(${pageViews.secChUa}, '') ILIKE '%HeadlessChrome%'
+  OR coalesce(${pageViews.secChUaFullVersionList}, '') ILIKE '%HeadlessChrome%'
+  OR coalesce(${pageViews.secChUaPlatform}, '') ILIKE '%Mac OS X%'
+  OR replace(coalesce(${pageViews.secChUaPlatformVersion}, ''), '"', '') = '10_15_7'
 )`;
 
 const hkDay = sql`(${pageViews.createdAt} at time zone 'Asia/Hong_Kong')::date`;
