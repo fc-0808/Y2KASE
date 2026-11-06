@@ -127,15 +127,12 @@ function slideKey(slide: ProductGallerySlide): string {
 }
 
 /**
- * Width of a slide inside the shared frame, as a percentage of the frame.
- * A wider slide uses the full width. A taller one shrinks so it stays fully
- * visible without the frame itself changing size.
+ * Width of a slide inside the stage. `100cqh * ratio` is the width that uses
+ * the full stage height; `100%` is the full stage width. The smaller one
+ * shows the whole file, so a phone-height cap never crops the case.
  */
-function fittedWidth(mediaRatio: number, frameRatio: number): string {
-  if (!(mediaRatio > 0) || !(frameRatio > 0) || mediaRatio >= frameRatio) {
-    return "100%";
-  }
-  return `${(mediaRatio / frameRatio) * 100}%`;
+function fittedWidth(mediaRatio: number): string {
+  return `min(100%, calc(100cqh * ${mediaRatio}))`;
 }
 
 function slideLabel(slide: ProductGallerySlide, index: number, total: number): string {
@@ -176,8 +173,9 @@ export function ProductGallery({
   const atEnd = activeIndex >= lastIndex;
   // One frame for every slide. Matching each file's own ratio changes the
   // stage height on swipe, so the title, price, and buy bar jump. The frame
-  // stays as tall as the tallest slide: a wider photo letterboxes above and
-  // below, and a portrait photo still meets the left and right edges.
+  // stays as tall as the tallest slide. On a phone that file is taller than
+  // the screen, so a max-height (see the stage) keeps the whole case above
+  // the sticky buy bar instead of letting the bar cover it.
   const frameRatio = useMemo(() => {
     let tallest = Infinity;
     for (const slide of slides) {
@@ -344,7 +342,7 @@ export function ProductGallery({
       <div
         className={cn(
           "relative min-w-0 overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:-mx-4 max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
-          "transform-gpu touch-pan-y",
+          "pdp-stage transform-gpu touch-pan-y",
           hasStrip && "lg:ml-[6rem]",
           current?.kind === "image" && "cursor-zoom-in",
         )}
@@ -383,7 +381,7 @@ export function ProductGallery({
               currentRatio
                 ? {
                     aspectRatio: currentRatio,
-                    width: fittedWidth(currentRatio, frameRatio),
+                    width: fittedWidth(currentRatio),
                   }
                 : { width: "100%", height: "100%" }
             }

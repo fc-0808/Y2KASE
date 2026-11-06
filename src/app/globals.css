@@ -194,6 +194,29 @@ body {
 }
 
 /*
+ * Product gallery stage. The frame follows the tallest photo, which on a
+ * phone is taller than the screen — the sticky buy bar then covers the
+ * bottom of the case. Cap it to the space under the header and above that
+ * bar, leaving room for the breadcrumb and the thumbnail row. 100svh is the
+ * height while the mobile browser chrome is open, which is the first view.
+ * container-type lets each slide size itself to that box without cropping.
+ */
+.pdp-stage {
+  container-type: size;
+}
+@media (max-width: 1023px) {
+  .pdp-stage {
+    max-height: max(
+      16rem,
+      calc(
+        100svh - var(--storefront-header-h) - max(var(--bottom-bar-h, 0px), 4.75rem) -
+          8.5rem
+      )
+    );
+  }
+}
+
+/*
  * Ambient brand wash — the three pastel blobs behind every page.
  *
  * This is a viewport-sized fixed LAYER (rendered once by the root layout)
