@@ -92,6 +92,11 @@ assert.deepEqual(
 );
 
 assert.equal(sanitizeLandingQuery("?gclid=super-long-token&utm_source=google"), "utm_source=google&gclid=1");
+assert.equal(
+  sanitizeLandingQuery("?session_id=cs_live_abc123&email=person@example.com"),
+  "session_id=cs_live_abc123",
+);
+assert.equal(sanitizeLandingQuery("?session_id=not-a-session"), null);
 assert.equal(sanitizeLandingQuery("?email=person@example.com"), null);
 assert.equal(sanitizeLandingQuery("?q=kuromi"), null);
 

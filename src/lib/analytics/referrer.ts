@@ -68,6 +68,10 @@ export function sanitizeLandingQuery(value: unknown): string | null {
   }
 
   const kept = new URLSearchParams();
+  const sessionId = params.get("session_id");
+  if (sessionId && /^cs_(?:live|test)_[A-Za-z0-9]+$/.test(sessionId)) {
+    kept.set("session_id", sessionId.slice(0, 80));
+  }
   for (const key of LANDING_KEYS) {
     const item = params.get(key);
     if (!item) continue;
@@ -153,6 +157,7 @@ function describeLandingQuery(query: string | null): LandingRead {
   if (term) notes.push(`term ${term}`);
   const ref = params.get("ref");
   if (ref && ref !== "1") notes.push(`ref ${ref}`);
+  if (params.get("session_id")) notes.push("Stripe receipt");
 
   const utmSource = params.get("utm_source");
   let source = utmSource ? labelUtmSource(utmSource) : null;
@@ -183,6 +188,13 @@ function describeLandingQuery(query: string | null): LandingRead {
   }
 
   return { source, mechanism, notes };
+}
+
+/** Stripe Checkout session id stored on a receipt-page visit, if the URL had one. */
+export function stripeSessionId(landingQuery: string | null): string | null {
+  if (!landingQuery) return null;
+  const id = new URLSearchParams(landingQuery).get("session_id");
+  return id && /^cs_(?:live|test)_[A-Za-z0-9]+$/.test(id) ? id : null;
 }
 
 function ownSite(url: URL): { source: string; detail: string } {

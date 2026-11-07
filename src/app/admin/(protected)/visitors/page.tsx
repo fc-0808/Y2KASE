@@ -15,7 +15,10 @@ import {
   type RecentVisit,
   type TrendRangeKey,
 } from "@/lib/analytics";
-import { describeVisitSource } from "@/lib/analytics/referrer";
+import { inArray } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { orders } from "@/lib/db/schema";
+import { describeVisitSource, stripeSessionId } from "@/lib/analytics/referrer";
 import { reviewVisitors } from "@/lib/analytics/visitor-review";
 import { cn } from "@/lib/utils";
 import { VisitList, type VisitCard } from "./visit-list";
@@ -82,6 +85,30 @@ export default async function AdminVisitorsPage({
       getDeviceBreakdown(),
       getRecentVisits(100),
     ]);
+  const sessionIds = [
+    ...new Set(
+      recent
+        .map((visit) => stripeSessionId(visit.landingQuery))
+        .filter((id): id is string => id != null),
+    ),
+  ];
+  const matchedOrders = sessionIds.length
+    ? await db
+        .select({
+          stripeSessionId: orders.stripeSessionId,
+          orderNumber: orders.orderNumber,
+          status: orders.status,
+        })
+        .from(orders)
+        .where(inArray(orders.stripeSessionId, sessionIds))
+    : [];
+  const orderBySession = new Map(
+    matchedOrders.flatMap((order) =>
+      order.stripeSessionId
+        ? [[order.stripeSessionId, `${order.orderNumber} · ${order.status}`] as const]
+        : [],
+    ),
+  );
   const todayReading = reading[0];
 
   const kpis = [
@@ -345,7 +372,7 @@ export default async function AdminVisitorsPage({
             <EmptyHint />
           </div>
         ) : (
-          <VisitList visits={reviewCards(recent)} />
+          <VisitList visits={reviewCards(recent, orderBySession)} />
         )}
       </section>
     </div>
@@ -387,14 +414,20 @@ function ReadingStat({
   );
 }
 
-function reviewCards(visits: RecentVisit[]): VisitCard[] {
+function reviewCards(
+  visits: RecentVisit[],
+  orderBySession: Map<string, string>,
+): VisitCard[] {
   const verdicts = new Map(reviewVisitors(visits).map((verdict) => [verdict.id, verdict]));
-  return visits.map((visit) => visitCard(visit, verdicts.get(visit.id)));
+  return visits.map((visit) =>
+    visitCard(visit, verdicts.get(visit.id), orderBySession),
+  );
 }
 
 function visitCard(
   visit: RecentVisit,
   verdict: { crawler: boolean; reasons: string[] } | undefined,
+  orderBySession: Map<string, string>,
 ): VisitCard {
   const version = chromeMajorVersion(visit.userAgent);
   const place =
@@ -415,11 +448,25 @@ function visitCard(
     summary: [place, visit.device ? capitalize(visit.device) : null, browser]
       .filter(Boolean)
       .join(" · "),
-    fields: visitFields(visit),
+    fields: visitFields(
+      visit,
+      orderBySession.get(stripeSessionId(visit.landingQuery) ?? "") ?? null,
+    ),
   };
 }
 
-function visitFields(visit: RecentVisit): {
+function checkoutNote(visit: RecentVisit, orderLabel: string | null): string | null {
+  if (!visit.path.startsWith("/checkout/success")) return null;
+  if (orderLabel) {
+    return `${orderLabel}. Opening this receipt does not create another order.`;
+  }
+  if ((visit.referrer ?? "").includes("checkout.stripe.com")) {
+    return "Came back from Stripe. This is the receipt page. The order list is where payment shows up.";
+  }
+  return "Reopened an old receipt. Not a new checkout, so no new order is expected.";
+}
+
+function visitFields(visit: RecentVisit, orderLabel: string | null): {
   label: string;
   value: string;
   mono?: boolean;
@@ -431,7 +478,11 @@ function visitFields(visit: RecentVisit): {
     visit.latitude && visit.longitude
       ? `${visit.latitude}, ${visit.longitude}`
       : "—";
+  const checkout = checkoutNote(visit, orderLabel);
   return [
+    ...(checkout
+      ? [{ label: "Checkout", value: checkout, wide: true as const }]
+      : []),
     { label: "Visitor id", value: visit.visitorId, mono: true, wide: true },
     { label: "Logged-in user", value: visit.userId ?? "—", mono: true, wide: true },
     {
