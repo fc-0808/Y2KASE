@@ -46,6 +46,7 @@ export function CatalogToolbar({
   lockedDevice,
   resultCount,
   characters,
+  characterPage,
   flushTop = false,
 }: {
   params: CatalogParams;
@@ -69,6 +70,11 @@ export function CatalogToolbar({
    * server. Empty hides that segment; themes and colors still render.
    */
   characters: readonly LookCharacter[];
+  /**
+   * Set on a character landing. The rail marks that character chosen, and a
+   * tap opens the sibling's collection instead of filtering this page.
+   */
+  characterPage?: { current: string; clearHref: string };
 }) {
   const model = useCatalogFilters({
     params,
@@ -103,7 +109,7 @@ export function CatalogToolbar({
           setSearchFocused(false);
         }}
         className={cn(
-          "sticky top-[var(--storefront-header-h)] z-30 -mx-4 bg-background px-4 pb-2 transition-transform duration-200 ease-out motion-reduce:transition-none sm:-mx-6 sm:px-6",
+          "sticky top-[var(--storefront-header-h)] z-30 -mx-4 bg-background px-4 pb-1 transition-transform duration-200 ease-out motion-reduce:transition-none sm:-mx-6 sm:px-6 lg:pb-2",
           flushTop && "-mt-4 pt-2 sm:-mt-6 sm:pt-2",
           collapsed && "-translate-y-full pointer-events-none",
         )}
@@ -158,7 +164,11 @@ export function CatalogToolbar({
           <SortMenu params={params} />
         </div>
 
-        <LookRail model={model} characters={characters} />
+        <LookRail
+          model={model}
+          characters={characters}
+          characterPage={characterPage}
+        />
       </div>
 
       <CatalogFilterSheet

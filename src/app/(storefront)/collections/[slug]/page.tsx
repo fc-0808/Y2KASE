@@ -107,7 +107,19 @@ function findNode(nodes: CollectionNode[], slug: string): CollectionNode | null 
   return null;
 }
 
-/** "character" → "Characters", for the facet trigger. */
+/** Depth-first lookup of the node that contains `slug`. */
+function findParent(
+  nodes: CollectionNode[],
+  slug: string,
+  parent: CollectionNode | null = null,
+): CollectionNode | null {
+  for (const node of nodes) {
+    if (node.slug === slug) return parent;
+    const found = findParent(node.children, slug, node);
+    if (found) return found;
+  }
+  return null;
+}
 function facetLabel(kind: string | undefined): string {
   if (!kind) return "Collections";
   return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}s`;
@@ -255,6 +267,45 @@ async function CollectionCatalog({
       catalogParams.brands.includes(character.slug),
   );
   const brandOptions = children.length > 0 ? children : visibleCharacters;
+  const node = findNode(tree, slug);
+  const parentNode = node?.kind === "character" ? findParent(tree, slug) : null;
+  const siblingCharacters = (parentNode?.children ?? [])
+    .filter(
+      (child) =>
+        child.kind === "character" &&
+        (child.totalCount > 0 || child.slug === slug),
+    );
+  // A character landing is already that character. The rail still lists the
+  // siblings, with this page pressed, and a tap opens that character's own
+  // page instead of filtering an empty cross-section of this one.
+  const characterPage =
+    node?.kind === "character" && siblingCharacters.length > 0
+      ? {
+          current: slug,
+          clearHref: buildCatalogHref({
+            ...catalogParams,
+            basePath: parentNode
+              ? `/collections/${parentNode.slug}`
+              : "/collections",
+            brands: [],
+            page: 1,
+          }),
+        }
+      : undefined;
+  const railCharacters = characterPage
+    ? lookCharacters(
+        siblingCharacters.map((child) => ({
+          slug: child.slug,
+          name: child.name,
+          icon: child.icon,
+          accentColor: child.accentColor,
+        })),
+        Object.fromEntries(
+          siblingCharacters.map((child) => [child.slug, child.totalCount]),
+        ),
+        [slug],
+      )
+    : lookCharacters(brandOptions, facetCounts.brands, catalogParams.brands);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -282,7 +333,7 @@ async function CollectionCatalog({
   });
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
+    <div className="mx-auto w-full max-w-[1800px] px-4 py-2 sm:px-6 sm:py-6">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -312,7 +363,7 @@ async function CollectionCatalog({
       {/* Title on a phone. The description stays in the page for search, and
           on a wider screen, but it does not sit between the heading and the
           cases. */}
-      <header className="mb-3 sm:mb-4">
+      <header className="mb-2 sm:mb-4">
         <nav
           aria-label="Breadcrumb"
           className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/55"
@@ -344,13 +395,13 @@ async function CollectionCatalog({
             );
           })}
         </nav>
-        <h1 className="mt-2 text-2xl font-black leading-none tracking-tight sm:text-3xl">
+        <h1 className="mt-1 text-xl font-black leading-none tracking-tight sm:mt-2 sm:text-3xl">
           {copy.heading}
         </h1>
         {isIphone18CollectionSlug(slug) && stocked.includes("iphone") && (
           <Link
             href={iphone18FitPath(slug)}
-            className="mt-2.5 inline-flex min-h-8 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
+            className="mt-1.5 inline-flex min-h-8 items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
           >
             {iphone18FitLinkLabel(slug)}
           </Link>
@@ -362,18 +413,15 @@ async function CollectionCatalog({
         brands={brandOptions}
         counts={facetCounts}
         brandsLabel={
-          characterFacets.length > 0
+          characterPage || characterFacets.length > 0
             ? "Characters"
             : facetLabel(children[0]?.kind)
         }
         searchPlaceholder={`Search ${collection.name}…`}
         searchLabel={`Search ${collection.name} products`}
         resultCount={total}
-        characters={lookCharacters(
-          brandOptions,
-          facetCounts.brands,
-          catalogParams.brands,
-        )}
+        characters={railCharacters}
+        characterPage={characterPage}
       />
 
       {items.length > 0 ? (

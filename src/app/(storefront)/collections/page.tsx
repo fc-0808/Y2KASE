@@ -208,11 +208,11 @@ export default async function CollectionsIndexPage({
             href={`/collections/${MAGNETIC_RING_SLUG}`}
             className="group flex items-stretch overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_8px_24px_-20px_rgba(120,60,120,0.45)] transition hover:-translate-y-0.5 hover:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
           >
-            <div className="relative aspect-square w-28 shrink-0 bg-[var(--product-surface)] sm:w-44">
+            <div className="relative aspect-[4/5] w-28 shrink-0 bg-[var(--product-surface)] sm:w-40">
               <CollectionPhoto
                 src={imagePools.get(magneticRing.id)?.[0] ?? null}
                 accent={magneticRing.accentColor}
-                sizes="176px"
+                sizes="160px"
                 eager
               />
             </div>
@@ -322,9 +322,9 @@ function accessibleName(brand: CollectionNode): string {
 }
 
 /**
- * One catalog tile. Every brand uses the same frame: a square crop of a real
- * listing photo, then a one-line name and a count. Character names stay in the
- * accessible name so a long roster cannot change the card height.
+ * One catalog tile. The frame is 4:5, the same proportion as a case photo,
+ * and the picture is contained so the whole product stays in the tile. A
+ * square cover crop was cutting off the camera and the bottom of the case.
  */
 function BrandCard({
   brand,
@@ -341,7 +341,7 @@ function BrandCard({
       aria-label={accessibleName(brand)}
       className="group flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_8px_24px_-20px_rgba(120,60,120,0.45)] transition duration-300 hover:-translate-y-1 hover:border-[var(--primary)] hover:shadow-[0_22px_45px_-22px_rgba(255,62,165,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2"
     >
-      <div className="relative aspect-square shrink-0 bg-[var(--product-surface)]">
+      <div className="relative aspect-[4/5] shrink-0 bg-[var(--product-surface)]">
         <CollectionPhoto
           src={imageUrl}
           accent={brand.accentColor}
@@ -390,7 +390,7 @@ function CollectionPhoto({
       fill
       sizes={sizes}
       loading={eager ? "eager" : "lazy"}
-      className="object-cover object-center transition duration-500 group-hover:scale-[1.03]"
+      className="object-contain object-center"
     />
   );
 }

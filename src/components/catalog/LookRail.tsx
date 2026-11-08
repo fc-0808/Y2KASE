@@ -48,9 +48,12 @@ const SEGMENT_LABEL: Record<LookSegmentId, string> = {
 export function LookRail({
   model,
   characters,
+  characterPage,
 }: {
   model: CatalogFilterModel;
   characters: readonly LookCharacter[];
+  /** Character landing: this slug stays chosen, and taps open collection pages. */
+  characterPage?: { current: string; clearHref: string };
 }) {
   const router = useRouter();
   const { params, counts, selectedBrands, selectedColors, selectedMotifs, navigate } =
@@ -78,7 +81,7 @@ export function LookRail({
     colors: colors.length,
   });
   const segment = activeLookSegment(segments, picked, {
-    brands: selectedBrands.length,
+    brands: selectedBrands.length + (characterPage ? 1 : 0),
     motifs: selectedMotifs.length,
     colors: selectedColors.length,
   });
@@ -153,6 +156,25 @@ export function LookRail({
 
   if (!segment) return null;
 
+  function characterHref(slug: string): string {
+    if (!characterPage) return buildCatalogHref(params, { brands: [slug] });
+    if (slug === characterPage.current) return characterPage.clearHref;
+    return buildCatalogHref({
+      ...params,
+      basePath: `/collections/${slug}`,
+      brands: [],
+      page: 1,
+    });
+  }
+
+  function openCharacter(slug: string) {
+    if (!characterPage) {
+      navigate({ brands: nextLookSelection(selectedBrands, slug) });
+      return;
+    }
+    router.push(characterHref(slug));
+  }
+
   function page(dir: 1 | -1) {
     const el = scrollerRef.current;
     if (!el) return;
@@ -179,13 +201,13 @@ export function LookRail({
   }
 
   return (
-    <div className="mt-2">
+    <div className="mt-1.5 lg:mt-2">
       {segments.length > 1 && (
         <div
           role="tablist"
           aria-label="Browse by design"
           onKeyDown={onTabKey}
-          className="flex w-fit max-w-full gap-3"
+          className="flex w-fit max-w-full gap-2.5 lg:gap-3"
         >
           {segments.map((id) => {
             const selected = id === segment;
@@ -245,7 +267,7 @@ export function LookRail({
         </div>
       )}
 
-      <div className="relative mt-1.5">
+      <div className="relative mt-1 lg:mt-1.5">
         {edges.left && (
           <RailArrow
             side="left"
@@ -285,31 +307,37 @@ export function LookRail({
         >
           {segment === "characters" &&
             orderedCharacters.map((tile) => {
-              const pressed = selectedBrands.includes(tile.slug);
+              const pressed =
+                selectedBrands.includes(tile.slug) ||
+                tile.slug === characterPage?.current;
               return (
                 <LookTile
                   key={tile.slug}
                   label={tile.name}
                   count={tile.count}
                   pressed={pressed}
-                  onIntent={() =>
+                  onIntent={() => {
+                    if (characterPage) {
+                      router.prefetch(characterHref(tile.slug));
+                      return;
+                    }
                     prefetch({
                       brands: nextLookSelection(selectedBrands, tile.slug),
-                    })
-                  }
-                  onPress={() =>
+                    });
+                  }}
+                  onPress={() => {
+                    if (characterPage) {
+                      router.prefetch(characterHref(tile.slug));
+                      return;
+                    }
                     prefetch(
                       {
                         brands: nextLookSelection(selectedBrands, tile.slug),
                       },
                       true,
-                    )
-                  }
-                  onSelect={() =>
-                    navigate({
-                      brands: nextLookSelection(selectedBrands, tile.slug),
-                    })
-                  }
+                    );
+                  }}
+                  onSelect={() => openCharacter(tile.slug)}
                 >
                   <CharacterFace tile={tile} pressed={pressed} />
                 </LookTile>
@@ -436,7 +464,7 @@ function LookTile({
       onFocus={onIntent}
       onPointerDown={onPress}
       className={cn(
-        "flex w-20 shrink-0 snap-start flex-col items-center gap-1.5 rounded-2xl lg:w-[6.75rem]",
+        "flex w-16 shrink-0 snap-start flex-col items-center gap-1 rounded-2xl lg:w-[6.75rem] lg:gap-1.5",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
         "motion-reduce:transition-none",
       )}

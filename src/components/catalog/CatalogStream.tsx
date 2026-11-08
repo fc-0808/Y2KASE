@@ -202,13 +202,13 @@ export function CatalogStream({
                 aria-labelledby={`catalog-shelf-${shelf.id}`}
                 className={shelfIndex === 0 ? "mt-1" : "mt-10 sm:mt-12"}
               >
-                <header className="mb-3">
+                <header className="mb-2 sm:mb-3">
                   <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[var(--primary)]">
                     {shelf.eyebrow}
                   </p>
                   <h2
                     id={`catalog-shelf-${shelf.id}`}
-                    className="mt-1 text-lg font-black leading-none tracking-tight sm:text-xl"
+                    className="text-base font-black leading-none tracking-tight sm:mt-1 sm:text-xl"
                   >
                     {shelf.title}
                   </h2>

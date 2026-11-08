@@ -147,7 +147,7 @@ export function CatalogSummary({
   resetHref?: string;
 }) {
   return (
-    <div className="mb-3 mt-3 sm:mb-4 sm:mt-4">
+    <div className="mb-2 mt-2 sm:mb-4 sm:mt-4">
       <div className="flex items-baseline justify-between gap-3">
         <p
           aria-live="polite"

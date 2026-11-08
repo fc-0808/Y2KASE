@@ -83,8 +83,8 @@ export function CollectionsBrowseBar({
 
   return (
     <>
-      {/* Mobile — sticky Filter / Sort pair, identical chrome to /products. */}
-      <div className="sticky top-[var(--storefront-header-h)] z-30 -mx-4 mt-3 border-b border-[var(--border)] bg-[var(--background)]/90 px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6 lg:static lg:z-auto lg:mx-0 lg:mt-3 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
+      {/* Mobile — Filter / Sort sit on the page wash, same as the heading. */}
+      <div className="mt-3">
         <div className="flex items-center gap-2 lg:hidden">
           <button
             type="button"
@@ -99,7 +99,7 @@ export function CollectionsBrowseBar({
               REFINE_BTN,
               filterOpen
                 ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
-                : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]/80",
+                : "border-[var(--border)] bg-white text-[var(--foreground)]/80",
             )}
           >
             <SlidersHorizontal aria-hidden className="h-4 w-4 shrink-0" />
@@ -118,7 +118,7 @@ export function CollectionsBrowseBar({
               REFINE_BTN,
               sortActive || sortOpen
                 ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
-                : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]/80",
+                : "border-[var(--border)] bg-white text-[var(--foreground)]/80",
             )}
           >
             <ArrowDownUp aria-hidden className="h-4 w-4 shrink-0" />
