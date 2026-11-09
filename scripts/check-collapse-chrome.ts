@@ -39,8 +39,14 @@ test("reversing direction resets the accumulator", () => {
   assert.equal(next.acc, -3);
 });
 
-test("an address-bar jump does not change the bar", () => {
+test("an address-bar jump downward does not hide the bar", () => {
   const next = stepCollapseChrome(false, 10, 80, 200);
+  assert.equal(next.hidden, false);
+  assert.equal(next.acc, 0);
+});
+
+test("a fast scroll upward shows the bar", () => {
+  const next = stepCollapseChrome(true, 0, 500, -200);
   assert.equal(next.hidden, false);
   assert.equal(next.acc, 0);
 });

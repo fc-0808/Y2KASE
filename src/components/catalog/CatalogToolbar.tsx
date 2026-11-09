@@ -109,10 +109,15 @@ export function CatalogToolbar({
           setSearchFocused(false);
         }}
         className={cn(
-          "sticky top-[var(--storefront-header-h)] z-30 -mx-4 bg-background px-4 pb-1 transition-transform duration-200 ease-out motion-reduce:transition-none sm:-mx-6 sm:px-6 lg:pb-2",
+          "sticky z-30 -mx-4 bg-background px-4 pb-1 transition-[top] duration-200 ease-out motion-reduce:transition-none sm:-mx-6 sm:px-6 lg:pb-2",
           flushTop && "-mt-4 pt-2 sm:-mt-6 sm:pt-2",
-          collapsed && "-translate-y-full pointer-events-none",
+          collapsed && "pointer-events-none",
         )}
+        style={{
+          top: collapsed
+            ? "calc(var(--storefront-header-h) - var(--catalog-bar-h, 0px))"
+            : "var(--storefront-header-h)",
+        }}
       >
         <div className="flex items-center gap-3 lg:hidden">
           {model.deviceFacetVisible && (

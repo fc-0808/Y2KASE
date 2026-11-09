@@ -96,3 +96,125 @@ export function lookCharacters(
   );
   return [...rescued, ...ordered];
 }
+
+/**
+ * A collection the character rail can treat as the page the shopper is on.
+ *
+ * A nested character (Kuromi under Sanrio) lists its stocked siblings, with
+ * this page pressed. A brand lists every stocked character shop. Miffy is
+ * that shop. Sanrio and Rilakkuma also stay in the row — they have their own
+ * characters, and the brand page is still that brand. The same rail is used
+ * on the brand's iPhone 18 sub-route. Genres and features are not brands.
+ */
+export type CharacterLandingNode = {
+  slug: string;
+  name: string;
+  kind: string;
+  icon: string | null;
+  accentColor: string | null;
+  totalCount: number;
+  children: CharacterLandingNode[];
+};
+
+export type CharacterLandingRail = {
+  tiles: LookBrand[];
+  counts: Record<string, number>;
+};
+
+export function characterLandingRail(
+  tree: readonly CharacterLandingNode[],
+  slug: string,
+): CharacterLandingRail | null {
+  const node = findLandingNode(tree, slug);
+  if (!node) return null;
+  if (node.kind === "character") {
+    const parent = findLandingParent(tree, slug);
+    const siblings = (parent?.children ?? []).filter(
+      (child) =>
+        child.kind === "character" &&
+        (child.totalCount > 0 || child.slug === slug),
+    );
+    return siblings.length > 0 ? toLandingRail(siblings) : null;
+  }
+  if (node.kind !== "brand") return null;
+  const listed = browseCharacterShops(tree, slug);
+  const shops = listed.some((entry) => entry.slug === slug)
+    ? listed
+    : [node, ...listed];
+  if (!shops.some((entry) => entry.slug === slug)) return null;
+  return toLandingRail(shops);
+}
+
+/** Where a pressed character tile sends the shopper when this page is cleared. */
+export function characterLandingClearPath(
+  tree: readonly CharacterLandingNode[],
+  slug: string,
+): string {
+  const node = findLandingNode(tree, slug);
+  if (node?.kind === "character") {
+    const parent = findLandingParent(tree, slug);
+    if (parent) return `/collections/${parent.slug}`;
+  }
+  return "/collections";
+}
+
+function browseCharacterShops(
+  tree: readonly CharacterLandingNode[],
+  current: string,
+): CharacterLandingNode[] {
+  const listed: CharacterLandingNode[] = [];
+  for (const node of tree) {
+    if (node.kind !== "brand" && node.kind !== "character") continue;
+    const characters = node.children.filter(
+      (child) =>
+        child.kind === "character" &&
+        (child.totalCount > 0 || child.slug === current),
+    );
+    const shops = characters.length > 0 ? characters : [node];
+    for (const shop of shops) {
+      if (shop.totalCount > 0 || shop.slug === current) listed.push(shop);
+    }
+  }
+  return listed;
+}
+
+function toLandingRail(nodes: readonly CharacterLandingNode[]): CharacterLandingRail {
+  const tiles: LookBrand[] = [];
+  const counts: Record<string, number> = {};
+  for (const node of nodes) {
+    if (counts[node.slug] !== undefined) continue;
+    tiles.push({
+      slug: node.slug,
+      name: node.name,
+      icon: node.icon,
+      accentColor: node.accentColor,
+    });
+    counts[node.slug] = node.totalCount;
+  }
+  return { tiles, counts };
+}
+
+function findLandingNode(
+  nodes: readonly CharacterLandingNode[],
+  slug: string,
+): CharacterLandingNode | null {
+  for (const node of nodes) {
+    if (node.slug === slug) return node;
+    const hit = findLandingNode(node.children, slug);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function findLandingParent(
+  nodes: readonly CharacterLandingNode[],
+  slug: string,
+  parent: CharacterLandingNode | null = null,
+): CharacterLandingNode | null {
+  for (const node of nodes) {
+    if (node.slug === slug) return parent;
+    const found = findLandingParent(node.children, slug, node);
+    if (found) return found;
+  }
+  return null;
+}

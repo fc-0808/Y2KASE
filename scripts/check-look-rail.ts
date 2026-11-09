@@ -3,7 +3,12 @@
  * homepage lead order, and a shared URL stays recoverable.
  */
 import assert from "node:assert/strict";
-import { lookCharacters } from "../src/lib/catalog/look-characters";
+import {
+  characterLandingClearPath,
+  characterLandingRail,
+  lookCharacters,
+  type CharacterLandingNode,
+} from "../src/lib/catalog/look-characters";
 import {
   activeLookSegment,
   isSoloDesignView,
@@ -207,6 +212,91 @@ test("A–Z sorts characters, themes and colors by the visible label", () => {
     true,
   ).map((item) => item.label);
   assert.deepEqual(themes, ["Animals", "Bows", "Stars"]);
+});
+
+function shop(
+  slug: string,
+  kind: string,
+  totalCount: number,
+  children: CharacterLandingNode[] = [],
+): CharacterLandingNode {
+  return {
+    slug,
+    name: slug,
+    kind,
+    icon: null,
+    accentColor: null,
+    totalCount,
+    children,
+  };
+}
+
+const landingTree: CharacterLandingNode[] = [
+  shop("sanrio", "brand", 80, [
+    shop("hello-kitty", "character", 40),
+    shop("kuromi", "character", 20),
+  ]),
+  shop("miffy", "brand", 30),
+  shop("tamagotchi", "brand", 12),
+  shop("kawaii", "genre", 90),
+  shop("rilakkuma", "brand", 8, [shop("korilakkuma", "character", 3)]),
+];
+
+test("a character page presses that character among its siblings", () => {
+  const landing = characterLandingRail(landingTree, "kuromi");
+  assert.ok(landing);
+  assert.deepEqual(
+    landing.tiles.map((tile) => tile.slug),
+    ["hello-kitty", "kuromi"],
+  );
+  assert.equal(characterLandingClearPath(landingTree, "kuromi"), "/collections/sanrio");
+});
+
+test("a character shop with no children presses itself among the other characters", () => {
+  const landing = characterLandingRail(landingTree, "miffy");
+  assert.ok(landing);
+  assert.deepEqual(landing.tiles.map((tile) => tile.slug), [
+    "hello-kitty",
+    "kuromi",
+    "miffy",
+    "tamagotchi",
+    "korilakkuma",
+  ]);
+  assert.equal(landing.counts.miffy, 30);
+  assert.equal(characterLandingClearPath(landingTree, "miffy"), "/collections");
+  const tiles = lookCharacters(landing.tiles, landing.counts, ["miffy"]);
+  assert.equal(tiles.some((tile) => tile.slug === "miffy"), true);
+  assert.equal(tiles.some((tile) => tile.slug === "originals"), false);
+});
+
+test("a brand page presses that brand, including one that has its own characters", () => {
+  const sanrio = characterLandingRail(landingTree, "sanrio");
+  assert.ok(sanrio);
+  assert.equal(sanrio.tiles.some((tile) => tile.slug === "sanrio"), true);
+  assert.equal(sanrio.tiles.some((tile) => tile.slug === "hello-kitty"), true);
+  assert.equal(sanrio.tiles.some((tile) => tile.slug === "miffy"), true);
+  assert.equal(characterLandingClearPath(landingTree, "sanrio"), "/collections");
+  const pressed = lookCharacters(sanrio.tiles, sanrio.counts, ["sanrio"]);
+  assert.equal(pressed.some((tile) => tile.slug === "sanrio"), true);
+
+  const rilakkuma = characterLandingRail(landingTree, "rilakkuma");
+  assert.ok(rilakkuma);
+  assert.equal(rilakkuma.tiles.some((tile) => tile.slug === "rilakkuma"), true);
+  assert.equal(rilakkuma.tiles.some((tile) => tile.slug === "korilakkuma"), true);
+  assert.equal(characterLandingRail(landingTree, "kawaii"), null);
+});
+
+test("every brand and character sub-route can mark itself chosen", () => {
+  const slugs = ["sanrio", "hello-kitty", "kuromi", "miffy", "tamagotchi", "rilakkuma", "korilakkuma"];
+  for (const slug of slugs) {
+    const landing = characterLandingRail(landingTree, slug);
+    assert.ok(landing, slug);
+    assert.equal(
+      landing.tiles.some((tile) => tile.slug === slug),
+      true,
+      slug,
+    );
+  }
 });
 
 test("an already visible tile does not move the rail", () => {

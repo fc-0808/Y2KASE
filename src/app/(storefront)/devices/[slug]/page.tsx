@@ -229,7 +229,7 @@ async function DeviceLandingContent({
     .filter((brand) => brand.count > 0);
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
+    <div className="mx-auto w-full max-w-[1800px] px-4 pb-4 sm:px-6 sm:pb-6">
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -258,7 +258,7 @@ async function DeviceLandingContent({
 
       {/* Title, then products. Fit notes and the long intro sit under the
           grid so a phone opens on the cases, not on three paragraphs. */}
-      <header className="mb-3 sm:mb-4">
+      <header className="-mx-4 bg-background px-4 pb-3 pt-4 sm:-mx-6 sm:px-6 sm:pb-4 sm:pt-6">
         <nav
           aria-label="Breadcrumb"
           className="flex flex-wrap items-center gap-1 text-xs text-[var(--foreground)]/55"

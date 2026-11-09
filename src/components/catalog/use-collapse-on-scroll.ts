@@ -38,6 +38,22 @@ export function useCollapseOnScrollDown(
   }
 
   useEffect(() => {
+    const el = anchor.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const publish = () => {
+      root.style.setProperty("--catalog-bar-h", `${el.offsetHeight}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--catalog-bar-h");
+    };
+  }, [anchor]);
+
+  useEffect(() => {
     if (!enabled) return;
 
     let acc = 0;
@@ -51,12 +67,19 @@ export function useCollapseOnScrollDown(
       const y = window.scrollY;
       const dy = y - last;
       last = y;
-      if (!hidden) {
-        const top = anchor.current?.getBoundingClientRect().top;
-        if (top == null || top > limit + 1) {
-          acc = 0;
-          return;
-        }
+      const top = anchor.current?.getBoundingClientRect().top;
+      // The bar has scrolled back into normal flow. A translate used to
+      // break sticky here, so it stayed off-screen after the shopper
+      // scrolled up. If it is no longer stuck, it must be visible.
+      if (hidden && top != null && top > limit + 1) {
+        acc = 0;
+        hidden = false;
+        setCollapsed(false);
+        return;
+      }
+      if (!hidden && (top == null || top > limit + 1)) {
+        acc = 0;
+        return;
       }
       const next = stepCollapseChrome(hidden, acc, y, dy);
       acc = next.acc;

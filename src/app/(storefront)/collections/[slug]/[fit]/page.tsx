@@ -18,7 +18,10 @@ import { CatalogStream } from "@/components/catalog/CatalogStream";
 import { JsonLd } from "@/components/JsonLd";
 import { CatalogToolbar } from "@/components/catalog/CatalogToolbar";
 import { ORIGINALS_SLUG } from "@/lib/catalog/collections-config";
-import { lookCharacters } from "@/lib/catalog/look-characters";
+import {
+  characterLandingRail,
+  lookCharacters,
+} from "@/lib/catalog/look-characters";
 import { buildCatalogChips } from "@/components/catalog/CatalogSummary";
 import { CatalogEmpty } from "@/components/catalog/CatalogEmpty";
 import {
@@ -210,13 +213,14 @@ async function Iphone18FitCatalog({
     sort: catalogParams.sort,
   };
 
-  const [{ items, total, pageSize, facetCounts }, breadcrumb] =
+  const [{ items, total, pageSize, facetCounts }, breadcrumb, tree] =
     await Promise.all([
       getCatalogPage(
         query,
         [...children.map((child) => child.slug), ORIGINALS_SLUG],
       ),
       getCollectionBreadcrumb(collection),
+      getCollectionTree().catch(() => [] as CollectionNode[]),
     ]);
 
   const filtered = hasActiveFilters(catalogParams);
@@ -232,6 +236,10 @@ async function Iphone18FitCatalog({
       (facetCounts.brands[child.slug] ?? 0) > 0 ||
       catalogParams.brands.includes(child.slug),
   );
+  const landing = characterLandingRail(tree, slug);
+  const characterPage = landing
+    ? { current: slug, clearHref: `/collections/${slug}` }
+    : undefined;
   const copy = iphone18FitCopy(collection.name, slug);
   const chips = buildCatalogChips(catalogParams, { brands: brandOptions });
   const chipClass =
@@ -247,7 +255,7 @@ async function Iphone18FitCatalog({
   ];
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-[1800px] px-4 py-4 sm:px-6 sm:py-6">
+    <div className="mx-auto w-full min-w-0 max-w-[1800px] px-4 pb-4 sm:px-6 sm:pb-6">
       <JsonLd
         data={[
           breadcrumbJsonLd(crumbs),
@@ -270,7 +278,7 @@ async function Iphone18FitCatalog({
         ]}
       />
 
-      <header className="mb-3 min-w-0 sm:mb-4">
+      <header className="-mx-4 min-w-0 bg-background px-4 pb-3 pt-4 sm:-mx-6 sm:px-6 sm:pb-4 sm:pt-6">
         <nav
           aria-label="Breadcrumb"
           className="flex min-w-0 items-center gap-1 text-xs text-[var(--foreground)]/55"
@@ -301,16 +309,21 @@ async function Iphone18FitCatalog({
         params={catalogParams}
         brands={brandOptions}
         counts={facetCounts}
-        brandsLabel={facetLabel(children[0]?.kind)}
+        brandsLabel={characterPage ? "Characters" : facetLabel(children[0]?.kind)}
         lockedDevice="iphone"
         searchPlaceholder={`Search ${collection.name}…`}
         searchLabel={`Search ${collection.name} iPhone 18 cases`}
         resultCount={total}
-        characters={lookCharacters(
-          brandOptions,
-          facetCounts.brands,
-          catalogParams.brands,
-        )}
+        characters={
+          landing
+            ? lookCharacters(landing.tiles, landing.counts, [slug])
+            : lookCharacters(
+                brandOptions,
+                facetCounts.brands,
+                catalogParams.brands,
+              )
+        }
+        characterPage={characterPage}
       />
 
       {items.length > 0 ? (

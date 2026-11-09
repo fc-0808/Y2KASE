@@ -112,13 +112,6 @@ export function iphone18FitHeading(name: string): string {
   return `${name} ${modelPhrase(entry?.lead ?? "pro")}`;
 }
 
-/** Visible anchor from a collection page to its iPhone 18 landing. */
-export function iphone18FitLinkLabel(slug: string): string {
-  const entry = IPHONE_18_COLLECTIONS.find((item) => item.slug === slug);
-  if (!entry) return "iPhone 18";
-  return entry.lead === "pro-max" ? "iPhone 18 Pro Max cases" : "iPhone 18 Pro cases";
-}
-
 export type Iphone18FitCopy = {
   title: string;
   heading: string;
