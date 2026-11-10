@@ -83,15 +83,15 @@ export const PAGE_COPY = {
   home: {
     title: "Y2KASE — Kawaii & Y2K Phone Cases ✨",
     heading: "Y2KASE — Kawaii & Y2K Phone Cases",
-    description: `Kawaii, Y2K & holographic phone cases, charms and accessories from Y2KASE. ${FREE_SHIPPING_OFFER}. Shop your vibe.`,
+    description: `Handmade kawaii, Y2K and holographic phone cases, charms and accessories from Y2KASE. ${FREE_SHIPPING_OFFER}. Shop your vibe.`,
     socialDescription:
-      "Kawaii, Y2K & holographic phone cases, charms and accessories. Express your vibe. ✨",
+      "Handmade kawaii, Y2K and holographic phone cases, charms and accessories. Express your vibe. ✨",
     primary: "y2kase",
   },
   catalog: {
     title: "Cute Phone Cases & Accessories",
     heading: "Cute Phone Cases & Accessories",
-    description: `Shop cute phone cases, charms and accessories — kawaii, Y2K and holographic designs. ${FREE_SHIPPING_OFFER}.`,
+    description: `Shop handmade phone cases, charms and accessories — kawaii, Y2K and holographic designs. ${FREE_SHIPPING_OFFER}.`,
     primary: "cute phone cases",
   },
   collections: {
@@ -105,7 +105,7 @@ export const PAGE_COPY = {
     title: "About Us",
     heading: "About Y2KASE ✨",
     description:
-      "Y2KASE is a Hong Kong kawaii and Y2K phone-accessories merchant — character cases, grips and charms, with MagSafe labelled after review.",
+      "Y2KASE is a Hong Kong kawaii and Y2K phone-accessories merchant. Charms, grips and finishing are handmade, and MagSafe is labelled after review.",
     primary: "y2kase brand",
   },
   faq: {

@@ -56,15 +56,16 @@ export default function AboutPage() {
           {PAGE_COPY.about.heading}
         </h1>
         <p className="mt-2 text-[var(--foreground)]/65">
-          A Hong Kong kawaii and Y2K phone-accessories merchant — cases, grips
-          and charms, with MagSafe labelled only after review.
+          A Hong Kong kawaii and Y2K phone-accessories merchant. Charms, grips
+          and finishing are handmade, and MagSafe is labelled only after review.
         </p>
       </header>
 
       <article className="legal-prose">
         <p>
           Y2KASE is a kawaii and Y2K phone accessories brand. We sell character
-          and original iPhone cases, MagSafe grips and charms. The company is
+          and original iPhone cases, MagSafe grips and charms. Charms, grips
+          and the finishing are handmade. The company is
           organized under the laws of the Hong Kong SAR. Customer email is{" "}
           <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. We ship
           worldwide, mostly to {SHIPPING_MARKETS_SUMMARY}.

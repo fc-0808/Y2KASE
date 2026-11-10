@@ -194,14 +194,11 @@ body {
 }
 
 /*
- * Product gallery stage. The frame follows the tallest photo so swiping does
- * not change the page height. The photo stays the full width of the screen.
- * A max-height shorter than that file squeezes it and leaves white bars
- * beside the case. container-type lets a wider slide fit in the same frame.
+ * The product photo frame sizes itself in ProductGallery with width-based
+ * padding, not aspect-ratio and not container-type: size. Both of those
+ * collapse to a zero-height box on iPhone Safari when the photo is taken out
+ * of flow, which leaves only the thumbnail row on screen.
  */
-.pdp-stage {
-  container-type: size;
-}
 
 /*
  * Ambient brand wash — the three pastel blobs behind every page.

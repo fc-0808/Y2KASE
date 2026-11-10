@@ -347,6 +347,9 @@ export function ProductDetailClient({
           <h1 className="text-balance text-xl font-black leading-snug sm:text-3xl sm:leading-tight">
             {title}
           </h1>
+          <p className="mt-2 text-sm leading-relaxed text-[var(--foreground)]/70">
+            Charms, grips and finishing are handmade.
+          </p>
           {ratingCount > 0 && (
             <a
               href="#reviews"

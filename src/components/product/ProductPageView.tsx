@@ -16,12 +16,10 @@ import type { Review } from "@/lib/db/schema";
 import { ProductDetailClient } from "@/components/ProductDetailClient";
 import { ProductReviews } from "@/components/reviews/ProductReviews";
 import { highlightFromReviews } from "@/lib/reviews/display";
-import {
-  ProductCard,
-  PRODUCT_CARD_FRAME,
-  PRODUCT_MOSAIC,
-} from "@/components/ProductCard";
+import { PRODUCT_RAIL_ITEM } from "@/components/ProductCard";
+import { RelatedProductsRail } from "@/components/product/RelatedProductsRail";
 import { RecentlyViewed } from "@/components/RecentlyViewed";
+import { shopCharacter } from "@/lib/catalog/browse-affinity";
 import { SocialShare } from "@/components/SocialShare";
 import { collectionHeading } from "@/lib/seo/copy";
 import { SITE_URL } from "@/lib/site";
@@ -111,6 +109,7 @@ export function ProductPageView({
   const isPreview = surface === "preview";
   const reviewHighlight = highlightFromReviews(reviews);
   const magsafe = product.tags.includes(MAGSAFE_TAG);
+  const characterSlug = shopCharacter(collectionLinks, product.title);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 sm:py-8">
@@ -212,7 +211,13 @@ export function ProductPageView({
       )}
 
       <Suspense fallback={<RelatedProductsSkeleton />}>
-        <RelatedProducts products={relatedProducts} />
+        <RelatedProducts
+          products={relatedProducts}
+          productId={product.id}
+          productType={product.productType}
+          characterSlug={characterSlug}
+          personalize={!isPreview}
+        />
       </Suspense>
 
       {!isPreview && (
@@ -253,6 +258,8 @@ export function ProductPageView({
             compareAtPrice: product.compareAtPrice,
             currency: product.currency,
             imageUrl: product.images[0]?.url ?? null,
+            productType: product.productType,
+            ...(characterSlug ? { characterSlug } : {}),
           }}
         />
       )}
@@ -262,8 +269,16 @@ export function ProductPageView({
 
 async function RelatedProducts({
   products,
+  productId,
+  productType,
+  characterSlug,
+  personalize,
 }: {
   products: Promise<ProductListItem[]>;
+  productId: number;
+  productType: string;
+  characterSlug: string | null;
+  personalize: boolean;
 }) {
   const related = await products;
   if (related.length === 0) return null;
@@ -271,11 +286,14 @@ async function RelatedProducts({
   return (
     <section className="cv-auto mt-16">
       <h2 className="mb-5 text-xl font-black">You may also like</h2>
-      <div className={PRODUCT_MOSAIC}>
-        {related.map((item) => (
-          <ProductCard key={item.id} product={item} />
-        ))}
-      </div>
+      <RelatedProductsRail
+        key={productId}
+        products={related}
+        productId={productId}
+        productType={productType}
+        characterSlug={characterSlug}
+        personalize={personalize}
+      />
     </section>
   );
 }
@@ -284,11 +302,11 @@ function RelatedProductsSkeleton() {
   return (
     <section className="mt-16" aria-hidden>
       <div className="mb-5 h-7 w-44 animate-pulse rounded bg-[var(--muted)]" />
-      <div className={PRODUCT_MOSAIC}>
+      <div className="-mx-4 flex gap-4 overflow-hidden px-4 sm:-mx-6 sm:px-6">
         {Array.from({ length: 4 }, (_, index) => (
           <div
             key={index}
-            className={`${PRODUCT_CARD_FRAME} animate-pulse rounded-3xl bg-[var(--muted)]`}
+            className={`${PRODUCT_RAIL_ITEM} aspect-[2/3] animate-pulse rounded-3xl bg-[var(--muted)]`}
           />
         ))}
       </div>

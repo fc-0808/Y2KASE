@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BadgeCheck, RotateCcw, Shield, Truck } from "lucide-react";
+import { BadgeCheck, Hand, RotateCcw, Truck } from "lucide-react";
 import { PURCHASE_ASSURANCE } from "@/lib/reviews/assurance";
 import { formatShippingFlat, formatShippingThreshold } from "@/lib/pricing";
 
@@ -18,11 +18,11 @@ export function PurchaseAssurance({
     variant === "strip"
       ? [
           {
-            title: "Cute & protective",
+            title: "Handmade finishing",
             href: "/about",
             detail:
-              "Clear cases with a hard back. Cute in the photo, and built to cushion the phone.",
-            icon: Shield,
+              "Charms, grips and the finishing on every piece are done by hand. The case has a hard back that cushions the phone.",
+            icon: Hand,
           },
           {
             title: `Free shipping over ${formatShippingThreshold()}`,

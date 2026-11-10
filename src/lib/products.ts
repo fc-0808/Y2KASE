@@ -1052,11 +1052,48 @@ async function computeCollectionRail(
   return withRatings(items);
 }
 
+/** One catalog page. Enough to fill the rail after dropping cases already opened. */
+const CHARACTER_DEVICE_POOL = 24;
+
+const getCharacterDeviceProductsCached = cachedCatalogRead(
+  async function characterDeviceProducts(
+    signature: string,
+    collection: string,
+    device: string,
+  ): Promise<ProductListItem[]> {
+    void signature;
+    const page = await getProducts({ collection, device, page: 1 });
+    return page.items.slice(0, CHARACTER_DEVICE_POOL);
+  },
+  ["character-device-products-v1"],
+  {
+    tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
+  },
+);
+
 /**
- * Recommend products related to a given one, for the PDP "You may also like"
- * rail. Relevance is layered: products sharing a collection (most relevant)
- * first, then topped up with other products of the same device/type. This lifts
- * AOV and pages-per-session, and deepens internal linking for crawlers.
+ * Featured-first cases in one character shop for one device. An unknown device
+ * returns nothing rather than every mould in that shop.
+ */
+export async function getCharacterDeviceProducts(
+  collection: string,
+  device: string,
+): Promise<ProductListItem[]> {
+  if (!isDbConfigured()) return [];
+  if (!deviceProductTypes(device)?.length) return [];
+  return getCharacterDeviceProductsCached(
+    await getCatalogCacheSignature(),
+    collection,
+    device,
+  );
+}
+
+/**
+ * The crawlable "You may also like" list. Same character or brand first, then
+ * other branded products, always for the device on the page. Originals,
+ * genre-only cases, and other devices stay out of this row. Session affinity
+ * may reorder it in the browser after hydration; this stays anonymous so
+ * every shopper and every crawler shares one cached list.
  */
 export function getRelatedProducts(opts: {
   productId: number;
@@ -1070,20 +1107,33 @@ export function getRelatedProducts(opts: {
 
 const getRelatedProductsCached = cachedCatalogRead(
   computeRelatedProducts,
-  ["related-products-v5"],
+  // v7: same device as the page. A phone-case row no longer includes AirPods,
+  // and a numbered iPhone row no longer includes iPhone Duo.
+  ["related-products-v7"],
   {
     tags: [CACHE_TAGS.products, CACHE_TAGS.collections, CACHE_TAGS.reviews],
   },
 );
 
-/**
- * A numbered iPhone case does not fit iPhone Duo, and the reverse is also
- * true. Same-character recommendations must not offer the wrong mould.
- */
-function incompatibleMould(productType: string): string | null {
-  if (productType === "iphone_duo_case") return "iphone_case";
-  if (productType === "iphone_case") return "iphone_duo_case";
-  return null;
+/** Character faces and their parent brands. Genre and feature shelves are not IP. */
+const BRANDED_COLLECTION_KINDS = ["brand", "character"] as const;
+
+async function brandedCollectionIds(): Promise<number[]> {
+  const rows = await db
+    .select({ id: collections.id })
+    .from(collections)
+    .where(inArray(collections.kind, [...BRANDED_COLLECTION_KINDS]));
+  return rows.map((row) => row.id);
+}
+
+function inTheseCollections(collectionIds: number[]): SQL {
+  return inArray(
+    products.id,
+    db
+      .select({ id: productCollections.productId })
+      .from(productCollections)
+      .where(inArray(productCollections.collectionId, collectionIds)),
+  );
 }
 
 async function computeRelatedProducts(
@@ -1091,12 +1141,18 @@ async function computeRelatedProducts(
   productType: string,
   limit: number,
 ): Promise<ProductListItem[]> {
-  // 1) Same-collection products (strongest relevance signal).
+  const brandedIds = await brandedCollectionIds();
+  if (brandedIds.length === 0) return [];
+  const branded = new Set(brandedIds);
+
+  // 1) Same character or brand. A shared Kawaii or Y2K shelf is not a match.
   const collRows = await db
     .select({ cid: productCollections.collectionId })
     .from(productCollections)
     .where(eq(productCollections.productId, productId));
-  const collectionIds = collRows.map((r) => r.cid);
+  const collectionIds = collRows
+    .map((row) => row.cid)
+    .filter((id) => branded.has(id));
 
   let related: ProductListItem[] = [];
   if (collectionIds.length > 0) {
@@ -1111,21 +1167,13 @@ async function computeRelatedProducts(
       );
     const ids = idRows.map((r) => r.pid);
     if (ids.length > 0) {
-      const blocked = incompatibleMould(productType);
-      // Duo has few siblings in a character collection. Without this, the
-      // eight featured Hello Kitty rows are AirPods and the foldable case
-      // never appears. A Duo page should recommend other Duo cases.
-      const mouldClause =
-        productType === "iphone_duo_case"
-          ? eq(products.productType, productType)
-          : blocked
-            ? ne(products.productType, blocked)
-            : undefined;
+      // Same device as the page. An iPhone case row is other iPhone cases;
+      // AirPods and iPhone Duo are different products.
       const rows = await db.query.products.findMany({
         where: and(
           inArray(products.id, ids),
           eq(products.status, "active"),
-          ...(mouldClause ? [mouldClause] : []),
+          eq(products.productType, productType),
         ),
         orderBy: desc(products.featured),
         limit,
@@ -1137,7 +1185,7 @@ async function computeRelatedProducts(
     }
   }
 
-  // 2) Top up with same-type products if we're short.
+  // 2) Top up with other branded products of this device. Originals stay out.
   if (related.length < limit) {
     const exclude = [productId, ...related.map((r) => r.id)];
     const more = await db.query.products.findMany({
@@ -1145,8 +1193,9 @@ async function computeRelatedProducts(
         eq(products.status, "active"),
         eq(products.productType, productType),
         notInArray(products.id, exclude),
+        inTheseCollections(brandedIds),
       ),
-      orderBy: desc(products.createdAt),
+      orderBy: desc(products.featured),
       limit: limit - related.length,
       with: {
         images: { orderBy: (img, { asc }) => asc(img.position), limit: 1 },

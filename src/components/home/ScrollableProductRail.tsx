@@ -2,6 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+/** Same face as the product-photo arrows: a 44px target and a small translucent disc. */
+const RAIL_ARROW = cn(
+  "group absolute top-1/2 z-10 grid size-11 -translate-y-1/2 place-items-center md:hidden",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
+);
+const RAIL_ARROW_FACE = cn(
+  "grid size-7 place-items-center rounded-full",
+  "bg-white/45 text-[var(--foreground)]/70 backdrop-blur-[2px]",
+  "transition group-hover:bg-white/75 group-hover:text-[var(--foreground)]",
+);
 
 /**
  * Horizontal product row. On a phone, edge arrows show that the row scrolls
@@ -18,11 +30,16 @@ export function ScrollableProductRail({ children }: { children: ReactNode }) {
     const el = scroller.current;
     if (!el) return;
     const max = el.scrollWidth - el.clientWidth;
-    setEdges({
-      left: el.scrollLeft > 8,
-      right: max > 8 && el.scrollLeft < max - 8,
-    });
+    const left = el.scrollLeft > 8;
+    const right = max > 8 && el.scrollLeft < max - 8;
+    setEdges((current) =>
+      current.left === left && current.right === right ? current : { left, right },
+    );
   }, []);
+
+  useEffect(() => {
+    measure();
+  }, [measure, children]);
 
   useEffect(() => {
     measure();
@@ -60,9 +77,11 @@ export function ScrollableProductRail({ children }: { children: ReactNode }) {
           type="button"
           onClick={() => page(-1)}
           aria-label="Scroll left"
-          className="absolute left-1 top-1/2 z-10 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full border border-white bg-white/95 text-[var(--foreground)] shadow-md md:hidden"
+          className={cn(RAIL_ARROW, "left-1")}
         >
-          <ChevronLeft className="h-5 w-5" />
+          <span className={RAIL_ARROW_FACE}>
+            <ChevronLeft className="size-3.5" strokeWidth={2.4} />
+          </span>
         </button>
       ) : null}
       {edges.right ? (
@@ -70,9 +89,11 @@ export function ScrollableProductRail({ children }: { children: ReactNode }) {
           type="button"
           onClick={() => page(1)}
           aria-label="Scroll right"
-          className="absolute right-1 top-1/2 z-10 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full border border-white bg-white/95 text-[var(--foreground)] shadow-md md:hidden"
+          className={cn(RAIL_ARROW, "right-1")}
         >
-          <ChevronRight className="h-5 w-5" />
+          <span className={RAIL_ARROW_FACE}>
+            <ChevronRight className="size-3.5" strokeWidth={2.4} />
+          </span>
         </button>
       ) : null}
       <div

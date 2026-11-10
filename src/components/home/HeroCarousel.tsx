@@ -31,24 +31,30 @@ type Slide = {
   secondary?: { label: string; href: string };
   /** Where the copy sits, chosen to fall on each image's negative space. */
   align: "left" | "right" | "center";
+  /**
+   * Phone crop. A wide scene with the products on the right loses the last
+   * case when the frame is centered.
+   */
+  phonePosition?: string;
 };
 
 const SLIDES: Slide[] = [
   {
     image: "/brand/hero-1.webp",
-    eyebrow: "New season ✨",
+    eyebrow: "Handmade",
     title: (
       <>
-        Cases that match{" "}
+        Hello Kitty,{" "}
         <br />
-        <span className="text-holo">your vibe</span>.
+        <span className="text-holo">Kuromi & Miffy</span>.
       </>
     ),
     subtitle:
-      "Kawaii, Y2K & holographic phone cases — designed to make every glance a little cuter.",
+      "Phone cases and charms for Hello Kitty, Kuromi, Miffy, Tamagotchi, and the rest of the cute crew. Charms, grips and finishing are done by hand.",
     cta: { label: "Shop the collection", href: "/products" },
     secondary: { label: "Browse characters", href: "/collections" },
     align: "left",
+    phonePosition: "object-[78%_42%]",
   },
   {
     image: "/brand/hero-3.webp",
@@ -199,7 +205,7 @@ export function HeroCarousel() {
                   loading={i === 0 ? "eager" : "lazy"}
                   fetchPriority={i === 0 ? "high" : "low"}
                   sizes="100vw"
-                  className={`object-cover object-[center_42%] transition-transform duration-[7000ms] ease-out md:object-center ${
+                  className={`object-cover ${slide.phonePosition ?? "object-[center_42%]"} transition-transform duration-[7000ms] ease-out md:object-center ${
                     active && autoPlayArmed ? "md:scale-110" : "scale-100"
                   }`}
                 />

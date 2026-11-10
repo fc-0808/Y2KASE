@@ -127,12 +127,18 @@ function slideKey(slide: ProductGallerySlide): string {
 }
 
 /**
- * Width of a slide inside the stage. `100cqh * ratio` is the width that uses
- * the full stage height; `100%` is the full stage width. The smaller one
- * shows the whole file, so a phone-height cap never crops the case.
+ * Block size of the stage, as a percentage of its width.
+ *
+ * iPhone Safari drops `aspect-ratio` on a column-flex item whose children are
+ * out of flow (WebKit 265243 and the Safari 17 stretch regression). The frame
+ * then lays out at height 0 and only the thumbnail row remains. Percentage
+ * padding is resolved from the width on every Safari that has shipped, so the
+ * same ratio becomes a real height: a 4:5 photo is `100 / 0.8 = 125%` of the
+ * screen width tall.
  */
-function fittedWidth(mediaRatio: number): string {
-  return `min(100%, calc(100cqh * ${mediaRatio}))`;
+function framePadding(frameRatio: number): string {
+  const ratio = frameRatio > 0 ? frameRatio : 3 / 4;
+  return `${(100 / ratio).toFixed(4)}%`;
 }
 
 function slideLabel(slide: ProductGallerySlide, index: number, total: number): string {
@@ -183,10 +189,6 @@ export function ProductGallery({
     }
     return Number.isFinite(tallest) ? tallest : 3 / 4;
   }, [ratios, slides]);
-  const currentMediaUrl =
-    current?.kind === "image" || current?.kind === "video" ? current.url : "";
-  const currentRatio = currentMediaUrl ? ratios[currentMediaUrl] : undefined;
-
   const rememberRatio = useCallback((url: string, width: number, height: number) => {
     if (width <= 0 || height <= 0) return;
     const ratio = width / height;
@@ -339,12 +341,17 @@ export function ProductGallery({
     >
       <div
         className={cn(
-          "relative min-w-0 overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:-mx-4 max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
-          "pdp-stage transform-gpu touch-pan-y",
+          "min-w-0 shrink-0 max-md:-mx-4",
           hasStrip && "lg:ml-[6rem]",
+        )}
+      >
+      <div
+        className={cn(
+          "relative h-0 w-full overflow-hidden border border-[var(--border)] bg-[var(--product-surface)] max-md:rounded-none max-md:border-x-0 md:rounded-3xl",
+          "touch-pan-y",
           current?.kind === "image" && "cursor-zoom-in",
         )}
-        style={{ aspectRatio: frameRatio }}
+        style={{ paddingBottom: framePadding(frameRatio) }}
         onPointerDown={onStagePointerDown}
         onPointerUp={onStagePointerEnd}
         onPointerCancel={() => {
@@ -371,23 +378,15 @@ export function ProductGallery({
           id={panelId}
           role="tabpanel"
           aria-labelledby={`${uid}-tab-${activeIndex}`}
-          className="absolute inset-0 grid place-items-center"
+          className="absolute inset-0"
         >
+          {/* Fills the padded frame. object-fit does the crop, so this box
+              never asks Safari to derive a height from aspect-ratio. */}
           <div
             className={cn(
-              "relative max-h-full",
-              current?.kind === "video" && "h-full min-h-0 w-full overflow-hidden",
+              "absolute inset-0",
+              current?.kind === "video" && "overflow-hidden",
             )}
-            style={
-              current?.kind === "video"
-                ? undefined
-                : currentRatio
-                  ? {
-                      aspectRatio: currentRatio,
-                      width: fittedWidth(currentRatio),
-                    }
-                  : { width: "100%", height: "100%" }
-            }
           >
             {current?.kind === "video" ? (
               <>
@@ -492,6 +491,7 @@ export function ProductGallery({
             )}
           </div>
         </div>
+      </div>
       </div>
 
       {hasStrip && (
